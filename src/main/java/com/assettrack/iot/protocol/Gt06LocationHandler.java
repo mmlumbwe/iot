@@ -30,8 +30,9 @@ public class Gt06LocationHandler {
         this.deviceService = deviceService;
     }
 
-    public void setLastLoginImei(String imei) {
-        this.lastLoginImei = imei;
+    // In Gt06LocationHandler.java
+    public void setLastLoginImei(byte[] loginPacket) {
+        this.lastLoginImei = new Gt06LoginHandler(null).parseImei(loginPacket);
     }
 
     public byte[] handle(byte[] data) {

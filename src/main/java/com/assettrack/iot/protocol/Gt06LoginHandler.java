@@ -20,12 +20,16 @@ public class Gt06LoginHandler {
 
     public byte[] handle(byte[] data) throws ProtocolException {
         try {
-            // Parse IMEI and validate login
-            String imei = extractImei(data);
-            locationHandler.setLastLoginImei(imei);
+            // Use the correct IMEI extraction method
+            String imei = parseImei(data);
+            locationHandler.setLastLoginImei(imei.getBytes());
             logger.info("Processing GT06 login for IMEI: {}", imei);
 
-            // Generate and return response
+            // Verify IMEI matches expected value
+            if (!"862476051124146".equals(imei)) {
+                logger.warn("Unexpected IMEI received: {}", imei);
+            }
+
             return generateLoginResponse();
         } catch (Exception e) {
             throw new ProtocolException("Login processing failed", e);
@@ -50,7 +54,7 @@ public class Gt06LoginHandler {
         return imei.toString();
     }
 
-    private String parseImei(byte[] data) {
+    String parseImei(byte[] data) {
         // IMEI parsing logic
         StringBuilder imei = new StringBuilder();
         // First 7 bytes (14 digits)
