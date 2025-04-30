@@ -20,15 +20,16 @@ public class Gt06LoginHandler {
 
     public byte[] handle(byte[] data) throws ProtocolException {
         try {
-            // Use the correct IMEI extraction method
             String imei = parseImei(data);
-            locationHandler.setLastLoginImei(imei.getBytes());
             logger.info("Processing GT06 login for IMEI: {}", imei);
 
             // Verify IMEI matches expected value
             if (!"862476051124146".equals(imei)) {
                 logger.warn("Unexpected IMEI received: {}", imei);
             }
+
+            // Set the IMEI in the location handler
+            locationHandler.setLastLoginImei(data);
 
             return generateLoginResponse();
         } catch (Exception e) {
@@ -37,7 +38,6 @@ public class Gt06LoginHandler {
     }
 
     private byte[] generateLoginResponse() {
-        // 78 78 05 01 00 01 00 00 00 00 01 0D 0A
         return new byte[] {
                 0x78, 0x78, 0x05, 0x01, 0x00, 0x01,
                 0x00, 0x00, 0x00, 0x00, 0x01, 0x0D, 0x0A
@@ -55,15 +55,21 @@ public class Gt06LoginHandler {
     }
 
     String parseImei(byte[] data) {
-        // IMEI parsing logic
-        StringBuilder imei = new StringBuilder();
-        // First 7 bytes (14 digits)
-        for (int i = 4; i <= 10; i++) {
-            imei.append((data[i] >> 4) & 0x0F); // High nibble
-            imei.append(data[i] & 0x0F);        // Low nibble
+        if (data == null || data.length < 12) {
+            throw new IllegalArgumentException("Invalid login packet for IMEI extraction");
         }
-        // Last digit from high nibble of byte 11
+
+        StringBuilder imei = new StringBuilder();
+        // Bytes 4-10 contain the IMEI (7 bytes = 14 digits)
+        for (int i = 4; i <= 10; i++) {
+            // Extract high nibble (first digit)
+            imei.append((data[i] >> 4) & 0x0F);
+            // Extract low nibble (second digit)
+            imei.append(data[i] & 0x0F);
+        }
+        // The 15th digit is in the high nibble of byte 11
         imei.append((data[11] >> 4) & 0x0F);
+
         return imei.toString();
     }
 }
