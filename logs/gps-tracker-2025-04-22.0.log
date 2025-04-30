@@ -1,0 +1,642 @@
+2025-04-22 00:08:20 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 126748 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 00:08:20 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 00:08:20 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 00:08:21 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 00:08:22 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 85 ms. Found 2 JPA repository interfaces.
+2025-04-22 00:08:22 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 00:08:23 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 00:08:23 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 00:08:23 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 00:08:23 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 00:08:24 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@4b7ab7ab
+2025-04-22 00:08:24 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 00:08:24 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 00:08:24 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 00:08:24 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 00:08:25 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 00:08:25 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 00:08:26 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 00:08:27 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 00:08:48 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:46446
+2025-04-22 00:08:48 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:46446 (35 bytes)
+2025-04-22 00:08:48 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 31 32 33 34 35 36 37 38 39 30 31  |xx...12345678901|
+2025-04-22 00:08:48 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0010: 32 33 34 35 00 01 00 00 00 00 00 00 00 00 01 D9  |2345............|
+2025-04-22 00:08:48 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0013: DC 0D 0A  |...|
+2025-04-22 00:08:48 [pool-3-thread-1] INFO  o.s.b.f.s.DefaultListableBeanFactory - Creating singleton bean 'transactionManager' in thread "pool-3-thread-1" while other thread holds singleton lock for other beans [gpsServer]
+2025-04-22 00:08:48 [pool-3-thread-1] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (35 bytes)
+2025-04-22 00:08:48 [pool-3-thread-1] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: Invalid IMEI length after cleaning
+2025-04-22 00:08:48 [pool-3-thread-1] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51120
+2025-04-22 00:09:20 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51120 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-3] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-3] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-3] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51136
+2025-04-22 00:09:20 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51136 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-5] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-5] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-5] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51152
+2025-04-22 00:09:20 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51152 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-7] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-7] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-7] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51160
+2025-04-22 00:09:20 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51160 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-9] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-9] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-9] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51166
+2025-04-22 00:09:20 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51166 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-11] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-11] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-11] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51178
+2025-04-22 00:09:20 [pool-3-thread-13] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51178 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-13] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-13] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-13] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-13] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-13] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51186
+2025-04-22 00:09:20 [pool-3-thread-15] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51186 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-15] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-15] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:20 [pool-3-thread-15] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-15] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:20 [pool-3-thread-15] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:20 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51200
+2025-04-22 00:09:20 [pool-3-thread-17] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51200 (24 bytes)
+2025-04-22 00:09:20 [pool-3-thread-17] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:20 [pool-3-thread-17] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-17] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-17] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-17] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51208
+2025-04-22 00:09:21 [pool-3-thread-19] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51208 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-19] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-19] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-19] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-19] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-19] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51212
+2025-04-22 00:09:21 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51212 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-2] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-2] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-2] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51214
+2025-04-22 00:09:21 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51214 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-4] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-4] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-4] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51226
+2025-04-22 00:09:21 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51226 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-6] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-6] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-6] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51242
+2025-04-22 00:09:21 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51242 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-8] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-8] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-8] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51244
+2025-04-22 00:09:21 [pool-3-thread-10] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51244 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-10] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-10] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-10] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-10] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-10] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51246
+2025-04-22 00:09:21 [pool-3-thread-12] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51246 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-12] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-12] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-12] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-12] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-12] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51252
+2025-04-22 00:09:21 [pool-3-thread-14] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51252 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-14] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-14] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-14] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-14] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-14] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51268
+2025-04-22 00:09:21 [pool-3-thread-27] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51268 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-27] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-27] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-27] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-27] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-27] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51280
+2025-04-22 00:09:21 [pool-3-thread-18] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51280 (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-18] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:21 [pool-3-thread-18] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:21 [pool-3-thread-18] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:21 [pool-3-thread-18] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:21 [pool-3-thread-18] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:21 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51284
+2025-04-22 00:09:22 [pool-3-thread-20] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51284 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-20] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-20] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-20] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-20] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-20] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51296
+2025-04-22 00:09:22 [pool-3-thread-21] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51296 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-21] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-21] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-21] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-21] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-21] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51298
+2025-04-22 00:09:22 [pool-3-thread-22] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51298 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-22] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-22] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-22] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-22] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-22] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51302
+2025-04-22 00:09:22 [pool-3-thread-23] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51302 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-23] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-23] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-23] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-23] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-23] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51312
+2025-04-22 00:09:22 [pool-3-thread-24] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51312 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-24] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-24] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-24] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-24] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-24] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51316
+2025-04-22 00:09:22 [pool-3-thread-25] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51316 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-25] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-25] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-25] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-25] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-25] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51332
+2025-04-22 00:09:22 [pool-3-thread-26] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51332 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-26] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-26] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-26] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-26] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-26] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51344
+2025-04-22 00:09:22 [pool-3-thread-16] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51344 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-16] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-16] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-16] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-16] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-16] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51352
+2025-04-22 00:09:22 [pool-3-thread-28] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51352 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-28] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-28] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-28] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-28] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-28] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51364
+2025-04-22 00:09:22 [pool-3-thread-29] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51364 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-29] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-29] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-29] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-29] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-29] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51366
+2025-04-22 00:09:22 [pool-3-thread-30] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51366 (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-30] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:22 [pool-3-thread-30] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:22 [pool-3-thread-30] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:22 [pool-3-thread-30] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:22 [pool-3-thread-30] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:22 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51378
+2025-04-22 00:09:23 [pool-3-thread-31] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51378 (24 bytes)
+2025-04-22 00:09:23 [pool-3-thread-31] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 33 35 39 33 33 39 30 37 37 31 33  |xx...35933907713|
+2025-04-22 00:09:23 [pool-3-thread-31] INFO  c.assettrack.iot.service.GpsServer - 0008: 35 32 32 33 01 01 33 0D  |5223..3.|
+2025-04-22 00:09:23 [pool-3-thread-31] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:09:23 [pool-3-thread-31] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: null
+2025-04-22 00:09:23 [pool-3-thread-31] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:09:23 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51394
+2025-04-22 00:17:47 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 129814 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 00:17:47 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 00:17:47 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 00:17:48 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 00:17:48 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 88 ms. Found 2 JPA repository interfaces.
+2025-04-22 00:17:49 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 00:17:49 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 00:17:49 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 00:17:49 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 00:17:49 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 00:17:50 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@23df7fad
+2025-04-22 00:17:50 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 00:17:50 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 00:17:50 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 00:17:50 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 00:17:51 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 00:17:51 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 00:17:52 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 00:17:53 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 00:18:13 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:60698
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:60698 (35 bytes)
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 31 32 33 34 35 36 37 38 39 30 31  |xx...12345678901|
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0010: 32 33 34 35 00 01 00 00 00 00 00 00 00 00 01 D9  |2345............|
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0013: DC 0D 0A  |...|
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  o.s.b.f.s.DefaultListableBeanFactory - Creating singleton bean 'transactionManager' in thread "pool-3-thread-1" while other thread holds singleton lock for other beans [gpsServer]
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (35 bytes)
+2025-04-22 00:18:13 [pool-3-thread-1] INFO  c.a.iot.protocol.Gt06Handler - IMEI transformation: '35 00 01 00 00 00 00 00 00 00 00 01 D9 DC 0D' → '5'
+2025-04-22 00:18:13 [pool-3-thread-1] ERROR c.a.iot.protocol.Gt06Handler - Error parsing GT06 message: Invalid IMEI length: expected 15 digits after cleaning, got 1 (original: 5         ��)
+2025-04-22 00:18:13 [pool-3-thread-1] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:29:52 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 130574 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 00:29:52 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 00:29:52 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 00:29:53 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 00:29:53 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 74 ms. Found 2 JPA repository interfaces.
+2025-04-22 00:29:54 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 00:29:54 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 00:29:54 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 00:29:54 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 00:29:55 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 00:29:55 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@6533629
+2025-04-22 00:29:55 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 00:29:55 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 00:29:55 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 00:29:55 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 00:29:56 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 00:29:57 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 00:29:57 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 00:29:58 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 00:30:15 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:58516
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:58516 (35 bytes)
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 31 32 33 34 35 36 37 38 39 30 31  |xx...12345678901|
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0010: 32 33 34 35 00 01 00 00 00 00 00 00 00 00 01 D9  |2345............|
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0013: DC 0D 0A  |...|
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  o.s.b.f.s.DefaultListableBeanFactory - Creating singleton bean 'transactionManager' in thread "pool-3-thread-1" while other thread holds singleton lock for other beans [gpsServer]
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (35 bytes)
+2025-04-22 00:30:15 [pool-3-thread-1] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.a.iot.protocol.Gt06Handler - IMEI transformation: '01 31 32 33 34 35 36 37 38 39 30 31 32 33 34' → '12345678901234'
+2025-04-22 00:30:15 [pool-3-thread-1] WARN  c.a.iot.protocol.Gt06Handler - Padded IMEI to 15 digits: 012345678901234
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.a.iot.protocol.Gt06Handler - Processed GT06 login for IMEI: 012345678901234
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Sending response to 127.0.0.1:58516 (10 bytes)
+2025-04-22 00:30:15 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - FFFFFFFA: 78 78 05 01 00 01 05 0D 0A 00  |xx........|
+2025-04-22 00:40:56 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 131338 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 00:40:56 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 00:40:56 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 00:40:57 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 00:40:57 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 118 ms. Found 2 JPA repository interfaces.
+2025-04-22 00:40:58 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 00:40:58 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 00:40:58 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 00:40:59 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 00:40:59 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 00:41:00 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@23df7fad
+2025-04-22 00:41:00 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 00:41:00 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 00:41:00 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 00:41:00 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 00:41:01 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 00:41:01 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 00:41:02 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 00:41:04 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 00:42:36 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:58146
+2025-04-22 00:42:36 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:58146 (24 bytes)
+2025-04-22 00:42:36 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 31 32 33 34 35 36 37 38 39 30 31  |xx...12345678901|
+2025-04-22 00:42:36 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0008: 32 33 34 35 01 01 31 0D  |2345..1.|
+2025-04-22 00:42:36 [pool-3-thread-1] INFO  o.s.b.f.s.DefaultListableBeanFactory - Creating singleton bean 'transactionManager' in thread "pool-3-thread-1" while other thread holds singleton lock for other beans [gpsServer]
+2025-04-22 00:42:36 [pool-3-thread-1] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (24 bytes)
+2025-04-22 00:42:36 [pool-3-thread-1] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:42:36 [pool-3-thread-1] ERROR c.a.iot.protocol.Gt06Handler - Invalid IMEI format: 01 31 32 33 34 35 36 37 38 39 30 31 32 33 34
+2025-04-22 00:42:36 [pool-3-thread-1] ERROR c.a.iot.protocol.Gt06Handler - Login packet error: IMEI contains non-digit characters
+2025-04-22 00:42:36 [pool-3-thread-1] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:43:26 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:49352
+2025-04-22 00:43:26 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:49352 (35 bytes)
+2025-04-22 00:43:26 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 31 32 33 34 35 36 37 38 39 30 31  |xx...12345678901|
+2025-04-22 00:43:26 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0010: 32 33 34 35 00 01 00 00 00 00 00 00 00 00 01 D9  |2345............|
+2025-04-22 00:43:26 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0013: DC 0D 0A  |...|
+2025-04-22 00:43:26 [pool-3-thread-3] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (35 bytes)
+2025-04-22 00:43:26 [pool-3-thread-3] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:43:26 [pool-3-thread-3] ERROR c.a.iot.protocol.Gt06Handler - Invalid IMEI format: 01 31 32 33 34 35 36 37 38 39 30 31 32 33 34
+2025-04-22 00:43:26 [pool-3-thread-3] ERROR c.a.iot.protocol.Gt06Handler - Login packet error: IMEI contains non-digit characters
+2025-04-22 00:43:26 [pool-3-thread-3] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:50:25 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:47166
+2025-04-22 00:50:25 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:47166 (28 bytes)
+2025-04-22 00:50:25 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 00:50:25 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 00:50:25 [pool-3-thread-5] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (28 bytes)
+2025-04-22 00:50:25 [pool-3-thread-5] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:50:25 [pool-3-thread-5] ERROR c.a.iot.protocol.Gt06Handler - Invalid IMEI format: 12 34 56 78 90 12 34 05 01 00 01 00 00 00 00
+2025-04-22 00:50:25 [pool-3-thread-5] ERROR c.a.iot.protocol.Gt06Handler - Login packet error: IMEI contains non-digit characters
+2025-04-22 00:50:25 [pool-3-thread-5] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:56:40 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51154
+2025-04-22 00:56:40 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51154 (28 bytes)
+2025-04-22 00:56:40 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 00 01 00 00  |xx...4Vx..4.....|
+2025-04-22 00:56:40 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 00:56:40 [pool-3-thread-7] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (28 bytes)
+2025-04-22 00:56:40 [pool-3-thread-7] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:56:40 [pool-3-thread-7] ERROR c.a.iot.protocol.Gt06Handler - Invalid IMEI format: 12 34 56 78 90 12 34 05 00 01 00 00 00 00 00
+2025-04-22 00:56:40 [pool-3-thread-7] ERROR c.a.iot.protocol.Gt06Handler - Login packet error: IMEI contains non-digit characters
+2025-04-22 00:56:40 [pool-3-thread-7] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:56:56 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:34608
+2025-04-22 00:56:56 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:34608 (28 bytes)
+2025-04-22 00:56:56 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 00 01 00 00  |xx...4Vx..4.....|
+2025-04-22 00:56:56 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 00:56:56 [pool-3-thread-9] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (28 bytes)
+2025-04-22 00:56:56 [pool-3-thread-9] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:56:56 [pool-3-thread-9] ERROR c.a.iot.protocol.Gt06Handler - Invalid IMEI format: 12 34 56 78 90 12 34 05 00 01 00 00 00 00 00
+2025-04-22 00:56:56 [pool-3-thread-9] ERROR c.a.iot.protocol.Gt06Handler - Login packet error: IMEI contains non-digit characters
+2025-04-22 00:56:56 [pool-3-thread-9] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 00:57:15 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:57120
+2025-04-22 00:57:15 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:57120 (28 bytes)
+2025-04-22 00:57:15 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 00:57:15 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 00:57:15 [pool-3-thread-11] INFO  c.a.iot.service.ProtocolService - Parsing GT06 data (28 bytes)
+2025-04-22 00:57:15 [pool-3-thread-11] DEBUG c.a.iot.protocol.Gt06Handler - Processing GT06 packet - Type: 0x1, Length: 17
+2025-04-22 00:57:15 [pool-3-thread-11] ERROR c.a.iot.protocol.Gt06Handler - Invalid IMEI format: 12 34 56 78 90 12 34 05 01 00 01 00 00 00 00
+2025-04-22 00:57:15 [pool-3-thread-11] ERROR c.a.iot.protocol.Gt06Handler - Login packet error: IMEI contains non-digit characters
+2025-04-22 00:57:15 [pool-3-thread-11] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Handler returned null position - likely protocol mismatch
+2025-04-22 17:56:19 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 153487 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 17:56:19 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 17:56:19 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 17:56:20 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 17:56:21 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 79 ms. Found 2 JPA repository interfaces.
+2025-04-22 17:56:21 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 17:56:21 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 17:56:21 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 17:56:22 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 17:56:22 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 17:56:23 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@3ba46845
+2025-04-22 17:56:23 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 17:56:23 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 17:56:23 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 17:56:23 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 17:56:24 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 17:56:24 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 17:56:24 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 17:56:26 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 17:59:53 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 153808 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 17:59:53 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 17:59:53 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 17:59:54 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 17:59:54 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 88 ms. Found 2 JPA repository interfaces.
+2025-04-22 17:59:55 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 17:59:55 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 17:59:55 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 17:59:56 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 17:59:56 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 17:59:56 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@3ba46845
+2025-04-22 17:59:56 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 17:59:57 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 17:59:57 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 17:59:57 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 17:59:58 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 17:59:58 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 17:59:59 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 18:00:00 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 18:23:08 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:50116
+2025-04-22 18:23:08 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:50116 (28 bytes)
+2025-04-22 18:23:08 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 18:23:08 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 18:23:08 [pool-3-thread-1] INFO  o.s.b.f.s.DefaultListableBeanFactory - Creating singleton bean 'transactionManager' in thread "pool-3-thread-1" while other thread holds singleton lock for other beans [gpsServer]
+2025-04-22 18:23:08 [pool-3-thread-1] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 18:23:08 [pool-3-thread-1] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 18:27:27 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:33124
+2025-04-22 18:27:27 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:33124 (28 bytes)
+2025-04-22 18:27:27 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 18:27:27 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 18:27:27 [pool-3-thread-3] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 18:27:27 [pool-3-thread-3] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 19:09:56 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:50778
+2025-04-22 19:09:56 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:50778 (28 bytes)
+2025-04-22 19:09:56 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 07 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 19:09:56 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 19:09:56 [pool-3-thread-5] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 19:09:56 [pool-3-thread-5] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123407
+2025-04-22 19:11:35 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:36148
+2025-04-22 19:11:35 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:36148 (28 bytes)
+2025-04-22 19:11:35 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 07 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 19:11:35 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 19:11:35 [pool-3-thread-7] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 19:11:35 [pool-3-thread-7] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123407
+2025-04-22 19:11:57 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:41006
+2025-04-22 19:11:57 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:41006 (28 bytes)
+2025-04-22 19:11:57 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 07 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 19:11:57 [pool-3-thread-9] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 19:11:57 [pool-3-thread-9] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 19:11:57 [pool-3-thread-9] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123407
+2025-04-22 19:41:17 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:47582
+2025-04-22 19:41:17 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:47582 (28 bytes)
+2025-04-22 19:41:17 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 19:41:17 [pool-3-thread-11] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 19:41:17 [pool-3-thread-11] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 19:41:17 [pool-3-thread-11] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 19:53:58 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:39572
+2025-04-22 19:53:58 [pool-3-thread-13] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:39572 (28 bytes)
+2025-04-22 19:53:58 [pool-3-thread-13] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 19:53:58 [pool-3-thread-13] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 19:53:58 [pool-3-thread-13] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 19:53:58 [pool-3-thread-13] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 20:01:06 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:41794
+2025-04-22 20:01:06 [pool-3-thread-15] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:41794 (28 bytes)
+2025-04-22 20:01:06 [pool-3-thread-15] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 02 03 04 05 06 07 08 01 00 01 00  |xx..............|
+2025-04-22 20:01:06 [pool-3-thread-15] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:01:06 [pool-3-thread-15] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:01:06 [pool-3-thread-15] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 0102030405060708
+2025-04-22 20:01:35 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:39660
+2025-04-22 20:01:35 [pool-3-thread-17] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:39660 (28 bytes)
+2025-04-22 20:01:35 [pool-3-thread-17] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 02 03 04 05 06 07 08 01 00 01 00  |xx..............|
+2025-04-22 20:01:35 [pool-3-thread-17] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:01:35 [pool-3-thread-17] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:01:35 [pool-3-thread-17] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 0102030405060708
+2025-04-22 20:01:45 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:43638
+2025-04-22 20:01:45 [pool-3-thread-19] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:43638 (28 bytes)
+2025-04-22 20:01:45 [pool-3-thread-19] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 02 03 04 05 06 07 08 01 00 01 00  |xx..............|
+2025-04-22 20:01:45 [pool-3-thread-19] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:01:45 [pool-3-thread-19] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:01:45 [pool-3-thread-19] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 0102030405060708
+2025-04-22 20:02:28 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:56124
+2025-04-22 20:02:28 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:56124 (28 bytes)
+2025-04-22 20:02:28 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 20:02:28 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:02:28 [pool-3-thread-2] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:02:28 [pool-3-thread-2] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 20:03:07 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:51156
+2025-04-22 20:03:07 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:51156 (28 bytes)
+2025-04-22 20:03:07 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 02 03 04 05 06 07 08 01 00 01 00  |xx..............|
+2025-04-22 20:03:07 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:03:07 [pool-3-thread-4] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:03:07 [pool-3-thread-4] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 0102030405060708
+2025-04-22 20:04:13 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:49604
+2025-04-22 20:04:13 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:49604 (28 bytes)
+2025-04-22 20:04:13 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 01 02 03 04 05 06 07 08 01 00 01 00  |xx..............|
+2025-04-22 20:04:13 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:04:13 [pool-3-thread-6] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:04:13 [pool-3-thread-6] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 0102030405060708
+2025-04-22 20:04:39 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:55902
+2025-04-22 20:04:39 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:55902 (28 bytes)
+2025-04-22 20:04:39 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 20:04:39 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 20:04:39 [pool-3-thread-8] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 20:04:39 [pool-3-thread-8] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 21:10:35 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 163564 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-04-22 21:10:35 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-04-22 21:10:35 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-04-22 21:10:36 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-04-22 21:10:36 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 82 ms. Found 2 JPA repository interfaces.
+2025-04-22 21:10:37 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-04-22 21:10:37 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-04-22 21:10:37 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-04-22 21:10:38 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-04-22 21:10:38 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-04-22 21:10:38 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@27e21083
+2025-04-22 21:10:38 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-04-22 21:10:38 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-04-22 21:10:38 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-04-22 21:10:38 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-04-22 21:10:40 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-04-22 21:10:40 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-04-22 21:10:40 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server configured with:
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - - TCP Port: 0
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - - UDP Port: 0
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - - Thread Pool Size: 10
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server instance created with 10 threads
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-04-22 21:10:42 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-04-22 21:11:02 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:50416
+2025-04-22 21:11:02 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:50416 (28 bytes)
+2025-04-22 21:11:02 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 21:11:02 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 21:11:02 [pool-3-thread-1] INFO  o.s.b.f.s.DefaultListableBeanFactory - Creating singleton bean 'transactionManager' in thread "pool-3-thread-1" while other thread holds singleton lock for other beans [gpsServer]
+2025-04-22 21:11:02 [pool-3-thread-1] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 21:11:02 [pool-3-thread-1] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
+2025-04-22 21:11:51 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:50022
+2025-04-22 21:11:51 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:50022 (28 bytes)
+2025-04-22 21:11:51 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 0000: 78 78 11 01 12 34 56 78 90 12 34 05 01 00 01 00  |xx...4Vx..4.....|
+2025-04-22 21:11:51 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - 000C: 00 00 00 00 00 00 00 01 D9 DC 0D 0A  |............|
+2025-04-22 21:11:51 [pool-3-thread-3] INFO  c.a.iot.service.ProtocolService - Processing GT06 data (28 bytes)
+2025-04-22 21:11:51 [pool-3-thread-3] ERROR c.a.iot.service.ProtocolService - Failed to parse GT06 data: Device authentication failed for IMEI: 1234567890123405
