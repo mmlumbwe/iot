@@ -87,12 +87,10 @@ public class ProtocolDetector {
             int declaredLength = data[2] & 0xFF;
             int protocolNumber = data[3] & 0xFF;
 
-            // Calculate minimum expected length:
-            // header(2) + length(1) + protocol(1) + payload + CRC(2) + terminator(2)
-            int minExpectedLength = 8; // 2+1+1+0+2+2 (minimum possible)
-
-            // Verify basic structure
-            if (data.length < minExpectedLength) return false;
+            // Verify total length matches declared length + 5
+            if (data.length != declaredLength + 5) {
+                return false;
+            }
 
             // Verify termination bytes (0x0D 0x0A)
             if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
@@ -102,13 +100,13 @@ public class ProtocolDetector {
             // Protocol-specific validation
             switch (protocolNumber) {
                 case 0x01:  // Login
-                    return data.length >= 18;  // Minimum login packet size
+                    return data.length >= 18 && (data.length - 5) == declaredLength;
                 case 0x12:  // Location
-                    return data.length >= 35;  // Minimum location packet size
+                    return data.length >= 35 && (data.length - 5) == declaredLength;
                 case 0x13:  // Status
-                    return data.length >= 20;
+                    return data.length >= 20 && (data.length - 5) == declaredLength;
                 default:
-                    return true;  // Accept other GT06 packet types
+                    return (data.length - 5) == declaredLength;
             }
         }
 
