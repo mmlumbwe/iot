@@ -8,6 +8,7 @@ public class DeviceMessage {
     private String messageType;
     private String imei;
     private byte[] rawData;      // New field for raw byte data
+    private String error;
     private Map<String, Object> parsedData;
 
     public static final String TYPE_LOGIN = "LOGIN";
@@ -103,5 +104,21 @@ public class DeviceMessage {
                 ", rawData=" + (rawData != null ? "[" + rawData.length + " bytes]" : "null") +
                 ", parsedData=" + parsedData +
                 '}';
+    }
+
+    public boolean hasError() {
+        return error != null && !error.isEmpty();
+    }
+
+    public String getError() {
+        return error;
+    }
+
+    public void setError(String error) {
+        this.error = error;
+        // Automatically set message type to ERROR when error is set
+        if (error != null && !error.isEmpty()) {
+            this.messageType = "ERROR";
+        }
     }
 }

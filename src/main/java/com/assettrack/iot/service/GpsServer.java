@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.*;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -208,7 +210,6 @@ public class GpsServer {
                 if (message != null) {
                     // Process response if available
                     processResponse(output, message, clientAddress, clientPort);
-
                     // Process position if available
                     processPosition(message, clientAddress, clientPort);
                 }
@@ -232,22 +233,44 @@ public class GpsServer {
     private void processResponse(OutputStream output, DeviceMessage message,
                                  String clientAddress, int clientPort) {
         try {
-            if (message.getParsedData() != null && message.getParsedData().containsKey("response")) {
-                Object responseObj = message.getParsedData().get("response");
-                if (responseObj instanceof byte[]) {
-                    byte[] response = (byte[]) responseObj;
-                    output.write(response);
-                    output.flush();
-                    logger.info("Sent response to {}:{} ({} bytes)",
-                            clientAddress, clientPort, response.length);
-                } else {
-                    logger.warn("Invalid response type for {}:{} - expected byte[]",
-                            clientAddress, clientPort);
-                }
+            if (message == null || message.getParsedData() == null) {
+                logger.warn("Invalid message structure from {}", clientAddress);
+                return;
+            }
+
+            Object responseObj = message.getParsedData().get("response");
+            if (responseObj == null) {
+                logger.error("CRITICAL: No response generated for {} (MessageType: {})",
+                        clientAddress, message.getMessageType());
+                return;
+            }
+
+            if (!(responseObj instanceof byte[])) {
+                logger.error("Invalid response type from {}: {}",
+                        clientAddress, responseObj.getClass().getSimpleName());
+                return;
+            }
+
+            byte[] responseBytes = (byte[]) responseObj;
+            output.write(responseBytes);
+            output.flush();
+
+            if (message.getMessageType().equals("ERROR")) {
+                logger.warn("Sent error response to {}:{} ({} bytes) - Error: {}",
+                        clientAddress, clientPort, responseBytes.length,
+                        message.getError() != null ? message.getError() : "Unknown error");
+            } else {
+                logger.info("Sent {} response to {}:{} ({} bytes)",
+                        message.getMessageType(),
+                        clientAddress, clientPort,
+                        responseBytes.length);
             }
         } catch (IOException e) {
             logger.error("Failed to send response to {}:{} - {}",
                     clientAddress, clientPort, e.getMessage());
+        } catch (Exception e) {
+            logger.error("Unexpected error processing response for {}:{} - {}",
+                    clientAddress, clientPort, e.getMessage(), e);
         }
     }
 
@@ -291,7 +314,6 @@ public class GpsServer {
             logger.info("Successfully persisted position ID {} for device {} at {}",
                     savedPosition.getId(), imei, savedPosition.getTimestamp());
 
-            // Debug logging of position details
             if (logger.isDebugEnabled()) {
                 logger.debug("Position details - Lat: {}, Lon: {}, Speed: {}, Valid: {}",
                         position.getLatitude(), position.getLongitude(),
@@ -299,73 +321,6 @@ public class GpsServer {
             }
         } catch (Exception e) {
             logger.error("Failed to save position for device {}: {}", imei, e.getMessage(), e);
-        }
-    }
-
-    private void handleResponse(OutputStream output, DeviceMessage message,
-                                String clientAddress, int clientPort) {
-        try {
-            if (message.getParsedData() != null && message.getParsedData().containsKey("response")) {
-                Object responseObj = message.getParsedData().get("response");
-                if (responseObj instanceof byte[]) {
-                    byte[] response = (byte[]) responseObj;
-                    output.write(response);
-                    output.flush();
-                    logger.info("Sent response to {}:{} ({} bytes)",
-                            clientAddress, clientPort, response.length);
-                } else {
-                    logger.warn("Invalid response type for {}:{} - expected byte[]",
-                            clientAddress, clientPort);
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Failed to send response to {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage());
-        }
-    }
-
-    private void handlePosition(DeviceMessage message, String clientAddress, int clientPort) {
-        if (message.getParsedData() != null && message.getParsedData().containsKey("position")) {
-            Object positionObj = message.getParsedData().get("position");
-            if (positionObj instanceof Position) {
-                Position position = (Position) positionObj;
-
-                if (position.getDevice() == null || position.getDevice().getImei() == null) {
-                    logger.warn("Invalid position data from {}:{} - missing device or IMEI",
-                            clientAddress, clientPort);
-                    return;
-                }
-
-                logger.info("Processing position for device {}", position.getDevice().getImei());
-
-                try {
-                    Position savedPosition = positionService.processAndSavePosition(position);
-
-                    if (savedPosition != null && savedPosition.getId() != null) {
-                        logger.info("Successfully persisted position ID {} for device {} at {}",
-                                savedPosition.getId(),
-                                savedPosition.getDevice().getImei(),
-                                savedPosition.getTimestamp());
-
-                        // Log additional position details if debug enabled
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("Position details - Lat: {}, Lon: {}, Speed: {}",
-                                    savedPosition.getLatitude(),
-                                    savedPosition.getLongitude(),
-                                    savedPosition.getSpeed());
-                        }
-                    } else {
-                        logger.error("Position save operation failed for device {} - returned null",
-                                position.getDevice().getImei());
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to save position for device {}: {}",
-                            position.getDevice().getImei(), e.getMessage(), e);
-                }
-            } else {
-                logger.warn("Invalid position type from {}:{} - expected Position object",
-                        clientAddress, clientPort);
-            }
         }
     }
 
@@ -409,21 +364,20 @@ public class GpsServer {
             }
 
             // Send response if available
-            if (parsedData.containsKey("response")) {
-                Object responseObj = parsedData.get("response");
-                if (responseObj instanceof byte[]) {
-                    sendUdpResponse(packet, message);
-                } else {
-                    logger.warn("Invalid UDP response type in parsed data");
-                }
+            Object responseObj = parsedData.get("response");
+            if (responseObj instanceof byte[]) {
+                sendUdpResponse(packet, message);
+            } else if (responseObj != null) {
+                logger.warn("Invalid UDP response type in parsed data");
             }
+            // No response needed if responseObj is null
         }
     }
 
     private DeviceMessage processProtocolMessage(byte[] data) {
         try {
             String protocol = protocolDetector.detectProtocol(data);
-            logger.debug("Detected protocol: {}", protocol);
+            logger.info("Detected protocol: {}", protocol);
 
             for (ProtocolHandler handler : protocolHandlers) {
                 if (handler.canHandle(protocol, null)) {

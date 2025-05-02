@@ -31,6 +31,18 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int MAX_MINUTE = 59;
     private static final int MAX_HOUR = 23;
 
+    private static final int LOGIN_PACKET_LENGTH = 17; // Minimum login packet size
+    private static final int GPS_PACKET_LENGTH = 35;   // Minimum GPS packet size
+    private static final int HEADER_LENGTH = 2;        // 0x78 0x78
+    private static final int CHECKSUM_LENGTH = 2;      // Checksum bytes
+
+    // GT06 Protocol Constants
+    private static final int MIN_PACKET_LENGTH = 12;
+    private static final int LOGIN_PACKET_EXPECTED_LENGTH = 17;
+    private static final int GPS_PACKET_EXPECTED_LENGTH = 35;
+    private static final int HEARTBEAT_LENGTH = 12;
+    private static final int ALARM_PACKET_LENGTH = 35;
+
     @Override
     public boolean supports(String protocolType) {
         return "GT06".equalsIgnoreCase(protocolType);
@@ -45,44 +57,119 @@ public class Gt06Handler implements ProtocolHandler {
     public DeviceMessage handle(byte[] data) throws ProtocolException {
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("GT06");
+        Map<String, Object> parsedData = new HashMap<>();
+        message.setParsedData(parsedData);
 
         try {
+            // 1. Basic validation
             validateBasicPacketStructure(data);
-
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-            buffer.position(2);
 
-            int length = buffer.get() & 0xFF;
+            // 2. Parse headers and validate length
+            buffer.position(2); // Skip 0x78 0x78
+            int declaredLength = buffer.get() & 0xFF;
             byte protocol = buffer.get();
+            int actualLength = data.length - HEADER_LENGTH - CHECKSUM_LENGTH;
 
-            if (length != data.length - 4) { // -4 for header and checksum
-                throw new ProtocolException("Length mismatch");
-            }
-
+            // 3. Protocol-specific validation
             switch (protocol) {
-                case PROTOCOL_LOGIN: return handleLogin(data, message);
-                case PROTOCOL_GPS: return handleGps(data, message);
-                case PROTOCOL_HEARTBEAT: return handleHeartbeat(data, message);
-                case PROTOCOL_ALARM: return handleAlarm(data, message);
-                default: throw new ProtocolException("Unsupported protocol type");
+                case PROTOCOL_LOGIN:
+                    if (data.length < LOGIN_PACKET_LENGTH) {
+                        throw new ProtocolException("Login packet too short");
+                    }
+                    return handleLogin(data, message, parsedData);
+
+                case PROTOCOL_GPS:
+                    if (data.length < GPS_PACKET_LENGTH) {
+                        throw new ProtocolException("GPS packet too short");
+                    }
+                    return handleGps(data, message, parsedData);
+
+                case PROTOCOL_HEARTBEAT:
+                    if (data.length < HEARTBEAT_LENGTH) {
+                        throw new ProtocolException("Heartbeat packet too short");
+                    }
+                    return handleHeartbeat(data, message, parsedData);
+
+                case PROTOCOL_ALARM:
+                    if (data.length < ALARM_PACKET_LENGTH) {
+                        throw new ProtocolException("Alarm packet too short");
+                    }
+                    return handleAlarm(data, message, parsedData);
+
+                default:
+                    if (declaredLength != actualLength) {
+                        throw new ProtocolException(String.format(
+                                "Length mismatch (declared: %d, actual: %d)",
+                                declaredLength, actualLength));
+                    }
+                    throw new ProtocolException("Unsupported protocol type: 0x" +
+                            String.format("%02X", protocol));
             }
         } catch (ProtocolException e) {
             message.setMessageType("ERROR");
-            //message.setError(e.getMessage());
+            message.setError(e.getMessage());
+            parsedData.put("response", generateErrorResponse(data, e));
+            return message;
+        } catch (Exception e) {
+            message.setMessageType("ERROR");
+            message.setError("Internal server error: " + e.getMessage());
+            parsedData.put("response", generateErrorResponse(data, e));
             return message;
         }
     }
 
-    private void validateBasicPacketStructure(byte[] data) throws ProtocolException {
-        if (data == null || data.length < 5) {
-            throw new ProtocolException("Invalid message length");
-        }
-        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-            throw new ProtocolException("Invalid protocol header");
+    private byte[] generateErrorResponse(byte[] requestData, Exception error) {
+        try {
+            byte[] defaultSerial = {0x00, 0x00};
+            byte[] serial = (requestData != null && requestData.length >= 4) ?
+                    new byte[]{requestData[requestData.length-4], requestData[requestData.length-3]} :
+                    defaultSerial;
+
+            return ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05) // Length
+                    .put((byte) 0x7F) // Error response code
+                    .put(serial[0])
+                    .put(serial[1])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00) // Error indicator
+                    .put((byte) 0x0D).put((byte) 0x0A)
+                    .array();
+        } catch (Exception e) {
+            logger.error("Failed to generate error response", e);
+            return new byte[] {
+                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                    0x05, (byte) 0x7F,
+                    0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x0D, 0x0A
+            };
         }
     }
 
-    private DeviceMessage handleLogin(byte[] data, DeviceMessage message) throws ProtocolException {
+    private void validateBasicPacketStructure(byte[] data) throws ProtocolException {
+        // Basic null and minimum length check
+        if (data == null || data.length < MIN_PACKET_LENGTH) {
+            throw new ProtocolException("Invalid message length");
+        }
+
+        // Protocol header check
+        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
+            throw new ProtocolException("Invalid protocol header");
+        }
+
+        // Verify checksum exists
+        if (data.length < HEADER_LENGTH + CHECKSUM_LENGTH) {
+            throw new ProtocolException("Message too short for checksum");
+        }
+    }
+
+    private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
+            throws ProtocolException {
         if (data.length < 18) {
             throw new ProtocolException("Login packet too short");
         }
@@ -92,15 +179,42 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("response", createLoginResponse(data));
-        response.put("device_info", extractDeviceInfo(data));
-        message.setParsedData(response);
+        // Generate and store response
+        byte[] response = generateLoginResponse(data);
+        parsedData.put("response", response);
+        parsedData.put("device_info", extractDeviceInfo(data));
 
+        logger.debug("Login response generated: {} bytes", response.length);
         return message;
     }
 
-    private DeviceMessage handleGps(byte[] data, DeviceMessage message) throws ProtocolException {
+    private byte[] generateLoginResponse(byte[] requestData) {
+        try {
+            if (requestData == null || requestData.length < LOGIN_PACKET_LENGTH) {
+                throw new ProtocolException("Invalid login packet");
+            }
+
+            return ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05) // Length (13 - 4 = 9? Verify protocol specs)
+                    .put(PROTOCOL_LOGIN)
+                    .put(requestData[requestData.length-4]) // Serial number
+                    .put(requestData[requestData.length-3])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01) // Success
+                    .put((byte) 0x0D).put((byte) 0x0A)
+                    .array();
+        } catch (Exception e) {
+            logger.error("Login response generation failed", e);
+            return generateFallbackResponse(PROTOCOL_LOGIN);
+        }
+    }
+
+    private DeviceMessage handleGps(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
+            throws ProtocolException {
         if (data.length < 35) {
             throw new ProtocolException("GPS packet too short");
         }
@@ -112,15 +226,47 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(lastValidImei);
         message.setMessageType("LOCATION");
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("position", parseGpsData(data));
-        response.put("response", createDataAcknowledgement(data));
-        message.setParsedData(response);
+        // Generate and store response
+        byte[] response = generateGpsResponse(data);
+        parsedData.put("response", response);
+        parsedData.put("position", parseGpsData(data));
 
+        logger.debug("GPS response generated: {} bytes", response.length);
         return message;
     }
 
-    private DeviceMessage handleHeartbeat(byte[] data, DeviceMessage message) throws ProtocolException {
+    private byte[] generateGpsResponse(byte[] data) {
+        try {
+            if (data == null || data.length < 8) {
+                throw new IllegalArgumentException("Invalid GPS data");
+            }
+
+            return ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05) // Length
+                    .put(PROTOCOL_GPS)
+                    .put(data[data.length-4]) // Serial
+                    .put(data[data.length-3])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01) // Success
+                    .put((byte) 0x0D).put((byte) 0x0A) // End bytes
+                    .array();
+        } catch (Exception e) {
+            logger.error("Failed to generate GPS response", e);
+            return new byte[] {
+                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                    0x05, PROTOCOL_GPS,
+                    0x00, 0x00, // Default serial
+                    0x00, 0x00, 0x00, 0x00,
+                    0x01, 0x0D, 0x0A
+            };
+        }
+    }
+    private DeviceMessage handleHeartbeat(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
+            throws ProtocolException {
         if (data.length < 12) {
             throw new ProtocolException("Heartbeat packet too short");
         }
@@ -128,15 +274,48 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(lastValidImei != null ? lastValidImei : "UNKNOWN");
         message.setMessageType("HEARTBEAT");
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("response", createHeartbeatResponse(data));
-        response.put("status", extractStatusInfo(data));
-        message.setParsedData(response);
+        // Generate and store response
+        byte[] response = generateHeartbeatResponse(data);
+        parsedData.put("response", response);
+        parsedData.put("status", extractStatusInfo(data));
 
+        logger.debug("Heartbeat response generated: {} bytes", response.length);
         return message;
     }
 
-    private DeviceMessage handleAlarm(byte[] data, DeviceMessage message) throws ProtocolException {
+    private byte[] generateHeartbeatResponse(byte[] data) {
+        try {
+            if (data == null || data.length < 8) {
+                throw new IllegalArgumentException("Invalid heartbeat data");
+            }
+
+            return ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05) // Length
+                    .put(PROTOCOL_HEARTBEAT)
+                    .put(data[data.length-4]) // Serial
+                    .put(data[data.length-3])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01) // Success
+                    .put((byte) 0x0D).put((byte) 0x0A) // End bytes
+                    .array();
+        } catch (Exception e) {
+            logger.error("Failed to generate heartbeat response", e);
+            return new byte[] {
+                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                    0x05, PROTOCOL_HEARTBEAT,
+                    0x00, 0x00, // Default serial
+                    0x00, 0x00, 0x00, 0x00,
+                    0x01, 0x0D, 0x0A
+            };
+        }
+    }
+
+    private DeviceMessage handleAlarm(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
+            throws ProtocolException {
         if (data.length < 35) {
             throw new ProtocolException("Alarm packet too short");
         }
@@ -148,16 +327,49 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(lastValidImei);
         message.setMessageType("ALARM");
 
-        Map<String, Object> response = new HashMap<>();
+        // Parse position and set alarm type
         Position position = parseGpsData(data);
         position.setAlarmType(extractAlarmType(data));
-        response.put("position", position);
-        response.put("response", createDataAcknowledgement(data));
-        message.setParsedData(response);
 
+        // Generate and store response
+        byte[] response = generateAlarmResponse(data);
+        parsedData.put("response", response);
+        parsedData.put("position", position);
+
+        logger.debug("Alarm response generated: {} bytes", response.length);
         return message;
     }
 
+    private byte[] generateAlarmResponse(byte[] data) {
+        try {
+            if (data == null || data.length < 8) {
+                throw new IllegalArgumentException("Invalid alarm data");
+            }
+
+            return ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05) // Length
+                    .put(PROTOCOL_ALARM)
+                    .put(data[data.length-4]) // Serial
+                    .put(data[data.length-3])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01) // Success
+                    .put((byte) 0x0D).put((byte) 0x0A) // End bytes
+                    .array();
+        } catch (Exception e) {
+            logger.error("Failed to generate alarm response", e);
+            return new byte[] {
+                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                    0x05, PROTOCOL_ALARM,
+                    0x00, 0x00, // Default serial
+                    0x00, 0x00, 0x00, 0x00,
+                    0x01, 0x0D, 0x0A
+            };
+        }
+    }
     @Override
     public Position parsePosition(byte[] rawMessage) {
         try {
@@ -189,7 +401,7 @@ public class Gt06Handler implements ProtocolHandler {
         Position position = new Position();
         Device device = new Device();
         device.setImei(lastValidImei != null ? lastValidImei : "UNKNOWN");
-        device.setProtocolType("GT06");  // Ensure protocolType is set
+        device.setProtocolType("GT06");
         position.setDevice(device);
 
         // Parse and validate timestamp
@@ -258,14 +470,17 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Override
     public byte[] generateResponse(Position position) {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, // Length
-                0x01, // Login response
-                0x00, 0x01, // Serial number
-                (byte) 0xD9, // Checksum
-                0x0D, 0x0A // End bytes
-        };
+        ByteBuffer buffer = ByteBuffer.allocate(11)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Length
+                .put(PROTOCOL_LOGIN)
+                .put((byte) 0x00).put((byte) 0x01) // Serial number
+                .put((byte) 0xD9) // Checksum
+                .put((byte) 0x0D).put((byte) 0x0A); // End bytes
+
+        return buffer.array();
     }
 
     private String parseImei(byte[] data) throws ProtocolException {
@@ -313,23 +528,45 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte[] createLoginResponse(byte[] requestData) {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, PROTOCOL_LOGIN,
-                requestData[requestData.length-4], requestData[requestData.length-3],
-                0x00, 0x00, 0x00, 0x00,
-                0x01, 0x0D, 0x0A
-        };
+        try {
+            if (requestData == null || requestData.length < 4) {
+                throw new ProtocolException("Invalid request data");
+            }
+
+            ByteBuffer buffer = ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05) // Length
+                    .put(PROTOCOL_LOGIN)
+                    .put(requestData[requestData.length-4]) // Serial number
+                    .put(requestData[requestData.length-3])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01)
+                    .put((byte) 0x0D).put((byte) 0x0A); // End bytes
+
+            return buffer.array();
+        } catch (Exception e) {
+            logger.error("Login response creation failed", e);
+            return null;
+        }
     }
 
     private byte[] createHeartbeatResponse(byte[] requestData) {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, PROTOCOL_HEARTBEAT,
-                requestData[requestData.length-4], requestData[requestData.length-3],
-                0x00, 0x00, 0x00, 0x00,
-                0x01, 0x0D, 0x0A
-        };
+        ByteBuffer buffer = ByteBuffer.allocate(13)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Length
+                .put(PROTOCOL_HEARTBEAT)
+                .put(requestData[requestData.length-4]) // Serial number
+                .put(requestData[requestData.length-3])
+                .put((byte) 0x00).put((byte) 0x00).put((byte) 0x00).put((byte) 0x00)
+                .put((byte) 0x01)
+                .put((byte) 0x0D).put((byte) 0x0A); // End bytes
+
+        return buffer.array();
     }
 
     private byte[] createDataAcknowledgement(byte[] data) throws ProtocolException {
@@ -337,12 +574,65 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Invalid data for acknowledgement");
         }
 
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, data[3],
-                data[data.length-4], data[data.length-3],
-                0x00, 0x00, 0x00, 0x00,
-                0x01, 0x0D, 0x0A
-        };
+        ByteBuffer buffer = ByteBuffer.allocate(13)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Length
+                .put(data[3]) // Protocol type from original message
+                .put(data[data.length-4]) // Serial number
+                .put(data[data.length-3])
+                .put((byte) 0x00).put((byte) 0x00).put((byte) 0x00).put((byte) 0x00)
+                .put((byte) 0x01)
+                .put((byte) 0x0D).put((byte) 0x0A); // End bytes
+
+        return buffer.array();
+    }
+
+    /**
+     * Generates a fallback response when normal response generation fails
+     * @param protocolType The protocol type (LOGIN, GPS, HEARTBEAT, ALARM)
+     * @return A valid GT06 protocol response packet (13 bytes)
+     */
+    private byte[] generateFallbackResponse(byte protocolType) {
+        // Validate protocol type
+        byte validProtocol = protocolType;
+        if (protocolType != PROTOCOL_LOGIN &&
+                protocolType != PROTOCOL_GPS &&
+                protocolType != PROTOCOL_HEARTBEAT &&
+                protocolType != PROTOCOL_ALARM) {
+            validProtocol = PROTOCOL_LOGIN; // Default to login protocol
+        }
+
+        return ByteBuffer.allocate(13)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Standard length for responses
+                .put(validProtocol)
+                .put((byte) 0x00) // Default serial number
+                .put((byte) 0x00)
+                .put((byte) 0x00) // Reserved
+                .put((byte) 0x00)
+                .put((byte) 0x00) // Reserved
+                .put((byte) 0x00)
+                .put((byte) 0x00) // Error indicator for fallback
+                .put((byte) 0x0D) // End marker
+                .put((byte) 0x0A)
+                .array();
+    }
+
+    /**
+     * Generates a fallback response with error information
+     * @param protocolType The protocol type
+     * @param errorCode Specific error code (0x00-0xFF)
+     * @return A valid GT06 error response packet (13 bytes)
+     */
+    private byte[] generateFallbackResponse(byte protocolType, byte errorCode) {
+        byte[] response = generateFallbackResponse(protocolType);
+        if (response != null && response.length >= 12) {
+            response[11] = errorCode; // Set error code byte
+        }
+        return response;
     }
 }
