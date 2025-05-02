@@ -1524,3 +1524,98 @@ java.net.BindException: Address already in use
 2025-05-02 17:17:02 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
 2025-05-02 17:17:02 [pool-3-thread-2] WARN  c.assettrack.iot.service.GpsServer - Sent error response to 127.0.0.1:53976 (13 bytes) - Error: Invalid longitude: 649.2074644444444
 2025-05-02 17:17:02 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:53976
+2025-05-02 17:34:47 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 60754 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-05-02 17:34:47 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-05-02 17:34:47 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-05-02 17:34:48 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-05-02 17:34:48 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 117 ms. Found 2 JPA repository interfaces.
+2025-05-02 17:34:49 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-05-02 17:34:49 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-05-02 17:34:49 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-05-02 17:34:49 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-05-02 17:34:49 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-05-02 17:34:50 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@43423d40
+2025-05-02 17:34:50 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-05-02 17:34:50 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-05-02 17:34:50 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-05-02 17:34:50 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-05-02 17:34:51 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-05-02 17:34:52 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-05-02 17:34:52 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-05-02 17:34:53 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-05-02 17:34:53 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-05-02 17:34:53 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-05-02 17:34:53 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-05-02 17:34:53 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-05-02 17:35:11 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:45800
+2025-05-02 17:35:11 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:45800
+2025-05-02 17:35:11 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:45800 (28 bytes)
+2025-05-02 17:35:11 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-02 17:35:11 [pool-3-thread-1] DEBUG c.a.iot.protocol.Gt06Handler - Login response generated: 13 bytes
+2025-05-02 17:35:11 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-02 17:35:11 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Sent LOGIN response to 127.0.0.1:45800 (13 bytes)
+2025-05-02 17:35:11 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:45800
+2025-05-02 17:35:12 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:45806
+2025-05-02 17:35:12 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:45806
+2025-05-02 17:35:12 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:45806 (35 bytes)
+2025-05-02 17:35:12 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-02 17:35:12 [pool-3-thread-2] WARN  c.a.iot.protocol.Gt06Handler - GPS data validation failed: Invalid longitude: 649.207464 (valid range -180 to 180)
+2025-05-02 17:35:12 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-02 17:35:12 [pool-3-thread-2] WARN  c.assettrack.iot.service.GpsServer - Sent error response to 127.0.0.1:45806 (13 bytes) - Error: Invalid longitude: 649.207464 (valid range -180 to 180)
+2025-05-02 17:35:12 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:45806
+2025-05-02 17:46:35 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 62742 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-05-02 17:46:35 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-05-02 17:46:35 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-05-02 17:46:36 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-05-02 17:46:36 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 123 ms. Found 2 JPA repository interfaces.
+2025-05-02 17:46:37 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-05-02 17:46:37 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-05-02 17:46:37 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-05-02 17:46:37 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-05-02 17:46:37 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-05-02 17:46:38 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@bcfe29c
+2025-05-02 17:46:38 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-05-02 17:46:38 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-05-02 17:46:38 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-05-02 17:46:38 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-05-02 17:46:39 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-05-02 17:46:39 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-05-02 17:46:40 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-05-02 17:46:41 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-05-02 17:46:41 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-05-02 17:46:41 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-05-02 17:46:41 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-05-02 17:46:41 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-05-02 17:47:07 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:57892
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:57892
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:57892 (28 bytes)
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.a.iot.protocol.Gt06Handler - Extracted IMEI: 123456789012345
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.a.iot.protocol.Gt06Handler - Login request from IMEI: 123456789012345
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.a.iot.protocol.Gt06Handler - Generated login response for IMEI: 123456789012345 (13 bytes)
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Sent LOGIN response to 127.0.0.1:57892 (13 bytes)
+2025-05-02 17:47:07 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:57892
+2025-05-02 17:47:08 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:57902
+2025-05-02 17:47:08 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:57902
+2025-05-02 17:47:08 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:57902 (35 bytes)
+2025-05-02 17:47:08 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-02 17:47:08 [pool-3-thread-2] INFO  c.a.iot.protocol.Gt06Handler - Processing GPS data for IMEI: 123456789012345
+2025-05-02 17:47:08 [pool-3-thread-2] WARN  c.a.iot.protocol.Gt06Handler - Protocol error for IMEI 123456789012345: Invalid minute value: 71 (valid range 0-59)
+2025-05-02 17:47:08 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-02 17:47:08 [pool-3-thread-2] WARN  c.assettrack.iot.service.GpsServer - Sent error response to 127.0.0.1:57902 (13 bytes) - Error: Invalid minute value: 71 (valid range 0-59)
+2025-05-02 17:47:08 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:57902

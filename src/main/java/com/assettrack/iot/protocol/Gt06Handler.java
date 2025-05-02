@@ -107,6 +107,8 @@ public class Gt06Handler implements ProtocolHandler {
                             String.format("%02X", protocol));
             }
         } catch (ProtocolException e) {
+            String currentImei = lastValidImei != null ? lastValidImei : "UNKNOWN";
+            logger.warn("Protocol error for IMEI {}: {}", currentImei, e.getMessage());
             message.setMessageType("ERROR");
             message.setError(e.getMessage());
             parsedData.put("response", generateErrorResponse(data, e));
@@ -170,7 +172,7 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        if (data.length < 18) {
+        if (data.length < LOGIN_PACKET_LENGTH) {
             throw new ProtocolException("Login packet too short");
         }
 
@@ -179,12 +181,13 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Generate and store response
+        logger.info("Login request from IMEI: {}", imei);
+
         byte[] response = generateLoginResponse(data);
         parsedData.put("response", response);
         parsedData.put("device_info", extractDeviceInfo(data));
 
-        logger.debug("Login response generated: {} bytes", response.length);
+        logger.info("Generated login response for IMEI: {} ({} bytes)", imei, response.length);
         return message;
     }
 
@@ -215,7 +218,7 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleGps(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        if (data.length < 35) {
+        if (data.length < GPS_PACKET_LENGTH) {
             throw new ProtocolException("GPS packet too short");
         }
 
@@ -226,12 +229,15 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(lastValidImei);
         message.setMessageType("LOCATION");
 
-        // Generate and store response
-        byte[] response = generateGpsResponse(data);
-        parsedData.put("response", response);
-        parsedData.put("position", parseGpsData(data));
+        logger.info("Processing GPS data for IMEI: {}", lastValidImei);
 
-        logger.debug("GPS response generated: {} bytes", response.length);
+        Position position = parseGpsData(data);
+        parsedData.put("position", position);
+        parsedData.put("response", generateGpsResponse(data));
+
+        logger.info("Processed location update for IMEI: {} - Lat: {}, Lon: {}",
+                lastValidImei, position.getLatitude(), position.getLongitude());
+
         return message;
     }
 
@@ -396,7 +402,7 @@ public class Gt06Handler implements ProtocolHandler {
 
     private Position parseGpsData(byte[] data) throws ProtocolException {
         ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(4);
+        buffer.position(4); // Skip header and length
 
         Position position = new Position();
         Device device = new Device();
@@ -404,30 +410,34 @@ public class Gt06Handler implements ProtocolHandler {
         device.setProtocolType("GT06");
         position.setDevice(device);
 
-        // Parse and validate timestamp
+        // Parse timestamp (YYMMDDHHMMSS)
         int year = 2000 + (buffer.get() & 0xFF);
         int month = validateRange(buffer.get() & 0xFF, 1, 12, "month");
         int day = validateRange(buffer.get() & 0xFF, 1, 31, "day");
         int hour = validateRange(buffer.get() & 0xFF, 0, 23, "hour");
         int minute = validateRange(buffer.get() & 0xFF, 0, 59, "minute");
         int second = validateRange(buffer.get() & 0xFF, 0, 59, "second");
-
         position.setTimestamp(LocalDateTime.of(year, month, day, hour, minute, second));
 
-        // Parse GPS info with validation
+        // Parse GPS info
         position.setValid(buffer.get() == 1);
 
+        // Convert coordinates from device format to decimal degrees
         double latitude = buffer.getInt() / 1800000.0;
         double longitude = buffer.getInt() / 1800000.0;
+
+        // Validate coordinates
         validateCoordinates(latitude, longitude);
 
         position.setLatitude(latitude);
         position.setLongitude(longitude);
 
+        // Parse speed (convert from knots to km/h)
         int speedKnots = buffer.get() & 0xFF;
         position.setSpeed(Math.min(speedKnots * 1.852, 1000)); // Cap at 1000 km/h
 
-        position.setCourse((double) (buffer.getShort() & 0xFFFF) % 360); // Normalize course
+        // Parse course (0-359 degrees)
+        position.setCourse((double) (buffer.getShort() & 0xFFFF) % 360);
 
         return position;
     }
@@ -442,11 +452,21 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private void validateCoordinates(double lat, double lon) throws ProtocolException {
+        // Validate latitude range (-90 to 90)
         if (lat < -90 || lat > 90) {
-            throw new ProtocolException("Invalid latitude: " + lat);
+            throw new ProtocolException(String.format(
+                    "Invalid latitude: %.6f (valid range -90 to 90)", lat));
         }
+
+        // Validate longitude range (-180 to 180)
         if (lon < -180 || lon > 180) {
-            throw new ProtocolException("Invalid longitude: " + lon);
+            throw new ProtocolException(String.format(
+                    "Invalid longitude: %.6f (valid range -180 to 180)", lon));
+        }
+
+        // Additional validation for realistic coordinates
+        if (lat == 0 && lon == 0) {
+            throw new ProtocolException("Invalid zero coordinates");
         }
     }
 
@@ -494,8 +514,10 @@ public class Gt06Handler implements ProtocolHandler {
 
             String imeiStr = imei.toString();
             if (!imeiStr.matches("^\\d{15}$")) {
-                throw new ProtocolException("Invalid IMEI format");
+                throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
+
+            logger.info("Extracted IMEI: {}", imeiStr);
             return imeiStr;
         } catch (IndexOutOfBoundsException e) {
             throw new ProtocolException("IMEI extraction failed: insufficient data");
