@@ -26,10 +26,10 @@ import java.util.concurrent.Executor;
 @Configuration
 public class AppConfig {
 
-    @Bean
+    /*@Bean
     public ProtocolHandler gt06Handler() {
         return new Gt06Handler();
-    }
+    }*/
 
     @Bean
     public CommandLineRunner demo(PositionRepository repository) {

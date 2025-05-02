@@ -6,13 +6,17 @@ import com.assettrack.iot.model.Position;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Component
 public class Gt06Handler implements ProtocolHandler {
@@ -42,6 +46,19 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int GPS_PACKET_EXPECTED_LENGTH = 35;
     private static final int HEARTBEAT_LENGTH = 12;
     private static final int ALARM_PACKET_LENGTH = 35;
+
+    // Validation configuration (add with other constants)
+    public enum ValidationMode {
+        STRICT,    // Reject invalid values
+        LENIENT,   // Clamp to nearest valid
+        RECOVER    // Attempt to recover sensible values
+    }
+
+    @Value("${gt06.validation.mode:STRICT}")
+    private ValidationMode validationMode;
+
+    @Value("${gt06.validation.hour.mode:}")
+    private Optional<ValidationMode> hourValidationMode;
 
     @Override
     public boolean supports(String protocolType) {
@@ -123,34 +140,66 @@ public class Gt06Handler implements ProtocolHandler {
 
     private byte[] generateErrorResponse(byte[] requestData, Exception error) {
         try {
-            byte[] defaultSerial = {0x00, 0x00};
-            byte[] serial = (requestData != null && requestData.length >= 4) ?
-                    new byte[]{requestData[requestData.length-4], requestData[requestData.length-3]} :
-                    defaultSerial;
+            byte[] serial = extractSerialNumber(requestData);
+            byte errorCode = getErrorCode(error);
+            String errorMsg = error.getMessage();
+
+            // Special handling for coordinate errors
+            if (errorMsg.contains("longitude") || errorMsg.contains("latitude")) {
+                logger.warn("Attempting coordinate recovery for IMEI {}", lastValidImei);
+                errorCode = (byte) 0x81; // Special code for recoverable coordinate error
+            }
 
             return ByteBuffer.allocate(13)
                     .order(ByteOrder.BIG_ENDIAN)
                     .put(PROTOCOL_HEADER_1)
                     .put(PROTOCOL_HEADER_2)
-                    .put((byte) 0x05) // Length
-                    .put((byte) 0x7F) // Error response code
+                    .put((byte) 0x05)
+                    .put((byte) 0x7F) // Error protocol
                     .put(serial[0])
                     .put(serial[1])
                     .put((byte) 0x00).put((byte) 0x00)
                     .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x00) // Error indicator
+                    .put(errorCode)
                     .put((byte) 0x0D).put((byte) 0x0A)
                     .array();
         } catch (Exception e) {
             logger.error("Failed to generate error response", e);
-            return new byte[] {
-                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                    0x05, (byte) 0x7F,
-                    0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x0D, 0x0A
-            };
+            return generateFallbackResponse((byte) 0x7F);
         }
+    }
+
+    private byte getErrorCode(Exception error) {
+        String message = error.getMessage();
+        if (message.contains("minute")) return 0x02;
+        if (message.contains("hour")) return 0x01;
+        if (message.contains("second")) return 0x03;
+        return (byte) 0xFF; // Unknown error
+    }
+
+    /**
+     * Extracts the serial number from a GT06 protocol packet
+     * @param data The raw packet data
+     * @return 2-byte array containing serial number
+     * @throws ProtocolException if packet is too short
+     */
+    private byte[] extractSerialNumber(byte[] data) throws ProtocolException {
+        if (data == null || data.length < 4) {
+            throw new ProtocolException("Packet too short for serial number extraction");
+        }
+
+        // Serial number is typically the last 4 bytes before checksum
+        return new byte[] {
+                data[data.length - 4], // First byte of serial
+                data[data.length - 3]  // Second byte of serial
+        };
+    }
+
+    private byte determineErrorCode(Exception error) {
+        if (error.getMessage().contains("hour")) return 0x01;
+        if (error.getMessage().contains("minute")) return 0x02;
+        if (error.getMessage().contains("second")) return 0x03;
+        return (byte) 0xFF; // Generic error
     }
 
     private void validateBasicPacketStructure(byte[] data) throws ProtocolException {
@@ -406,68 +455,212 @@ public class Gt06Handler implements ProtocolHandler {
 
         Position position = new Position();
         Device device = new Device();
-        device.setImei(lastValidImei != null ? lastValidImei : "UNKNOWN");
+        device.setImei(lastValidImei);
         device.setProtocolType("GT06");
         position.setDevice(device);
 
-        // Parse timestamp (YYMMDDHHMMSS)
-        int year = 2000 + (buffer.get() & 0xFF);
-        int month = validateRange(buffer.get() & 0xFF, 1, 12, "month");
-        int day = validateRange(buffer.get() & 0xFF, 1, 31, "day");
-        int hour = validateRange(buffer.get() & 0xFF, 0, 23, "hour");
-        int minute = validateRange(buffer.get() & 0xFF, 0, 59, "minute");
-        int second = validateRange(buffer.get() & 0xFF, 0, 59, "second");
-        position.setTimestamp(LocalDateTime.of(year, month, day, hour, minute, second));
+        try {
+            // Parse timestamp
+            position.setTimestamp(parseTimestamp(buffer));
 
-        // Parse GPS info
-        position.setValid(buffer.get() == 1);
+            // Parse GPS info
+            position.setValid(buffer.get() == 1);
 
-        // Convert coordinates from device format to decimal degrees
-        double latitude = buffer.getInt() / 1800000.0;
-        double longitude = buffer.getInt() / 1800000.0;
+            // Parse coordinates with enhanced validation
+            double latitude = buffer.getInt() / 1800000.0;
+            double longitude = buffer.getInt() / 1800000.0;
 
-        // Validate coordinates
-        validateCoordinates(latitude, longitude);
+            try {
+                validateCoordinates(latitude, longitude);
+            } catch (ProtocolException e) {
+                logger.warn("Coordinate validation failed for IMEI {}: {}",
+                        lastValidImei, e.getMessage());
+                throw e;
+            }
 
-        position.setLatitude(latitude);
-        position.setLongitude(longitude);
+            // Normalize coordinates
+            double normalizedLat = normalizedLatitude(latitude);
+            double normalizedLon = normalizedLongitude(longitude);
 
-        // Parse speed (convert from knots to km/h)
-        int speedKnots = buffer.get() & 0xFF;
-        position.setSpeed(Math.min(speedKnots * 1.852, 1000)); // Cap at 1000 km/h
+            position.setLatitude(normalizedLat);
+            position.setLongitude(normalizedLon);
 
-        // Parse course (0-359 degrees)
-        position.setCourse((double) (buffer.getShort() & 0xFFFF) % 360);
+            // Parse speed and course
+            position.setSpeed((buffer.get() & 0xFF) * 1.852); // Knots to km/h
+            position.setCourse((double) (buffer.getShort() & 0xFFFF));
 
-        return position;
+            logger.info("Processed location update for IMEI: {} - Lat: {}, Lon: {}",
+                    lastValidImei, normalizedLat, normalizedLon);
+
+            return position;
+        } catch (BufferUnderflowException e) {
+            throw new ProtocolException("Incomplete GPS data packet");
+        }
     }
 
-    private int validateRange(int value, int min, int max, String field) throws ProtocolException {
+    /**
+     * Normalizes latitude to ensure it's within valid range (-90 to 90)
+     * @param latitude Raw latitude value
+     * @return Normalized latitude value
+     * @throws ProtocolException if latitude cannot be normalized to valid range
+     */
+    private double normalizedLatitude(double latitude) throws ProtocolException {
+        // Check for NaN
+        if (Double.isNaN(latitude)) {
+            throw new ProtocolException("Latitude is not a number");
+        }
+
+        // Check for zero coordinates (common error)
+        if (latitude == 0.0) {
+            logger.warn("Zero latitude value from IMEI {}", lastValidImei);
+            throw new ProtocolException("Invalid zero latitude");
+        }
+
+        // Check if already in valid range
+        if (latitude >= -90 && latitude <= 90) {
+            return latitude;
+        }
+
+        // Attempt to normalize (for cases like 91° which might mean 89°)
+        double normalized = latitude;
+        if (latitude > 90) {
+            normalized = 90 - (latitude - 90);
+        } else if (latitude < -90) {
+            normalized = -90 + (-90 - latitude);
+        }
+
+        // Verify normalization worked
+        if (normalized >= -90 && normalized <= 90) {
+            logger.warn("Normalized latitude from {} to {}", latitude, normalized);
+            return normalized;
+        }
+
+        throw new ProtocolException(
+                String.format("Invalid latitude: %.6f (valid range -90 to 90)", latitude));
+    }
+
+    /**
+     * Normalizes longitude to ensure it's within valid range (-180 to 180)
+     * @param longitude Raw longitude value
+     * @return Normalized longitude value
+     * @throws ProtocolException if longitude cannot be normalized to valid range
+     */
+    private double normalizedLongitude(double longitude) throws ProtocolException {
+        // Check for NaN
+        if (Double.isNaN(longitude)) {
+            throw new ProtocolException("Longitude is not a number");
+        }
+
+        // Check for zero coordinates (common error)
+        if (longitude == 0.0) {
+            logger.warn("Zero longitude value from IMEI {}", lastValidImei);
+            throw new ProtocolException("Invalid zero longitude");
+        }
+
+        // Check if already in valid range
+        if (longitude >= -180 && longitude <= 180) {
+            return longitude;
+        }
+
+        // Normalize longitude to -180..180 range
+        double normalized = ((longitude + 180) % 360 + 360) % 360 - 180;
+
+        // Handle edge case where normalization might result in -180
+        if (normalized == -180) {
+            normalized = 180;
+        }
+
+        logger.warn("Normalized longitude from {} to {}", longitude, normalized);
+        return normalized;
+    }
+
+    private int validateRange(int value, int min, int max, String field)
+            throws ProtocolException {
         if (value < min || value > max) {
             throw new ProtocolException(
-                    String.format("Invalid %s value: %d (valid range %d-%d)", field, value, min, max)
-            );
+                    String.format("Invalid %s value: %d (valid range %d-%d)",
+                            field, value, min, max));
         }
         return value;
     }
 
-    private void validateCoordinates(double lat, double lon) throws ProtocolException {
-        // Validate latitude range (-90 to 90)
-        if (lat < -90 || lat > 90) {
-            throw new ProtocolException(String.format(
-                    "Invalid latitude: %.6f (valid range -90 to 90)", lat));
-        }
+    private LocalDateTime parseTimestamp(ByteBuffer buffer) throws ProtocolException {
+        try {
+            int year = 2000 + (buffer.get() & 0xFF);
+            int month = validateRange(buffer.get() & 0xFF, 1, 12, "month");
+            int day = validateRange(buffer.get() & 0xFF, 1, 31, "day");
 
-        // Validate longitude range (-180 to 180)
-        if (lon < -180 || lon > 180) {
-            throw new ProtocolException(String.format(
-                    "Invalid longitude: %.6f (valid range -180 to 180)", lon));
-        }
+            // Handle hour with original value preservation
+            int originalHour = buffer.get() & 0xFF;
+            int hour = originalHour;
+            ValidationMode hourMode = getModeForField("hour");
+            if (hourMode == ValidationMode.STRICT && (hour < 0 || hour > 23)) {
+                throw new ProtocolException("Invalid hour value: " + hour);
+            } else if (hourMode == ValidationMode.LENIENT) {
+                hour = Math.min(23, Math.max(0, hour));
+                if (hour != originalHour) {
+                    logger.warn("Adjusted hour from {} to {}", originalHour, hour);
+                }
+            }
 
-        // Additional validation for realistic coordinates
-        if (lat == 0 && lon == 0) {
+            // Handle minute with original value preservation
+            int originalMinute = buffer.get() & 0xFF;
+            int minute = originalMinute;
+            ValidationMode minuteMode = getModeForField("minute");
+            if (minuteMode == ValidationMode.STRICT && (minute < 0 || minute > 59)) {
+                throw new ProtocolException("Invalid minute value: " + minute);
+            } else if (minuteMode == ValidationMode.LENIENT) {
+                minute = Math.min(59, Math.max(0, minute));
+                if (minute != originalMinute) {
+                    logger.warn("Adjusted minute from {} to {}", originalMinute, minute);
+                }
+            }
+
+            int second = validateRange(buffer.get() & 0xFF, 0, 59, "second");
+
+            return LocalDateTime.of(year, month, day, hour, minute, second);
+        } catch (DateTimeException e) {
+            throw new ProtocolException("Invalid timestamp: " + e.getMessage());
+        }
+    }
+
+    private void validateCoordinates(double latitude, double longitude) throws ProtocolException {
+        // Check for "zero" coordinates (common error)
+        if (latitude == 0.0 && longitude == 0.0) {
             throw new ProtocolException("Invalid zero coordinates");
         }
+
+        // Validate latitude range
+        if (Double.isNaN(latitude) || latitude < -90 || latitude > 90) {
+            throw new ProtocolException(
+                    String.format("Invalid latitude: %.6f (valid range -90 to 90)", latitude));
+        }
+
+        // Enhanced longitude validation with recovery suggestions
+        if (Double.isNaN(longitude)) {
+            throw new ProtocolException("Longitude is not a number");
+        }
+
+        if (longitude < -180 || longitude > 180) {
+            // Try to normalize longitude that's just slightly out of range
+            double normalized = normalizeLongitude(longitude);
+            if (normalized >= -180 && normalized <= 180) {
+                logger.warn("Normalized longitude from {} to {}", longitude, normalized);
+                longitude = normalized;
+            } else {
+                throw new ProtocolException(
+                        String.format("Invalid longitude: %.6f (valid range -180 to 180)", longitude));
+            }
+        }
+    }
+
+    private double normalizeLongitude(double longitude) {
+        // Handle common cases where longitude is in 0-360 range
+        if (longitude > 180 && longitude <= 360) {
+            return longitude - 360;
+        }
+        // Handle wrapped longitudes
+        return ((longitude + 180) % 360) - 180;
     }
 
     private String extractAlarmType(byte[] data) {
@@ -656,5 +849,13 @@ public class Gt06Handler implements ProtocolHandler {
             response[11] = errorCode; // Set error code byte
         }
         return response;
+    }
+
+    // Helper method to get mode for specific field
+    private ValidationMode getModeForField(String field) {
+        return switch (field.toLowerCase()) {
+            case "hour" -> hourValidationMode.orElse(validationMode);
+            default -> validationMode;
+        };
     }
 }
