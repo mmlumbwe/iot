@@ -20,6 +20,7 @@ import java.io.OutputStream;
 import java.net.*;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -198,37 +199,18 @@ public class GpsServer {
 
             if (bytesRead > 0) {
                 byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
-                logger.info("Raw message from {}:{} - Hex: {}",
-                        clientAddress, clientPort, bytesToHex(receivedData));
+                logger.info("Received raw payload from {}:{} ({} bytes)",
+                        clientAddress, clientPort, bytesRead);
+                logHexDump(receivedData);
 
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Send response if available
-                    if (message.getParsedData().containsKey("response")) {
-                        byte[] response = (byte[]) message.getParsedData().get("response");
-                        output.write(response);
-                        output.flush();
-                        logger.info("Sent response to {}:{}", clientAddress, clientPort);
-                    }
+                    // Process response if available
+                    processResponse(output, message, clientAddress, clientPort);
 
                     // Process position if available
-                    if (message.getParsedData().containsKey("position")) {
-                        Position position = (Position) message.getParsedData().get("position");
-                        logger.info("Processing position for device {}", position.getDevice().getImei());
-
-                        try {
-                            // Save position with detailed logging
-                            Position savedPosition = positionService.processAndSavePosition(position);
-                            logger.info("Successfully persisted position ID {} for device {} at {}",
-                                    savedPosition.getId(),
-                                    savedPosition.getDevice().getImei(),
-                                    savedPosition.getTimestamp());
-                        } catch (Exception e) {
-                            logger.error("Failed to save position for device {}: {}",
-                                    position.getDevice().getImei(), e.getMessage(), e);
-                        }
-                    }
+                    processPosition(message, clientAddress, clientPort);
                 }
             }
         } catch (IOException e) {
@@ -237,13 +219,211 @@ public class GpsServer {
             logger.error("Unexpected error handling client {}:{} - {}",
                     clientAddress, clientPort, e.getMessage(), e);
         } finally {
-            logger.info("Closing connection with {}:{}", clientAddress, clientPort);
+            try {
+                clientSocket.close();
+                logger.info("Closed connection with {}:{}", clientAddress, clientPort);
+            } catch (IOException e) {
+                logger.warn("Error closing socket for {}:{} - {}",
+                        clientAddress, clientPort, e.getMessage());
+            }
+        }
+    }
+
+    private void processResponse(OutputStream output, DeviceMessage message,
+                                 String clientAddress, int clientPort) {
+        try {
+            if (message.getParsedData() != null && message.getParsedData().containsKey("response")) {
+                Object responseObj = message.getParsedData().get("response");
+                if (responseObj instanceof byte[]) {
+                    byte[] response = (byte[]) responseObj;
+                    output.write(response);
+                    output.flush();
+                    logger.info("Sent response to {}:{} ({} bytes)",
+                            clientAddress, clientPort, response.length);
+                } else {
+                    logger.warn("Invalid response type for {}:{} - expected byte[]",
+                            clientAddress, clientPort);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Failed to send response to {}:{} - {}",
+                    clientAddress, clientPort, e.getMessage());
+        }
+    }
+
+    private void processPosition(DeviceMessage message, String clientAddress, int clientPort) {
+        if (message.getParsedData() == null || !message.getParsedData().containsKey("position")) {
+            logger.debug("No position data in message from {}:{}", clientAddress, clientPort);
+            return;
+        }
+
+        Object positionObj = message.getParsedData().get("position");
+        if (!(positionObj instanceof Position)) {
+            logger.warn("Invalid position type from {}:{} - expected Position object",
+                    clientAddress, clientPort);
+            return;
+        }
+
+        Position position = (Position) positionObj;
+
+        if (position.getDevice() == null || position.getDevice().getImei() == null) {
+            logger.warn("Invalid position data from {}:{} - missing device or IMEI",
+                    clientAddress, clientPort);
+            return;
+        }
+
+        String imei = position.getDevice().getImei();
+        logger.info("Processing position for device {}", imei);
+
+        try {
+            Position savedPosition = positionService.processAndSavePosition(position);
+
+            if (savedPosition == null) {
+                logger.error("Position save operation returned null for device {}", imei);
+                return;
+            }
+
+            if (savedPosition.getId() == null) {
+                logger.error("Saved position has null ID for device {}", imei);
+                return;
+            }
+
+            logger.info("Successfully persisted position ID {} for device {} at {}",
+                    savedPosition.getId(), imei, savedPosition.getTimestamp());
+
+            // Debug logging of position details
+            if (logger.isDebugEnabled()) {
+                logger.debug("Position details - Lat: {}, Lon: {}, Speed: {}, Valid: {}",
+                        position.getLatitude(), position.getLongitude(),
+                        position.getSpeed(), position.isValid());
+            }
+        } catch (Exception e) {
+            logger.error("Failed to save position for device {}: {}", imei, e.getMessage(), e);
+        }
+    }
+
+    private void handleResponse(OutputStream output, DeviceMessage message,
+                                String clientAddress, int clientPort) {
+        try {
+            if (message.getParsedData() != null && message.getParsedData().containsKey("response")) {
+                Object responseObj = message.getParsedData().get("response");
+                if (responseObj instanceof byte[]) {
+                    byte[] response = (byte[]) responseObj;
+                    output.write(response);
+                    output.flush();
+                    logger.info("Sent response to {}:{} ({} bytes)",
+                            clientAddress, clientPort, response.length);
+                } else {
+                    logger.warn("Invalid response type for {}:{} - expected byte[]",
+                            clientAddress, clientPort);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Failed to send response to {}:{} - {}",
+                    clientAddress, clientPort, e.getMessage());
+        }
+    }
+
+    private void handlePosition(DeviceMessage message, String clientAddress, int clientPort) {
+        if (message.getParsedData() != null && message.getParsedData().containsKey("position")) {
+            Object positionObj = message.getParsedData().get("position");
+            if (positionObj instanceof Position) {
+                Position position = (Position) positionObj;
+
+                if (position.getDevice() == null || position.getDevice().getImei() == null) {
+                    logger.warn("Invalid position data from {}:{} - missing device or IMEI",
+                            clientAddress, clientPort);
+                    return;
+                }
+
+                logger.info("Processing position for device {}", position.getDevice().getImei());
+
+                try {
+                    Position savedPosition = positionService.processAndSavePosition(position);
+
+                    if (savedPosition != null && savedPosition.getId() != null) {
+                        logger.info("Successfully persisted position ID {} for device {} at {}",
+                                savedPosition.getId(),
+                                savedPosition.getDevice().getImei(),
+                                savedPosition.getTimestamp());
+
+                        // Log additional position details if debug enabled
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Position details - Lat: {}, Lon: {}, Speed: {}",
+                                    savedPosition.getLatitude(),
+                                    savedPosition.getLongitude(),
+                                    savedPosition.getSpeed());
+                        }
+                    } else {
+                        logger.error("Position save operation failed for device {} - returned null",
+                                position.getDevice().getImei());
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to save position for device {}: {}",
+                            position.getDevice().getImei(), e.getMessage(), e);
+                }
+            } else {
+                logger.warn("Invalid position type from {}:{} - expected Position object",
+                        clientAddress, clientPort);
+            }
+        }
+    }
+
+    private void handleUdpPacket(DatagramPacket packet) {
+        String clientAddress = packet.getAddress().getHostAddress();
+        int clientPort = packet.getPort();
+        byte[] data = Arrays.copyOf(packet.getData(), packet.getLength());
+
+        logUdpPacket(clientAddress, clientPort, data);
+
+        DeviceMessage message = processProtocolMessage(data);
+
+        if (message != null && message.getParsedData() != null) {
+            Map<String, Object> parsedData = message.getParsedData();
+
+            // Process position if available
+            if (parsedData.containsKey("position")) {
+                Object positionObj = parsedData.get("position");
+                if (positionObj instanceof Position) {
+                    Position position = (Position) positionObj;
+                    if (position.getDevice() != null && position.getDevice().getImei() != null) {
+                        try {
+                            Position savedPosition = positionService.processAndSavePosition(position);
+                            if (savedPosition != null && savedPosition.getId() != null) {
+                                logger.info("Successfully saved UDP position ID {} for device {}",
+                                        savedPosition.getId(),
+                                        savedPosition.getDevice().getImei());
+                            } else {
+                                logger.error("UDP position save operation returned null or invalid position");
+                            }
+                        } catch (Exception e) {
+                            logger.error("Failed to save UDP position for device {}: {}",
+                                    position.getDevice().getImei(), e.getMessage(), e);
+                        }
+                    } else {
+                        logger.warn("Invalid UDP position data - missing device or IMEI");
+                    }
+                } else {
+                    logger.warn("Invalid UDP position type in parsed data");
+                }
+            }
+
+            // Send response if available
+            if (parsedData.containsKey("response")) {
+                Object responseObj = parsedData.get("response");
+                if (responseObj instanceof byte[]) {
+                    sendUdpResponse(packet, message);
+                } else {
+                    logger.warn("Invalid UDP response type in parsed data");
+                }
+            }
         }
     }
 
     private DeviceMessage processProtocolMessage(byte[] data) {
         try {
             String protocol = protocolDetector.detectProtocol(data);
+            logger.debug("Detected protocol: {}", protocol);
 
             for (ProtocolHandler handler : protocolHandlers) {
                 if (handler.canHandle(protocol, null)) {
@@ -262,32 +442,9 @@ public class GpsServer {
 
             logger.warn("No handler found for protocol: {}", protocol);
         } catch (Exception e) {
-            logger.error("Error processing protocol message: {}", e.getMessage());
+            logger.error("Error processing protocol message: {}", e.getMessage(), e);
         }
         return null;
-    }
-
-    private void handleUdpPacket(DatagramPacket packet) {
-        String clientAddress = packet.getAddress().getHostAddress();
-        int clientPort = packet.getPort();
-        byte[] data = Arrays.copyOf(packet.getData(), packet.getLength());
-
-        logUdpPacket(clientAddress, clientPort, data);
-
-        DeviceMessage message = processProtocolMessage(data);
-
-        if (message != null) {
-            // Process position if available
-            if (message.getParsedData().containsKey("position")) {
-                Position position = (Position) message.getParsedData().get("position");
-                positionService.processPosition(position);
-            }
-
-            // Send response if available
-            if (message.getParsedData().containsKey("response")) {
-                sendUdpResponse(packet, message);
-            }
-        }
     }
 
     private void logHexDump(byte[] data) {
