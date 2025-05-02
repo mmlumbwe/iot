@@ -2,14 +2,15 @@ package com.assettrack.iot.service;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolHandler;
-import com.assettrack.iot.protocol.ProtocolHandlerFactory;
+import com.assettrack.iot.protocol.TeltonikaHandler;
+import com.assettrack.iot.protocol.Tk103Handler;
 import com.assettrack.iot.security.AuthService;
 import com.assettrack.iot.security.PayloadValidator;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -20,19 +21,19 @@ import java.util.Map;
 public class ProtocolService {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolService.class);
 
-    private final ProtocolHandlerFactory handlerFactory;
+    //private final ProtocolHandlerFactory handlerFactory;
     private final AuthService authService;
     private final PayloadValidator validator;
     private final DeviceStatusService deviceStatusService;
     private final PositionService positionService;
 
     //@Autowired
-    public ProtocolService(ProtocolHandlerFactory handlerFactory,
+    public ProtocolService(//ProtocolHandlerFactory handlerFactory,
                            AuthService authService,
                            PayloadValidator validator,
                            DeviceStatusService deviceStatusService,
                            PositionService positionService) {
-        this.handlerFactory = handlerFactory;
+        //this.handlerFactory = handlerFactory;
         this.authService = authService;
         this.validator = validator;
         this.deviceStatusService = deviceStatusService;
@@ -40,7 +41,7 @@ public class ProtocolService {
     }
 
     // If you need to maintain compatibility with DeviceMessage in ProtocolService:
-    public DeviceMessage convertToDeviceMessage(Position position, byte[] response) {
+    /*public DeviceMessage convertToDeviceMessage(Position position, byte[] response) {
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TK103");
         message.setMessageType(position == null ? "LOGIN" : "LOCATION");
@@ -56,7 +57,7 @@ public class ProtocolService {
         message.setParsedData(parsedData);
 
         return message;
-    }
+    }*/
 
     private String determineProtocolVersion(String protocol, byte[] data) {
         if ("GT06".equalsIgnoreCase(protocol)) {
@@ -199,6 +200,73 @@ public class ProtocolService {
     }
 
     public DeviceMessage parseData(String protocolType, byte[] data) {
-        return null;
+        try {
+            ProtocolHandler handler = getHandlerForProtocol(protocolType);
+
+            // Use the handler's parse method (assuming it exists)
+            Position position = handler.parsePosition(data);
+
+            // Generate response and convert to DeviceMessage
+            byte[] response = handler.generateResponse(position);
+            return convertToDeviceMessage(position, response);
+
+        } catch (Exception e) {
+            logger.warn("Failed to parse {} data: {}", protocolType, e.getMessage());
+            return createErrorMessage(protocolType, e);
+        }
+    }
+
+    private ProtocolHandler getHandlerForProtocol(String protocolType) throws ProtocolException {
+        switch (protocolType.toUpperCase()) {
+            case "GT06":
+                return new Gt06Handler();
+            case "TK103":
+                return new Tk103Handler();
+            case "TELTONIKA":
+                return new TeltonikaHandler();
+            default:
+                throw new ProtocolException("Unsupported protocol type: " + protocolType);
+        }
+    }
+
+    private DeviceMessage convertToDeviceMessage(Position position, byte[] response) {
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocol(position.getDevice().getProtocolType());
+        message.setMessageType(position == null ? "LOGIN" : "LOCATION");
+        message.setImei(position.getDevice().getImei());
+
+        Map<String, Object> parsedData = new HashMap<>();
+        parsedData.put("position", position);
+        parsedData.put("response", response);
+        message.setParsedData(parsedData);
+
+        return message;
+    }
+
+    private DeviceMessage createErrorMessage(String protocolType, Exception error) {
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocol(protocolType);
+        message.setMessageType("ERROR");
+        //message.setError(error.getMessage());
+
+        try {
+            // Generate basic error response
+            //message.setResponse(getBasicErrorResponse(protocolType));
+        } catch (Exception e) {
+            logger.error("Failed to generate error response", e);
+        }
+
+        return message;
+    }
+
+    private byte[] getBasicErrorResponse(String protocolType) {
+        switch (protocolType.toUpperCase()) {
+            case "GT06":
+                return new byte[] {0x78, 0x78, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x0A};
+            case "TK103":
+                return "ERROR".getBytes(StandardCharsets.US_ASCII);
+            default:
+                return "PROTOCOL_ERROR".getBytes(StandardCharsets.US_ASCII);
+        }
     }
 }

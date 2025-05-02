@@ -126,4 +126,9 @@ public class Device {
                 .max((p1, p2) -> p1.getTimestamp().compareTo(p2.getTimestamp()))
                 .orElse(null);
     }
+
+    /*public Device(String imei, String protocolType) {
+        this.imei = imei;
+        this.protocolType = protocolType;  // Ensure this is set
+    }*/
 }

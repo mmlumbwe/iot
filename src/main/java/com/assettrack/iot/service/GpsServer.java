@@ -2,10 +2,8 @@ package com.assettrack.iot.service;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
-import com.assettrack.iot.protocol.Gt06HandlerDispatcher;
 import com.assettrack.iot.protocol.ProtocolDetector;
-import com.assettrack.iot.protocol.ProtocolHandlerDispatcher;
-import com.assettrack.iot.repository.PositionRepository;
+import com.assettrack.iot.protocol.ProtocolHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.coyote.ProtocolException;
@@ -20,9 +18,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.*;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Map;
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -33,12 +30,9 @@ public class GpsServer {
     private static final int MAX_PACKET_SIZE = 2048;
     private static final int MAX_CONNECTION_AGE = 300000; // 5 minutes
 
-    private final ProtocolService protocolService;
-    private final PositionRepository positionRepository;
+    private final PositionService positionService;
     private final ExecutorService threadPool;
     private final AtomicBoolean running = new AtomicBoolean(false);
-
-    private final PositionService positionService;
     private DatagramSocket udpSocket;
 
     @Value("${gps.server.tcp.port:5023}")
@@ -54,30 +48,18 @@ public class GpsServer {
     private ProtocolDetector protocolDetector;
 
     @Autowired
-    private Gt06HandlerDispatcher gt06Dispatcher;
+    private List<ProtocolHandler> protocolHandlers;
 
-    @Autowired
-    private ProtocolHandlerDispatcher protocolDispatcher;
-
-    @Autowired
-    public GpsServer(ProtocolService protocolService,
-                     PositionRepository positionRepository, PositionService positionService,
+    public GpsServer(ProtocolService protocolService, PositionService positionService,
                      @Value("${gps.server.threads:10}") int maxThreads) {
         this.positionService = positionService;
         if (maxThreads <= 0) {
             throw new IllegalArgumentException("Thread pool size must be positive");
         }
 
-        this.protocolService = protocolService;
-        this.positionRepository = positionRepository;
         this.maxThreads = maxThreads;
         this.threadPool = Executors.newFixedThreadPool(maxThreads);
         logger.info("Initialized GPS Server with thread pool size: {}", maxThreads);
-        logger.info("GPS Server configured with:");
-        logger.info("- TCP Port: {}", tcpPort);
-        logger.info("- UDP Port: {}", udpPort);
-        logger.info("- Thread Pool Size: {}", maxThreads);
-        logger.info("GPS Server instance created with {} threads", maxThreads);
     }
 
     @PostConstruct
@@ -162,6 +144,7 @@ public class GpsServer {
     protected void startUdpServer() {
         logger.info("Starting UDP server on port {}", udpPort);
         try (DatagramSocket socket = new DatagramSocket(udpPort)) {
+            this.udpSocket = socket;
             socket.setSoTimeout(SOCKET_TIMEOUT);
             logger.info("UDP server successfully bound to port {}", udpPort);
 
@@ -205,6 +188,7 @@ public class GpsServer {
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
+        logger.info("Handling TCP client connection from {}:{}", clientAddress, clientPort);
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
@@ -214,89 +198,111 @@ public class GpsServer {
 
             if (bytesRead > 0) {
                 byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
+                logger.info("Raw message from {}:{} - Hex: {}",
+                        clientAddress, clientPort, bytesToHex(receivedData));
 
-                logger.info("Received raw payload from {}:{} ({} bytes)",
-                        clientAddress, clientPort, bytesRead);
-                logHexDump(receivedData);
+                DeviceMessage message = processProtocolMessage(receivedData);
 
-                // First try protocol dispatcher
-                try {
-                    String protocol = protocolDetector.detectProtocol(receivedData);
-                    if (!"UNKNOWN".equals(protocol)) {
-                        protocolDispatcher.handle(receivedData);
-                        DeviceMessage message = protocolDispatcher.handle(receivedData);
-
-                        // If we get here, the packet was handled successfully
-                        // Send response if needed (extracted from protocol-specific handler)
-                        if (protocolDispatcher.hasResponse()) {
-                            byte[] response = protocolDispatcher.getResponse();
-                            logger.info("Sending response to {}:{} ({} bytes)",
-                                    clientAddress, clientPort, response.length);
-                            output.write(response);
-                            output.flush();
-                        }
-                        if (message != null && message.getParsedData().containsKey("position")) {
-                            Position position = (Position) message.getParsedData().get("position");
-                            positionService.processPosition(position);
-                        }
-
-                        return;
-                    }
-                } catch (ProtocolException e) {
-                    logger.error("Protocol handling error from {}: {}", clientAddress, e.getMessage());
-                }
-
-                // Fallback to legacy protocol service only if dispatcher couldn't handle it
-                try {
-                    DeviceMessage message = protocolService.parseData(
-                            protocolDetector.detectProtocol(receivedData),
-                            receivedData
-                    );
-
-                    if (message != null && message.getParsedData().containsKey("response")) {
+                if (message != null) {
+                    // Send response if available
+                    if (message.getParsedData().containsKey("response")) {
                         byte[] response = (byte[]) message.getParsedData().get("response");
-                        logger.info("Sending legacy response to {}:{} ({} bytes)",
-                                clientAddress, clientPort, response.length);
                         output.write(response);
                         output.flush();
+                        logger.info("Sent response to {}:{}", clientAddress, clientPort);
                     }
-                } catch (ProtocolException e) {
-                    logger.error("Legacy protocol processing error from {}: {}",
-                            clientAddress, e.getMessage());
-                    byte[] errorResponse = protocolService.generateErrorResponse(
-                            protocolDetector.detectProtocol(receivedData),
-                            e
-                    );
-                    if (errorResponse != null) {
-                        output.write(errorResponse);
-                        output.flush();
+
+                    // Process position if available
+                    if (message.getParsedData().containsKey("position")) {
+                        Position position = (Position) message.getParsedData().get("position");
+                        logger.info("Processing position for device {}", position.getDevice().getImei());
+
+                        try {
+                            // Save position with detailed logging
+                            Position savedPosition = positionService.processAndSavePosition(position);
+                            logger.info("Successfully persisted position ID {} for device {} at {}",
+                                    savedPosition.getId(),
+                                    savedPosition.getDevice().getImei(),
+                                    savedPosition.getTimestamp());
+                        } catch (Exception e) {
+                            logger.error("Failed to save position for device {}: {}",
+                                    position.getDevice().getImei(), e.getMessage(), e);
+                        }
                     }
                 }
             }
         } catch (IOException e) {
-            logger.error("I/O error with client {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage());
+            logger.error("I/O error with client {}:{} - {}", clientAddress, clientPort, e.getMessage());
         } catch (Exception e) {
             logger.error("Unexpected error handling client {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage());
+                    clientAddress, clientPort, e.getMessage(), e);
+        } finally {
+            logger.info("Closing connection with {}:{}", clientAddress, clientPort);
+        }
+    }
+
+    private DeviceMessage processProtocolMessage(byte[] data) {
+        try {
+            String protocol = protocolDetector.detectProtocol(data);
+
+            for (ProtocolHandler handler : protocolHandlers) {
+                if (handler.canHandle(protocol, null)) {
+                    try {
+                        DeviceMessage message = handler.handle(data);
+                        logger.info("Processed {} message using {}",
+                                protocol, handler.getClass().getSimpleName());
+                        return message;
+                    } catch (ProtocolException e) {
+                        logger.warn("Handler {} failed to process message: {}",
+                                handler.getClass().getSimpleName(), e.getMessage());
+                        continue;
+                    }
+                }
+            }
+
+            logger.warn("No handler found for protocol: {}", protocol);
+        } catch (Exception e) {
+            logger.error("Error processing protocol message: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private void handleUdpPacket(DatagramPacket packet) {
+        String clientAddress = packet.getAddress().getHostAddress();
+        int clientPort = packet.getPort();
+        byte[] data = Arrays.copyOf(packet.getData(), packet.getLength());
+
+        logUdpPacket(clientAddress, clientPort, data);
+
+        DeviceMessage message = processProtocolMessage(data);
+
+        if (message != null) {
+            // Process position if available
+            if (message.getParsedData().containsKey("position")) {
+                Position position = (Position) message.getParsedData().get("position");
+                positionService.processPosition(position);
+            }
+
+            // Send response if available
+            if (message.getParsedData().containsKey("response")) {
+                sendUdpResponse(packet, message);
+            }
         }
     }
 
     private void logHexDump(byte[] data) {
+        if (!logger.isDebugEnabled()) return;
+
         StringBuilder hexDump = new StringBuilder();
         StringBuilder asciiDump = new StringBuilder();
 
         for (int i = 0; i < data.length; i++) {
-            // Hex portion
             hexDump.append(String.format("%02X ", data[i]));
-
-            // ASCII portion
             char c = (data[i] >= 32 && data[i] < 127) ? (char) data[i] : '.';
             asciiDump.append(c);
 
-            // Format 16 bytes per line
             if ((i + 1) % 16 == 0 || i == data.length - 1) {
-                logger.info("{}{} |{}|",
+                logger.debug("{}{} |{}|",
                         String.format("%04X: ", i - 15),
                         hexDump.toString(),
                         asciiDump.toString());
@@ -306,106 +312,36 @@ public class GpsServer {
         }
     }
 
-    private void handleUdpPacket(DatagramPacket packet) {
-        String clientAddress = packet.getAddress().getHostAddress();
-        int clientPort = packet.getPort();
-        byte[] data = Arrays.copyOf(packet.getData(), packet.getLength());
-
-        // 1. Log the incoming UDP payload
-        logUdpPacket(clientAddress, clientPort, data);
-
-        try {
-            // 2. Detect protocol type
-            String protocolType = protocolDetector.detectProtocol(data);
-            if ("GT06".equals(protocolType)) {
-                try {
-                    protocolDispatcher.handle(data);
-                } catch (ProtocolException e) {
-                    logger.error("Error handling protocol message", e);
-                }
-            }
-            if ("UNKNOWN".equals(protocolType)) {
-                logger.warn("Unknown protocol from {}:{} - first bytes: {}",
-                        clientAddress, clientPort, bytesToHex(Arrays.copyOf(data, Math.min(data.length, 8))));
-                return;
-            }
-
-            // 3. Parse protocol data
-            DeviceMessage message = protocolService.parseData(protocolType, data);
-            if (message == null) {
-                logger.warn("No message parsed from {}:{} for protocol {}",
-                        clientAddress, clientPort, protocolType);
-                return;
-            }
-
-            // 4. Process the message
-            processUdpMessage(clientAddress, clientPort, message);
-
-            // 5. Send response if available
-            sendUdpResponse(packet, message);
-
-        } catch (ProtocolException e) {
-            logger.error("Protocol error processing UDP from {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage());
-        } catch (Exception e) {
-            logger.error("Unexpected error handling UDP packet from {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage(), e);
-        }
-    }
-
     private void logUdpPacket(String address, int port, byte[] data) {
         if (logger.isDebugEnabled()) {
-            String hexDump = formatHexDump(data);
             logger.debug("UDP packet from {}:{} ({} bytes):\n{}",
-                    address, port, data.length, hexDump);
+                    address, port, data.length, formatHexDump(data));
         } else {
             logger.info("UDP packet from {}:{} ({} bytes) - {}...",
                     address, port, data.length, bytesToHex(Arrays.copyOf(data, Math.min(data.length, 8))));
         }
     }
 
-    private void processUdpMessage(String address, int port, DeviceMessage message) {
-        logger.info("Processing {} {} message from {}:{}",
-                message.getProtocol(), message.getMessageType(), address, port);
-
-        // Handle position data
-        if (message.getParsedData().containsKey("position")) {
-            Position position = (Position) message.getParsedData().get("position");
-            positionService.processPosition(position);
-        }
-
-        // Handle status updates
-        /*if (message.getParsedData().containsKey("status")) {
-            deviceService.updateStatus(
-                    message.getImei(),
-                    (Map<String, Object>) message.getParsedData().get("status")
-            );
-        }*/
-    }
-
     private void sendUdpResponse(DatagramPacket receivedPacket, DeviceMessage message) {
         try {
-            if (message.getParsedData().containsKey("response")) {
-                byte[] response = (byte[]) message.getParsedData().get("response");
-                DatagramPacket responsePacket = new DatagramPacket(
-                        response,
-                        response.length,
-                        receivedPacket.getAddress(),
-                        receivedPacket.getPort()
-                );
+            byte[] response = (byte[]) message.getParsedData().get("response");
+            DatagramPacket responsePacket = new DatagramPacket(
+                    response,
+                    response.length,
+                    receivedPacket.getAddress(),
+                    receivedPacket.getPort()
+            );
 
-                udpSocket.send(responsePacket);
-                logger.debug("Sent UDP response to {}:{} ({} bytes)",
-                        receivedPacket.getAddress().getHostAddress(),
-                        receivedPacket.getPort(),
-                        response.length);
-            }
+            udpSocket.send(responsePacket);
+            logger.debug("Sent UDP response to {}:{} ({} bytes)",
+                    receivedPacket.getAddress().getHostAddress(),
+                    receivedPacket.getPort(),
+                    response.length);
         } catch (IOException e) {
             logger.error("Failed to send UDP response", e);
         }
     }
 
-    // Utility methods
     private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
@@ -419,10 +355,8 @@ public class GpsServer {
         int offset = 0;
 
         while (offset < data.length) {
-            // Offset
             output.append(String.format("%04X: ", offset));
 
-            // Hex bytes
             for (int i = 0; i < 16; i++) {
                 if (offset + i < data.length) {
                     output.append(String.format("%02X ", data[offset + i]));
@@ -432,7 +366,6 @@ public class GpsServer {
                 if (i == 7) output.append(" ");
             }
 
-            // ASCII representation
             output.append(" ");
             for (int i = 0; i < 16; i++) {
                 if (offset + i < data.length) {
@@ -447,5 +380,4 @@ public class GpsServer {
 
         return output.toString();
     }
-
 }
