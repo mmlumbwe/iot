@@ -712,7 +712,7 @@ public class Gt06Handler implements ProtocolHandler {
                 String imeiHex = imeiHexBuilder.toString();
 
                 StringBuilder imeiDigits = new StringBuilder();
-                for (char c : imeiHex.substring(2).toCharArray()) { // Skip the first byte (08)
+                for (char c : imeiHex.toCharArray()) {
                     if (Character.isDigit(c)) {
                         imeiDigits.append(c);
                     }
@@ -722,10 +722,10 @@ public class Gt06Handler implements ProtocolHandler {
 
                 if (imeiResult.length() >= 15) {
                     imeiResult = imeiResult.substring(0, 15);
-                    logger.info("Extracted IMEI (Hex Interpreted - Skipping First Byte): {}", imeiResult);
+                    logger.info("Extracted IMEI (Hex Interpreted): {}", imeiResult);
                     return imeiResult;
                 } else {
-                    logger.warn("Could not extract a 15-digit IMEI (skipping first byte) from hex: {}", imeiHex);
+                    logger.warn("Could not extract a 15-digit IMEI from the 8-byte hex: {}", imeiHex);
                 }
             } else {
                 logger.warn("Login packet too short to contain IMEI.");
