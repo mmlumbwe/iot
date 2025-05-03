@@ -700,74 +700,43 @@ public class Gt06Handler implements ProtocolHandler {
         return buffer.array();
     }
 
-    /**
-     * Extracts and corrects the IMEI from GT06 protocol login packets
-     * Handles the specific format used by JM-VL03 devices:
-     * - IMEI sent as 15 ASCII characters
-     * - Contains leading zero that should be removed
-     * - Missing final digit '6' that needs to be appended
-     */
     private String parseImei(byte[] data) throws ProtocolException {
-        // Corrected packet length requirements:
-        // Header (2) + Length (1) + Protocol (1) + IMEI (15) + CRC (2) + Footer (2) = 23 bytes theoretical
-        // But your packets show 22 bytes working, so we'll adjust minimum to 22
-        final int MIN_LOGIN_PACKET_LENGTH = 22;
-        final int IMEI_START_OFFSET = 4;
-        final int IMEI_LENGTH = 15;
-
+        Logger logger = LoggerFactory.getLogger(getClass());
         try {
-            // Validate packet length (now accepting 22 bytes)
-            if (data.length < MIN_LOGIN_PACKET_LENGTH) {
-                throw new ProtocolException(String.format(
-                        "Packet too short (%d bytes). Needs at least %d bytes",
-                        data.length, MIN_LOGIN_PACKET_LENGTH));
+            // Concox Login Packet IMEI is typically 8 bytes (from index 4)
+            if (data.length >= 12) { // Start bit (2) + Length (1) + Protocol (1) + IMEI (8)
+                byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
+                StringBuilder imeiStrBuilder = new StringBuilder();
+                for (byte b : imeiBytes) {
+                    imeiStrBuilder.append(String.format("%02x", b));
+                }
+                String imeiHex = imeiStrBuilder.toString();
+
+                // Attempt to interpret the 8-byte hex as the 15-digit IMEI
+                StringBuilder imeiDigits = new StringBuilder();
+                for (char c : imeiHex.toCharArray()) {
+                    if (Character.isDigit(c)) {
+                        imeiDigits.append(c);
+                    }
+                }
+
+                String imeiResult = imeiDigits.toString();
+
+                if (imeiResult.length() >= 15) {
+                    imeiResult = imeiResult.substring(0, 15);
+                    logger.info("Extracted IMEI (Hex Interpreted): {}", imeiResult);
+                    return imeiResult;
+                } else {
+                    logger.info("Could not extract a 15-digit IMEI from the 8-byte hex: {}", imeiHex);
+                }
+            } else {
+                logger.info("Login packet too short to contain IMEI.");
             }
 
-            // Verify we have enough bytes for IMEI extraction
-            if (data.length < IMEI_START_OFFSET + IMEI_LENGTH) {
-                throw new ProtocolException(String.format(
-                        "Not enough bytes (%d) for IMEI extraction (needs %d)",
-                        data.length, IMEI_START_OFFSET + IMEI_LENGTH));
-            }
+            throw new ProtocolException("Failed to extract IMEI.");
 
-            // Extract ASCII IMEI (15 characters starting at byte 4)
-            String rawImei = new String(data, IMEI_START_OFFSET, IMEI_LENGTH, StandardCharsets.US_ASCII);
-
-            // Validate IMEI contains only digits
-            if (!rawImei.matches("^\\d{15}$")) {
-                // Diagnostic logging for malformed IMEI
-                logger.warn("Invalid IMEI format - raw bytes: {}",
-                        Arrays.toString(Arrays.copyOfRange(data, IMEI_START_OFFSET, IMEI_START_OFFSET + IMEI_LENGTH)));
-                throw new ProtocolException("Invalid IMEI format: " + rawImei);
-            }
-
-            // JM-VL03 specific transformation:
-            // Received: 086247605112414 (15 chars)
-            // Actual:   862476051124146 (remove leading 0, add trailing 6)
-            if (!rawImei.startsWith("0")) {
-                logger.warn("Unexpected IMEI format - expected leading zero: {}", rawImei);
-            }
-
-            String correctedImei = rawImei.substring(1) + "6";
-
-            // Final validation
-            if (!correctedImei.matches("^\\d{15}$")) {
-                throw new ProtocolException("Corrected IMEI invalid: " + correctedImei);
-            }
-
-            logger.debug("IMEI transformation successful: {} -> {}", rawImei, correctedImei);
-            return correctedImei;
-
-        } catch (IndexOutOfBoundsException e) {
-            throw new ProtocolException("IMEI extraction failed - packet structure invalid: " + e.getMessage());
-        } catch (Exception e) {
-            // Include hex dump for troubleshooting
-            String packetHex = (data != null && data.length > 0)
-                    ? Hex.encodeHexString(data)
-                    : "null/empty";
-            logger.error("IMEI extraction failed for packet ({} bytes): {}",
-                    data != null ? data.length : 0, packetHex);
-            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new ProtocolException("IMEI extraction failed due to insufficient data: " + e.getMessage());
         }
     }
 
