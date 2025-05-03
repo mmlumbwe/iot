@@ -15,6 +15,7 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -699,34 +700,40 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // Some devices send IMEI as ASCII characters
-            if (data.length >= 17 && Character.isDigit(data[2])) {
-                String imeiStr = new String(data, 2, 15, StandardCharsets.US_ASCII);
-                if (imeiStr.matches("^\\d{15}$")) {
-                    logger.info("Extracted ASCII IMEI: {}", imeiStr);
-                    return imeiStr;
-                }
+            // GT06 login packet structure:
+            // [0x78, 0x78] - header
+            // [length] - packet length
+            // [0x01] - protocol number (login)
+            // [IMEI] - 8 bytes containing 15-digit IMEI
+            if (data.length < 17) {  // Minimum login packet size
+                throw new ProtocolException("Packet too short for IMEI extraction");
             }
 
-            // Fall back to binary extraction
+            // The IMEI starts at byte 4 (after 0x78, 0x78, length, 0x01)
             StringBuilder imei = new StringBuilder(15);
-            for (int i = 2; i <= 9; i++) {
+            for (int i = 4; i <= 11; i++) {  // Bytes 4-11 contain the IMEI
                 byte b = data[i];
+                // First nibble (high 4 bits)
                 imei.append((b >> 4) & 0x0F);
+                // Second nibble (low 4 bits) - except we might stop at 15 digits
                 if (imei.length() < 15) {
                     imei.append(b & 0x0F);
                 }
             }
 
             String imeiStr = imei.toString();
+
             if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
+                // Diagnostic logging
+                logger.error("Invalid IMEI format - raw bytes: {}",
+                        Arrays.toString(Arrays.copyOfRange(data, 4, 12)));
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
 
-            logger.info("Extracted binary IMEI: {}", imeiStr);
+            logger.info("Successfully extracted IMEI: {}", imeiStr);
             return imeiStr;
-        } catch (Exception e) {
-            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
+        } catch (IndexOutOfBoundsException e) {
+            throw new ProtocolException("IMEI extraction failed: insufficient data");
         }
     }
 
