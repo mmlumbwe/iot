@@ -712,7 +712,9 @@ public class Gt06Handler implements ProtocolHandler {
                 String imeiHex = imeiHexBuilder.toString();
 
                 StringBuilder imeiDigits = new StringBuilder();
-                for (char c : imeiHex.toCharArray()) {
+                // Start from the second character (index 1) of the hex string
+                for (int i = 1; i < imeiHex.length(); i++) {
+                    char c = imeiHex.charAt(i);
                     if (Character.isDigit(c)) {
                         imeiDigits.append(c);
                     }
@@ -722,10 +724,10 @@ public class Gt06Handler implements ProtocolHandler {
 
                 if (imeiResult.length() >= 15) {
                     imeiResult = imeiResult.substring(0, 15);
-                    logger.info("Extracted IMEI (Hex Interpreted): {}", imeiResult);
+                    logger.info("Extracted IMEI (Starting Hex at Index 1): {}", imeiResult);
                     return imeiResult;
                 } else {
-                    logger.warn("Could not extract a 15-digit IMEI from the 8-byte hex: {}", imeiHex);
+                    logger.warn("Could not extract a 15-digit IMEI (starting hex at index 1) from: {}", imeiHex);
                 }
             } else {
                 logger.warn("Login packet too short to contain IMEI.");
