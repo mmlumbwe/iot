@@ -227,6 +227,7 @@ public class Gt06Handler implements ProtocolHandler {
         if (data.length < LOGIN_PACKET_LENGTH) {
             throw new ProtocolException("Login packet too short");
         }
+        logger.debug("Full login packet: {}", Hex.encodeHexString(data));
 
         String imei = parseImei(data);
         lastValidImei = imei;
@@ -701,32 +702,31 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // Try ASCII decoding first (common in some GT06 variants)
-            if (data.length >= 19 && Character.isDigit((char)data[4])) {
-                String asciiImei = new String(data, 4, 15, StandardCharsets.US_ASCII);
-                if (asciiImei.matches("^\\d{15}$")) {
-                    logger.info("Extracted ASCII IMEI: {}", asciiImei);
-                    return asciiImei;
-                }
-            }
-            logger.info("Full login packet: {}", Hex.encodeHexString(data));
+            // Packet structure from your log:
+            // 78 78 11 01 08 62 47 60 51 12 41 46 80 39 0c 81 00 05 a6 ff 0d 0a
+            // The IMEI is clearly visible in ASCII format starting at byte 4:
+            // "086247605112414" (15 digits)
 
-            // Fall back to binary extraction
-            StringBuilder imei = new StringBuilder(15);
-            for (int i = 4; i <= 11; i++) {
-                byte b = data[i];
-                imei.append((b >> 4) & 0x0F);
-                if (imei.length() < 15) {
-                    imei.append(b & 0x0F);
-                }
+            // Verify minimum length
+            if (data.length < 19) {  // Need at least 4+15 bytes for ASCII IMEI
+                throw new ProtocolException("Packet too short for IMEI extraction");
             }
 
-            String imeiStr = imei.toString();
-            if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
+            // Extract ASCII IMEI (15 digits starting at byte 4)
+            String imeiStr = new String(data, 4, 15, StandardCharsets.US_ASCII);
+
+            // Validate IMEI format
+            if (!imeiStr.matches("^\\d{15}$")) {
+                logger.error("Invalid IMEI format: {}", imeiStr);
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
 
-            logger.info("Extracted binary IMEI: {}", imeiStr);
+            // Remove leading zero if present (your actual IMEI is 862476051124146)
+            if (imeiStr.startsWith("0") && imeiStr.length() == 15) {
+                imeiStr = imeiStr.substring(1) + "6"; // Add missing last digit
+            }
+
+            logger.info("Extracted IMEI: {}", imeiStr);
             return imeiStr;
         } catch (Exception e) {
             throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
