@@ -698,15 +698,28 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            StringBuilder imei = new StringBuilder();
-            for (int i = 4; i <= 10; i++) {
-                imei.append((data[i] >> 4) & 0x0F);
-                imei.append(data[i] & 0x0F);
+            // GT06 login packet has IMEI starting at byte 2 (after headers)
+            if (data.length < 17) {  // Minimum login packet size
+                throw new ProtocolException("Packet too short for IMEI extraction");
             }
-            imei.append((data[11] >> 4) & 0x0F);
+
+            StringBuilder imei = new StringBuilder(15);
+
+            // Convert each nibble to a digit (15 digits = 8 bytes)
+            for (int i = 2; i <= 9; i++) {  // Bytes 2-9 contain the IMEI
+                byte b = data[i];
+                // First nibble (high 4 bits)
+                imei.append((b >> 4) & 0x0F);
+                // Second nibble (low 4 bits) - except last byte which may have only one nibble
+                if (i < 9 || imei.length() < 15) {
+                    imei.append(b & 0x0F);
+                }
+            }
 
             String imeiStr = imei.toString();
-            if (!imeiStr.matches("^\\d{15}$")) {
+
+            // Validate IMEI length and format
+            if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
 
