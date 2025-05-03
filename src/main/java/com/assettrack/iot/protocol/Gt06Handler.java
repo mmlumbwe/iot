@@ -703,18 +703,16 @@ public class Gt06Handler implements ProtocolHandler {
     private String parseImei(byte[] data) throws ProtocolException {
         Logger logger = LoggerFactory.getLogger(getClass());
         try {
-            // Concox Login Packet IMEI is typically 8 bytes (from index 4)
-            if (data.length >= 12) { // Start bit (2) + Length (1) + Protocol (1) + IMEI (8)
+            if (data.length >= 12) {
                 byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
-                StringBuilder imeiStrBuilder = new StringBuilder();
+                StringBuilder imeiHexBuilder = new StringBuilder();
                 for (byte b : imeiBytes) {
-                    imeiStrBuilder.append(String.format("%02x", b));
+                    imeiHexBuilder.append(String.format("%02x", b));
                 }
-                String imeiHex = imeiStrBuilder.toString();
+                String imeiHex = imeiHexBuilder.toString();
 
-                // Attempt to interpret the 8-byte hex as the 15-digit IMEI
                 StringBuilder imeiDigits = new StringBuilder();
-                for (char c : imeiHex.toCharArray()) {
+                for (char c : imeiHex.substring(2).toCharArray()) { // Skip the first byte (08)
                     if (Character.isDigit(c)) {
                         imeiDigits.append(c);
                     }
@@ -724,13 +722,13 @@ public class Gt06Handler implements ProtocolHandler {
 
                 if (imeiResult.length() >= 15) {
                     imeiResult = imeiResult.substring(0, 15);
-                    logger.info("Extracted IMEI (Hex Interpreted): {}", imeiResult);
+                    logger.info("Extracted IMEI (Hex Interpreted - Skipping First Byte): {}", imeiResult);
                     return imeiResult;
                 } else {
-                    logger.info("Could not extract a 15-digit IMEI from the 8-byte hex: {}", imeiHex);
+                    logger.warn("Could not extract a 15-digit IMEI (skipping first byte) from hex: {}", imeiHex);
                 }
             } else {
-                logger.info("Login packet too short to contain IMEI.");
+                logger.warn("Login packet too short to contain IMEI.");
             }
 
             throw new ProtocolException("Failed to extract IMEI.");
