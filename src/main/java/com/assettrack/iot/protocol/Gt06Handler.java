@@ -708,17 +708,26 @@ public class Gt06Handler implements ProtocolHandler {
      * - Missing final digit '6' that needs to be appended
      */
     private String parseImei(byte[] data) throws ProtocolException {
-        // Minimum length check (2 start + 1 length + 1 protocol + 15 IMEI + 2 checksum + 2 stop = 23 bytes)
-        final int MIN_LOGIN_PACKET_LENGTH = 23;
+        // Corrected packet length requirements:
+        // Header (2) + Length (1) + Protocol (1) + IMEI (15) + CRC (2) + Footer (2) = 23 bytes theoretical
+        // But your packets show 22 bytes working, so we'll adjust minimum to 22
+        final int MIN_LOGIN_PACKET_LENGTH = 22;
         final int IMEI_START_OFFSET = 4;
         final int IMEI_LENGTH = 15;
 
         try {
-            // Validate packet length
+            // Validate packet length (now accepting 22 bytes)
             if (data.length < MIN_LOGIN_PACKET_LENGTH) {
                 throw new ProtocolException(String.format(
-                        "Packet too short (%d bytes). Needs at least %d bytes for login packet",
+                        "Packet too short (%d bytes). Needs at least %d bytes",
                         data.length, MIN_LOGIN_PACKET_LENGTH));
+            }
+
+            // Verify we have enough bytes for IMEI extraction
+            if (data.length < IMEI_START_OFFSET + IMEI_LENGTH) {
+                throw new ProtocolException(String.format(
+                        "Not enough bytes (%d) for IMEI extraction (needs %d)",
+                        data.length, IMEI_START_OFFSET + IMEI_LENGTH));
             }
 
             // Extract ASCII IMEI (15 characters starting at byte 4)
@@ -726,6 +735,9 @@ public class Gt06Handler implements ProtocolHandler {
 
             // Validate IMEI contains only digits
             if (!rawImei.matches("^\\d{15}$")) {
+                // Diagnostic logging for malformed IMEI
+                logger.warn("Invalid IMEI format - raw bytes: {}",
+                        Arrays.toString(Arrays.copyOfRange(data, IMEI_START_OFFSET, IMEI_START_OFFSET + IMEI_LENGTH)));
                 throw new ProtocolException("Invalid IMEI format: " + rawImei);
             }
 
@@ -743,17 +755,18 @@ public class Gt06Handler implements ProtocolHandler {
                 throw new ProtocolException("Corrected IMEI invalid: " + correctedImei);
             }
 
-            logger.debug("IMEI transformation: {} -> {}", rawImei, correctedImei);
+            logger.debug("IMEI transformation successful: {} -> {}", rawImei, correctedImei);
             return correctedImei;
 
         } catch (IndexOutOfBoundsException e) {
-            throw new ProtocolException("IMEI extraction failed - insufficient data: " + e.getMessage());
+            throw new ProtocolException("IMEI extraction failed - packet structure invalid: " + e.getMessage());
         } catch (Exception e) {
             // Include hex dump for troubleshooting
             String packetHex = (data != null && data.length > 0)
                     ? Hex.encodeHexString(data)
                     : "null/empty";
-            logger.error("IMEI extraction failed for packet: {}", packetHex);
+            logger.error("IMEI extraction failed for packet ({} bytes): {}",
+                    data != null ? data.length : 0, packetHex);
             throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
         }
     }
