@@ -702,77 +702,69 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // Minimum length check
-            if (data.length < 19) {
-                throw new ProtocolException("Packet too short for IMEI extraction");
+            // Concox Login Packet IMEI is typically 8 bytes (16 hex characters)
+            if (data.length >= 12) { // Start bit (2) + Length (1) + Protocol (1) + IMEI (8)
+                byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
+                StringBuilder imeiStrBuilder = new StringBuilder();
+                for (byte b : imeiBytes) {
+                    imeiStrBuilder.append(String.format("%02x", b));
+                }
+                String imeiHex = imeiStrBuilder.toString();
+
+                // Attempt to interpret the 8-byte hex as the 15-digit IMEI
+                // This might require device-specific knowledge of the encoding.
+                // A common approach is to treat it as BCD or packed digits.
+
+                StringBuilder imeiDigits = new StringBuilder();
+                for (int i = 0; i < imeiHex.length(); i++) {
+                    char c = imeiHex.charAt(i);
+                    if (Character.isDigit(c)) {
+                        imeiDigits.append(c);
+                    }
+                }
+
+                String imeiResult = imeiDigits.toString();
+
+                // Further validation and potential device-specific logic
+                if (imeiResult.length() >= 15) {
+                    imeiResult = imeiResult.substring(0, 15); // Take the first 15 digits if longer
+                    logger.info("Extracted IMEI (Hex Interpreted): {}", imeiResult);
+                    return imeiResult;
+                } else {
+                    logger.warn("Could not extract a 15-digit IMEI from the 8-byte hex: {}", imeiHex);
+                }
+            } else {
+                logger.warn("Login packet too short to contain IMEI.");
             }
 
-            // Attempt ASCII extraction first
-            if (isAsciiImei(data, 4, 15)) {
-                String asciiImei = extractAsciiImei(data);
-                if (asciiImei != null) {
-                    return asciiImei;
+            // Fallback to the original binary extraction (keep for potential other packet types)
+            StringBuilder imeiBinary = new StringBuilder(15);
+            for (int i = 4; i <= 11; i++) {
+                if (i < data.length) {
+                    imeiBinary.append((data[i] >> 4) & 0x0F);
+                    if (imeiBinary.length() < 15 && i < data.length - 1) {
+                        imeiBinary.append(data[i] & 0x0F);
+                    }
                 }
             }
 
-            // Fall back to binary extraction
-            String binaryImei = extractBinaryImei(data);
-            if (binaryImei != null) {
-                return binaryImei;
-            }
-
-            throw new ProtocolException("Could not extract valid IMEI from packet");
-
-        } catch (Exception e) {
-            logger.error("IMEI extraction failed for packet: {}", Hex.encodeHexString(data));
-            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
-        }
-    }
-
-    private boolean isAsciiImei(byte[] data, int offset, int length) {
-        for (int i = offset; i < offset + length; i++) {
-            byte b = data[i];
-            if (b < 0x30 || b > 0x39) { // Check if byte is not a digit (0-9)
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private String extractAsciiImei(byte[] data) {
-        try {
-            String rawImei = new String(data, 4, 15, StandardCharsets.US_ASCII);
-            if (rawImei.matches("^\\d{15}$")) {
-                // Transformation for your specific device format
-                if (rawImei.startsWith("0")) {
-                    return rawImei.substring(1) + "6";
+            String imeiBinaryStr = imeiBinary.toString();
+            if (imeiBinaryStr.length() >= 15) {
+                imeiBinaryStr = imeiBinaryStr.substring(0, 15);
+                if (!imeiBinaryStr.matches("^\\d{15}$")) {
+                    throw new ProtocolException("Invalid IMEI format (Binary): " + imeiBinaryStr);
                 }
-                return rawImei;
+                logger.info("Extracted binary IMEI (Fallback): {}", imeiBinaryStr);
+                return imeiBinaryStr;
+            } else {
+                logger.warn("Could not extract a 15-digit IMEI using binary fallback.");
             }
-        } catch (Exception e) {
-            logger.warn("ASCII IMEI extraction failed", e);
-        }
-        return null;
-    }
 
-    private String extractBinaryImei(byte[] data) {
-        try {
-            StringBuilder imei = new StringBuilder(15);
-            for (int i = 4; i <= 11; i++) { // Binary IMEI is typically 8 bytes
-                byte b = data[i];
-                imei.append((b >> 4) & 0x0F); // High nibble
-                if (imei.length() < 15) {
-                    imei.append(b & 0x0F); // Low nibble
-                }
-            }
-            String imeiStr = imei.toString();
-            if (imeiStr.matches("^\\d{15}$")) {
-                return imeiStr;
-            }
-        } catch (Exception e) {
-            logger.warn("Binary IMEI extraction failed", e);
+            throw new ProtocolException("Failed to extract IMEI.");
+
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new ProtocolException("IMEI extraction failed due to insufficient data: " + e.getMessage());
         }
-        return null;
     }
 
     private Map<String, Object> extractDeviceInfo(byte[] data) {
