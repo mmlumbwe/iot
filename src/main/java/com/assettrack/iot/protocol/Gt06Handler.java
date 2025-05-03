@@ -702,36 +702,28 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // Try ASCII decoding first
-            if (data.length >= 19 && Character.isDigit((char)data[4])) {
-                String imeiStr = new String(data, 4, 15, StandardCharsets.US_ASCII);
-                if (imeiStr.matches("^\\d{15}$")) {
-                    // Handle your device's specific formatting
-                    if (imeiStr.startsWith("0") && imeiStr.length() == 15) {
-                        imeiStr = imeiStr.substring(1) + "6";
-                    }
-                    logger.info("Extracted ASCII IMEI: {}", imeiStr);
-                    return imeiStr;
-                }
+            // Verify minimum packet length
+            if (data.length < 19) {
+                throw new ProtocolException("Packet too short for IMEI extraction");
             }
 
-            // Fall back to binary extraction if ASCII fails
-            StringBuilder imei = new StringBuilder(15);
-            for (int i = 4; i <= 11; i++) {
-                byte b = data[i];
-                imei.append((b >> 4) & 0x0F);
-                if (imei.length() < 15) {
-                    imei.append(b & 0x0F);
-                }
+            // The IMEI is sent in ASCII format starting at byte 4 (15 characters)
+            String rawImei = new String(data, 4, 15, StandardCharsets.US_ASCII);
+
+            // Validate it's 15 digits
+            if (!rawImei.matches("^\\d{15}$")) {
+                throw new ProtocolException("Invalid IMEI format: " + rawImei);
             }
 
-            String imeiStr = imei.toString();
-            if (!imeiStr.matches("^\\d{15}$")) {
-                throw new ProtocolException("Invalid IMEI format: " + imeiStr);
-            }
+            // Transform the received IMEI to the correct format:
+            // Received: 086247605112414
+            // Actual:   862476051124146
+            String correctedImei = rawImei.substring(1) + "6";
 
-            logger.info("Extracted binary IMEI: {}", imeiStr);
-            return imeiStr;
+            logger.info("Extracted IMEI: {} (corrected from device value: {})",
+                    correctedImei, rawImei);
+
+            return correctedImei;
         } catch (Exception e) {
             throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
         }
