@@ -701,43 +701,67 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private String parseImei(byte[] data) throws ProtocolException {
-        Logger logger = LoggerFactory.getLogger(getClass());
+        final Logger logger = LoggerFactory.getLogger(getClass());
+        final int IMEI_START = 4;
+        final int IMEI_END = 12;
+        final int REQUIRED_IMEI_LENGTH = 15;
+
         try {
-            if (data.length >= 12) {
-                byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
-                StringBuilder imeiHexBuilder = new StringBuilder();
-                for (byte b : imeiBytes) {
-                    imeiHexBuilder.append(String.format("%02x", b));
-                }
-                String imeiHex = imeiHexBuilder.toString();
-
-                StringBuilder imeiDigits = new StringBuilder();
-                // Start from the second character (index 1) of the hex string
-                for (int i = 1; i < imeiHex.length(); i++) {
-                    char c = imeiHex.charAt(i);
-                    if (Character.isDigit(c)) {
-                        imeiDigits.append(c);
-                    }
-                }
-
-                String imeiResult = imeiDigits.toString();
-
-                if (imeiResult.length() >= 15) {
-                    imeiResult = imeiResult.substring(0, 15);
-                    logger.info("Extracted IMEI (Starting Hex at Index 1): {}", imeiResult);
-                    return imeiResult;
-                } else {
-                    logger.warn("Could not extract a 15-digit IMEI (starting hex at index 1) from: {}", imeiHex);
-                }
-            } else {
-                logger.warn("Login packet too short to contain IMEI.");
+            // Validate packet has minimum required length
+            if (data == null || data.length < IMEI_END) {
+                throw new ProtocolException(String.format(
+                        "Invalid packet length: %d bytes (requires at least %d)",
+                        data != null ? data.length : 0, IMEI_END));
             }
 
-            throw new ProtocolException("Failed to extract IMEI.");
+            // Extract the 8-byte IMEI section
+            byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START, IMEI_END);
+            String hexString = bytesToHex(imeiBytes);
 
-        } catch (ArrayIndexOutOfBoundsException e) {
-            throw new ProtocolException("IMEI extraction failed due to insufficient data: " + e.getMessage());
+            // Extract digits starting from second hex character
+            String imei = extractDigitsFromHex(hexString, 1);
+
+            // Validate we got exactly 15 digits
+            if (imei.length() == REQUIRED_IMEI_LENGTH) {
+                logger.debug("Successfully extracted IMEI: {}", imei);
+                return imei;
+            }
+
+            // Handle cases where we didn't get enough digits
+            throw new ProtocolException(String.format(
+                    "Extracted %d digits (needs %d) from hex: %s",
+                    imei.length(), REQUIRED_IMEI_LENGTH, hexString));
+
+        } catch (Exception e) {
+            logger.error("IMEI extraction failed. Packet: {}",
+                    data != null ? Hex.encodeHexString(data) : "null");
+            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Converts byte array to lowercase hex string
+     */
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder hexBuilder = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            hexBuilder.append(String.format("%02x", b));
+        }
+        return hexBuilder.toString();
+    }
+
+    /**
+     * Extracts digits from hex string starting at specified offset
+     */
+    private String extractDigitsFromHex(String hexString, int startOffset) {
+        StringBuilder digits = new StringBuilder();
+        for (int i = startOffset; i < hexString.length(); i++) {
+            char c = hexString.charAt(i);
+            if (Character.isDigit(c)) {
+                digits.append(c);
+            }
+        }
+        return digits.toString();
     }
 
     private Map<String, Object> extractDeviceInfo(byte[] data) {
