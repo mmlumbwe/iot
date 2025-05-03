@@ -3,6 +3,7 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -700,40 +701,35 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // GT06 login packet structure:
-            // [0x78, 0x78] - header
-            // [length] - packet length
-            // [0x01] - protocol number (login)
-            // [IMEI] - 8 bytes containing 15-digit IMEI
-            if (data.length < 17) {  // Minimum login packet size
-                throw new ProtocolException("Packet too short for IMEI extraction");
+            // Try ASCII decoding first (common in some GT06 variants)
+            if (data.length >= 19 && Character.isDigit((char)data[4])) {
+                String asciiImei = new String(data, 4, 15, StandardCharsets.US_ASCII);
+                if (asciiImei.matches("^\\d{15}$")) {
+                    logger.info("Extracted ASCII IMEI: {}", asciiImei);
+                    return asciiImei;
+                }
             }
+            logger.info("Full login packet: {}", Hex.encodeHexString(data));
 
-            // The IMEI starts at byte 4 (after 0x78, 0x78, length, 0x01)
+            // Fall back to binary extraction
             StringBuilder imei = new StringBuilder(15);
-            for (int i = 4; i <= 11; i++) {  // Bytes 4-11 contain the IMEI
+            for (int i = 4; i <= 11; i++) {
                 byte b = data[i];
-                // First nibble (high 4 bits)
                 imei.append((b >> 4) & 0x0F);
-                // Second nibble (low 4 bits) - except we might stop at 15 digits
                 if (imei.length() < 15) {
                     imei.append(b & 0x0F);
                 }
             }
 
             String imeiStr = imei.toString();
-
             if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
-                // Diagnostic logging
-                logger.error("Invalid IMEI format - raw bytes: {}",
-                        Arrays.toString(Arrays.copyOfRange(data, 4, 12)));
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
 
-            logger.info("Successfully extracted IMEI: {}", imeiStr);
+            logger.info("Extracted binary IMEI: {}", imeiStr);
             return imeiStr;
-        } catch (IndexOutOfBoundsException e) {
-            throw new ProtocolException("IMEI extraction failed: insufficient data");
+        } catch (Exception e) {
+            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
         }
     }
 
