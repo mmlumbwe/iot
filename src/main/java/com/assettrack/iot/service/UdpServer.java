@@ -82,14 +82,23 @@ public class UdpServer {
             logger.debug("Received UDP packet from {}:{} ({} bytes)",
                     clientAddress, clientPort, data.length);
 
-            // Protocol detection and processing
-            String protocolType = protocolDetector.detectProtocol(data);
-            if ("UNKNOWN".equals(protocolType)) {
-                logger.warn("Unknown protocol from {}:{}", clientAddress, clientPort);
+            ProtocolDetector.ProtocolDetectionResult detection = protocolDetector.detect(data);
+            String protocol = detection.getProtocol();
+
+            if (!detection.isValid()) {
+                logger.warn("Invalid protocol packet from {}:{}. Error: {}",
+                        clientAddress, clientPort, detection.getError());
                 return;
             }
 
-            DeviceMessage message = protocolService.parseData(protocolType, data);
+            // Handle Teltonika IMEI packet directly
+            if ("TELTONIKA".equals(protocol) && "IMEI".equals(detection.getPacketType())) {
+                byte[] response = new byte[]{0x01}; // Accept IMEI
+                sendResponse(packet.getAddress(), packet.getPort(), response);
+                return;
+            }
+
+            DeviceMessage message = protocolService.parseData(protocol, data);
             if (message != null && message.getParsedData().containsKey("response")) {
                 byte[] response = (byte[]) message.getParsedData().get("response");
                 sendResponse(packet.getAddress(), packet.getPort(), response);

@@ -1,0 +1,476 @@
+2025-05-03 00:02:07 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:38198
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:38198
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:38198 (28 bytes)
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.a.iot.protocol.Gt06Handler - Extracted IMEI: 123456789012345
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.a.iot.protocol.Gt06Handler - Login request from IMEI: 123456789012345
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.a.iot.protocol.Gt06Handler - Generated login response for IMEI: 123456789012345 (13 bytes)
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Sent LOGIN response to 127.0.0.1:38198 (13 bytes)
+2025-05-03 00:02:07 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:38198
+2025-05-03 00:02:08 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:38204
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:38204
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:38204 (35 bytes)
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.a.iot.protocol.Gt06Handler - Processing GPS data for IMEI: 123456789012345
+2025-05-03 00:02:08 [pool-3-thread-4] WARN  c.a.iot.protocol.Gt06Handler - Normalized longitude from 649.2074644444444 to -70.79253555555556
+2025-05-03 00:02:08 [pool-3-thread-4] WARN  c.a.iot.protocol.Gt06Handler - Normalized longitude from 649.2074644444444 to -70.79253555555556
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.a.iot.protocol.Gt06Handler - Processed location update for IMEI: 123456789012345 - Lat: 7.555555555555556E-5, Lon: -70.79253555555556
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.a.iot.protocol.Gt06Handler - Processed location update for IMEI: 123456789012345 - Lat: 7.555555555555556E-5, Lon: -70.79253555555556
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Sent LOCATION response to 127.0.0.1:38204 (13 bytes)
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Processing position for device 123456789012345
+2025-05-03 00:02:08 [pool-3-thread-4] DEBUG org.hibernate.SQL - 
+    select
+        d1_0.id,
+        d1_0.battery_level,
+        d1_0.created_at,
+        d1_0.current_driver,
+        d1_0.description,
+        d1_0.icon_url,
+        d1_0.imei,
+        d1_0.is_active,
+        d1_0.last_latitude,
+        d1_0.last_longitude,
+        d1_0.last_position_time,
+        d1_0.last_speed,
+        d1_0.last_update,
+        d1_0.last_updated,
+        d1_0.model,
+        d1_0.name,
+        d1_0.phone_number,
+        d1_0.protocol_type,
+        d1_0.registration_date,
+        d1_0.status,
+        d1_0.updated_at,
+        d1_0.vehicle_plate 
+    from
+        devices d1_0 
+    where
+        d1_0.imei=?
+2025-05-03 00:02:08 [pool-3-thread-4] DEBUG org.hibernate.SQL - 
+    update
+        devices 
+    set
+        battery_level=?,
+        current_driver=?,
+        description=?,
+        icon_url=?,
+        imei=?,
+        is_active=?,
+        last_latitude=?,
+        last_longitude=?,
+        last_position_time=?,
+        last_speed=?,
+        last_update=?,
+        last_updated=?,
+        model=?,
+        name=?,
+        phone_number=?,
+        protocol_type=?,
+        registration_date=?,
+        status=?,
+        updated_at=?,
+        vehicle_plate=? 
+    where
+        id=?
+2025-05-03 00:02:08 [pool-3-thread-4] DEBUG org.hibernate.SQL - 
+    insert 
+    into
+        positions
+        (alarm_type, attributes, battery_level, course, device_id, ignition, latitude, longitude, protocol, satellites, speed, timestamp, valid) 
+    values
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.a.iot.service.PositionService - Persisted position ID 35 for device 123456789012345
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Successfully persisted position ID 35 for device 123456789012345 at 2037-05-03T00:02:07
+2025-05-03 00:02:08 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:38204
+2025-05-03 00:02:17 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:32834
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:32834
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:32834 (28 bytes)
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.a.iot.protocol.Gt06Handler - Extracted IMEI: 123456789012345
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.a.iot.protocol.Gt06Handler - Login request from IMEI: 123456789012345
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.a.iot.protocol.Gt06Handler - Generated login response for IMEI: 123456789012345 (13 bytes)
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Sent LOGIN response to 127.0.0.1:32834 (13 bytes)
+2025-05-03 00:02:17 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:32834
+2025-05-03 00:02:18 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:32838
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:32838
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:32838 (35 bytes)
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: GT06
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.a.iot.protocol.Gt06Handler - Processing GPS data for IMEI: 123456789012345
+2025-05-03 00:02:18 [pool-3-thread-6] WARN  c.a.iot.protocol.Gt06Handler - Normalized longitude from 649.2074644444444 to -70.79253555555556
+2025-05-03 00:02:18 [pool-3-thread-6] WARN  c.a.iot.protocol.Gt06Handler - Normalized longitude from 649.2074644444444 to -70.79253555555556
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.a.iot.protocol.Gt06Handler - Processed location update for IMEI: 123456789012345 - Lat: 7.555555555555556E-5, Lon: -70.79253555555556
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.a.iot.protocol.Gt06Handler - Processed location update for IMEI: 123456789012345 - Lat: 7.555555555555556E-5, Lon: -70.79253555555556
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Processed GT06 message using Gt06Handler
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Sent LOCATION response to 127.0.0.1:32838 (13 bytes)
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Processing position for device 123456789012345
+2025-05-03 00:02:18 [pool-3-thread-6] DEBUG org.hibernate.SQL - 
+    select
+        d1_0.id,
+        d1_0.battery_level,
+        d1_0.created_at,
+        d1_0.current_driver,
+        d1_0.description,
+        d1_0.icon_url,
+        d1_0.imei,
+        d1_0.is_active,
+        d1_0.last_latitude,
+        d1_0.last_longitude,
+        d1_0.last_position_time,
+        d1_0.last_speed,
+        d1_0.last_update,
+        d1_0.last_updated,
+        d1_0.model,
+        d1_0.name,
+        d1_0.phone_number,
+        d1_0.protocol_type,
+        d1_0.registration_date,
+        d1_0.status,
+        d1_0.updated_at,
+        d1_0.vehicle_plate 
+    from
+        devices d1_0 
+    where
+        d1_0.imei=?
+2025-05-03 00:02:18 [pool-3-thread-6] DEBUG org.hibernate.SQL - 
+    update
+        devices 
+    set
+        battery_level=?,
+        current_driver=?,
+        description=?,
+        icon_url=?,
+        imei=?,
+        is_active=?,
+        last_latitude=?,
+        last_longitude=?,
+        last_position_time=?,
+        last_speed=?,
+        last_update=?,
+        last_updated=?,
+        model=?,
+        name=?,
+        phone_number=?,
+        protocol_type=?,
+        registration_date=?,
+        status=?,
+        updated_at=?,
+        vehicle_plate=? 
+    where
+        id=?
+2025-05-03 00:02:18 [pool-3-thread-6] DEBUG org.hibernate.SQL - 
+    insert 
+    into
+        positions
+        (alarm_type, attributes, battery_level, course, device_id, ignition, latitude, longitude, protocol, satellites, speed, timestamp, valid) 
+    values
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.a.iot.service.PositionService - Persisted position ID 36 for device 123456789012345
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Successfully persisted position ID 36 for device 123456789012345 at 2037-05-03T00:02:23
+2025-05-03 00:02:18 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:32838
+2025-05-03 23:44:22 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 26263 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-05-03 23:44:22 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-05-03 23:44:22 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-05-03 23:44:23 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-05-03 23:44:23 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 197 ms. Found 2 JPA repository interfaces.
+2025-05-03 23:44:24 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-05-03 23:44:24 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-05-03 23:44:24 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-05-03 23:44:25 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-05-03 23:44:25 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-05-03 23:44:26 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@566f4659
+2025-05-03 23:44:26 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-05-03 23:44:26 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-05-03 23:44:26 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-05-03 23:44:26 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-05-03 23:44:27 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-05-03 23:44:28 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-05-03 23:44:28 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-05-03 23:44:30 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-05-03 23:44:30 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-05-03 23:44:30 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-05-03 23:44:30 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-05-03 23:44:30 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-05-03 23:45:05 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:50588
+2025-05-03 23:45:05 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:50588
+2025-05-03 23:45:05 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:50588 (18 bytes)
+2025-05-03 23:45:05 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:05 [pool-3-thread-1] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:05 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:50588
+2025-05-03 23:45:05 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:50602
+2025-05-03 23:45:05 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:50602
+2025-05-03 23:45:05 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:50602 (50 bytes)
+2025-05-03 23:45:05 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:05 [pool-3-thread-2] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:05 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:50602
+2025-05-03 23:45:15 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:38020
+2025-05-03 23:45:15 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:38020
+2025-05-03 23:45:15 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:38020 (18 bytes)
+2025-05-03 23:45:15 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:15 [pool-3-thread-3] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:15 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:38020
+2025-05-03 23:45:16 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:38032
+2025-05-03 23:45:16 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:38032
+2025-05-03 23:45:16 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:38032 (50 bytes)
+2025-05-03 23:45:16 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:16 [pool-3-thread-4] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:16 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:38032
+2025-05-03 23:45:26 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:34128
+2025-05-03 23:45:26 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:34128
+2025-05-03 23:45:26 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:34128 (18 bytes)
+2025-05-03 23:45:26 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:26 [pool-3-thread-5] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:26 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:34128
+2025-05-03 23:45:26 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:34136
+2025-05-03 23:45:26 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:34136
+2025-05-03 23:45:26 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:34136 (50 bytes)
+2025-05-03 23:45:26 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:26 [pool-3-thread-6] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:26 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:34136
+2025-05-03 23:45:36 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:47282
+2025-05-03 23:45:36 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:47282
+2025-05-03 23:45:36 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:47282 (18 bytes)
+2025-05-03 23:45:36 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:36 [pool-3-thread-7] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:36 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:47282
+2025-05-03 23:45:36 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:47294
+2025-05-03 23:45:36 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:47294
+2025-05-03 23:45:36 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:47294 (50 bytes)
+2025-05-03 23:45:36 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:45:36 [pool-3-thread-8] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:45:36 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:47294
+2025-05-03 23:50:24 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 27235 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-05-03 23:50:24 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-05-03 23:50:24 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-05-03 23:50:25 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-05-03 23:50:25 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 116 ms. Found 2 JPA repository interfaces.
+2025-05-03 23:50:26 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-05-03 23:50:26 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-05-03 23:50:26 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-05-03 23:50:27 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-05-03 23:50:27 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-05-03 23:50:27 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@4eb1943b
+2025-05-03 23:50:27 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-05-03 23:50:27 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-05-03 23:50:27 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-05-03 23:50:27 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-05-03 23:50:29 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-05-03 23:50:29 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-05-03 23:50:29 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-05-03 23:50:30 [main] ERROR c.assettrack.iot.service.GpsServer - Failed to start TCP server on port 5023
+java.net.BindException: Address already in use
+	at java.base/sun.nio.ch.Net.bind0(Native Method)
+	at java.base/sun.nio.ch.Net.bind(Net.java:565)
+	at java.base/sun.nio.ch.Net.bind(Net.java:554)
+	at java.base/sun.nio.ch.NioSocketImpl.bind(NioSocketImpl.java:636)
+	at java.base/java.net.ServerSocket.bind(ServerSocket.java:391)
+	at java.base/java.net.ServerSocket.<init>(ServerSocket.java:278)
+	at java.base/java.net.ServerSocket.<init>(ServerSocket.java:171)
+	at com.assettrack.iot.service.GpsServer.startTcpServer(GpsServer.java:109)
+	at com.assettrack.iot.service.GpsServer.start(GpsServer.java:74)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMethod.invoke(InitDestroyAnnotationBeanPostProcessor.java:457)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMetadata.invokeInitMethods(InitDestroyAnnotationBeanPostProcessor.java:401)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor.postProcessBeforeInitialization(InitDestroyAnnotationBeanPostProcessor.java:219)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.applyBeanPostProcessorsBeforeInitialization(AbstractAutowireCapableBeanFactory.java:423)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1804)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:601)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:523)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:347)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1155)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1121)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1056)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:987)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.test.context.SpringBootContextLoader.lambda$loadContext$3(SpringBootContextLoader.java:144)
+	at org.springframework.util.function.ThrowingSupplier.get(ThrowingSupplier.java:58)
+	at org.springframework.util.function.ThrowingSupplier.get(ThrowingSupplier.java:46)
+	at org.springframework.boot.SpringApplication.withHook(SpringApplication.java:1461)
+	at org.springframework.boot.test.context.SpringBootContextLoader$ContextLoaderHook.run(SpringBootContextLoader.java:563)
+	at org.springframework.boot.test.context.SpringBootContextLoader.loadContext(SpringBootContextLoader.java:144)
+	at org.springframework.boot.test.context.SpringBootContextLoader.loadContext(SpringBootContextLoader.java:110)
+	at org.springframework.test.context.cache.DefaultCacheAwareContextLoaderDelegate.loadContextInternal(DefaultCacheAwareContextLoaderDelegate.java:225)
+	at org.springframework.test.context.cache.DefaultCacheAwareContextLoaderDelegate.loadContext(DefaultCacheAwareContextLoaderDelegate.java:152)
+	at org.springframework.test.context.support.DefaultTestContext.getApplicationContext(DefaultTestContext.java:130)
+	at org.springframework.test.context.web.ServletTestExecutionListener.setUpRequestContextIfNecessary(ServletTestExecutionListener.java:200)
+	at org.springframework.test.context.web.ServletTestExecutionListener.prepareTestInstance(ServletTestExecutionListener.java:139)
+	at org.springframework.test.context.TestContextManager.prepareTestInstance(TestContextManager.java:260)
+	at org.springframework.test.context.junit.jupiter.SpringExtension.postProcessTestInstance(SpringExtension.java:160)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.lambda$invokeTestInstancePostProcessors$11(ClassBasedTestDescriptor.java:378)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.executeAndMaskThrowable(ClassBasedTestDescriptor.java:383)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.lambda$invokeTestInstancePostProcessors$12(ClassBasedTestDescriptor.java:378)
+	at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.accept(ForEachOps.java:184)
+	at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+	at java.base/java.util.stream.ReferencePipeline$2$1.accept(ReferencePipeline.java:179)
+	at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+	at java.base/java.util.ArrayList$ArrayListSpliterator.forEachRemaining(ArrayList.java:1708)
+	at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+	at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+	at java.base/java.util.stream.ForEachOps$ForEachOp.evaluateSequential(ForEachOps.java:151)
+	at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.evaluateSequential(ForEachOps.java:174)
+	at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+	at java.base/java.util.stream.ReferencePipeline.forEach(ReferencePipeline.java:596)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.invokeTestInstancePostProcessors(ClassBasedTestDescriptor.java:377)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.lambda$instantiateAndPostProcessTestInstance$7(ClassBasedTestDescriptor.java:290)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.instantiateAndPostProcessTestInstance(ClassBasedTestDescriptor.java:289)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.lambda$testInstancesProvider$5(ClassBasedTestDescriptor.java:279)
+	at java.base/java.util.Optional.orElseGet(Optional.java:364)
+	at org.junit.jupiter.engine.descriptor.ClassBasedTestDescriptor.lambda$testInstancesProvider$6(ClassBasedTestDescriptor.java:278)
+	at org.junit.jupiter.engine.execution.TestInstancesProvider.getTestInstances(TestInstancesProvider.java:31)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$prepare$1(TestMethodTestDescriptor.java:105)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.prepare(TestMethodTestDescriptor.java:104)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.prepare(TestMethodTestDescriptor.java:68)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$prepare$2(NodeTestTask.java:128)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.prepare(NodeTestTask.java:128)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:160)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:160)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.apache.maven.surefire.junitplatform.LazyLauncher.execute(LazyLauncher.java:56)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.execute(JUnitPlatformProvider.java:184)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invokeAllTests(JUnitPlatformProvider.java:148)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invoke(JUnitPlatformProvider.java:122)
+	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:385)
+	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:162)
+	at org.apache.maven.surefire.booter.ForkedBooter.run(ForkedBooter.java:507)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:495)
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server on port 5023 has stopped
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
+2025-05-03 23:50:30 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server successfully bound to port 5023
+2025-05-03 23:50:58 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 27414 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-05-03 23:50:58 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-05-03 23:50:58 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-05-03 23:50:59 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-05-03 23:50:59 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 112 ms. Found 2 JPA repository interfaces.
+2025-05-03 23:51:00 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-05-03 23:51:00 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-05-03 23:51:00 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-05-03 23:51:00 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-05-03 23:51:00 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-05-03 23:51:01 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@4eb1943b
+2025-05-03 23:51:01 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-05-03 23:51:01 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-05-03 23:51:01 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-05-03 23:51:01 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-05-03 23:51:02 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-05-03 23:51:02 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-05-03 23:51:03 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-05-03 23:51:04 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-05-03 23:51:04 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-05-03 23:51:04 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023
+2025-05-03 23:51:04 [main] INFO  c.assettrack.iot.service.GpsServer - Starting TCP server on port 5023
+2025-05-03 23:51:04 [main] INFO  c.assettrack.iot.service.GpsServer - TCP server successfully bound to port 5023
+2025-05-03 23:51:13 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:40192
+2025-05-03 23:51:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:40192
+2025-05-03 23:51:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:40192 (10 bytes)
+2025-05-03 23:51:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:51:13 [pool-3-thread-1] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:51:13 [pool-3-thread-1] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:40192
+2025-05-03 23:51:13 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:40202
+2025-05-03 23:51:13 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:40202
+2025-05-03 23:51:13 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:40202 (65 bytes)
+2025-05-03 23:51:13 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:51:13 [pool-3-thread-2] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:51:13 [pool-3-thread-2] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:40202
+2025-05-03 23:51:23 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:55094
+2025-05-03 23:51:23 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:55094
+2025-05-03 23:51:23 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:55094 (10 bytes)
+2025-05-03 23:51:23 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:51:23 [pool-3-thread-3] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:51:23 [pool-3-thread-3] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:55094
+2025-05-03 23:51:23 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:55098
+2025-05-03 23:51:23 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:55098
+2025-05-03 23:51:23 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:55098 (65 bytes)
+2025-05-03 23:51:23 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:51:23 [pool-3-thread-4] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:51:23 [pool-3-thread-4] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:55098
+2025-05-03 23:54:08 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:42762
+2025-05-03 23:54:08 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:42762
+2025-05-03 23:54:08 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:42762 (17 bytes)
+2025-05-03 23:54:08 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:54:08 [pool-3-thread-5] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:54:08 [pool-3-thread-5] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:42762
+2025-05-03 23:54:08 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:42768
+2025-05-03 23:54:08 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:42768
+2025-05-03 23:54:08 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:42768 (65 bytes)
+2025-05-03 23:54:08 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:54:08 [pool-3-thread-6] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:54:08 [pool-3-thread-6] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:42768
+2025-05-03 23:57:42 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:59286
+2025-05-03 23:57:42 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:59286
+2025-05-03 23:57:42 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:59286 (17 bytes)
+2025-05-03 23:57:42 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:57:42 [pool-3-thread-7] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:57:42 [pool-3-thread-7] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:59286
+2025-05-03 23:57:42 [main] INFO  c.assettrack.iot.service.GpsServer - New TCP connection from 127.0.0.1:59294
+2025-05-03 23:57:42 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Handling TCP client connection from 127.0.0.1:59294
+2025-05-03 23:57:42 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Received raw payload from 127.0.0.1:59294 (65 bytes)
+2025-05-03 23:57:42 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Detected protocol: UNKNOWN
+2025-05-03 23:57:42 [pool-3-thread-8] WARN  c.assettrack.iot.service.GpsServer - No handler found for protocol: UNKNOWN
+2025-05-03 23:57:42 [pool-3-thread-8] INFO  c.assettrack.iot.service.GpsServer - Closed connection with 127.0.0.1:59294

@@ -6,6 +6,7 @@ import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import java.io.OutputStream;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -201,6 +203,7 @@ public class GpsServer {
 
             if (bytesRead > 0) {
                 byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
+                //logger.info("Full packet: {}", buffer);
                 logger.info("Received raw payload from {}:{} ({} bytes)",
                         clientAddress, clientPort, bytesRead);
                 logHexDump(receivedData);
@@ -375,30 +378,129 @@ public class GpsServer {
     }
 
     private DeviceMessage processProtocolMessage(byte[] data) {
-        try {
-            String protocol = protocolDetector.detectProtocol(data);
-            logger.info("Detected protocol: {}", protocol);
+        if (data == null || data.length == 0) {
+            logger.error("Null or empty data received for protocol processing");
+            return null;
+        }
 
-            for (ProtocolHandler handler : protocolHandlers) {
-                if (handler.canHandle(protocol, null)) {
-                    try {
-                        DeviceMessage message = handler.handle(data);
-                        logger.info("Processed {} message using {}",
-                                protocol, handler.getClass().getSimpleName());
-                        return message;
-                    } catch (ProtocolException e) {
-                        logger.warn("Handler {} failed to process message: {}",
-                                handler.getClass().getSimpleName(), e.getMessage());
-                        continue;
-                    }
-                }
+        try {
+            // Step 1: Protocol Detection
+            ProtocolDetector.ProtocolDetectionResult detection = protocolDetector.detect(data);
+            String protocol = detection.getProtocol();
+            String packetType = detection.getPacketType();
+            String version = detection.getVersion();
+
+            logger.debug("Detected protocol: {} (Type: {}, Version: {})",
+                    protocol, packetType, version);
+
+            // Step 2: Handle Unknown Protocols
+            if ("UNKNOWN".equals(protocol)) {
+                logger.warn("Unrecognized protocol format. Error: {}", detection.getError());
+                logger.debug("Full packet hex dump:\n{}", formatHexDump(data));
+
+                // Consider adding unknown protocol analysis/handling here
+                return createErrorResponse("UNSUPPORTED_PROTOCOL",
+                        "No protocol detector matched this packet format");
             }
 
-            logger.warn("No handler found for protocol: {}", protocol);
+            // Step 3: Special Protocol Handling (Teltonika IMEI)
+            if ("TELTONIKA".equals(protocol) && "IMEI".equals(packetType)) {
+                return handleTeltonikaImei(data);
+            }
+
+            // Step 4: Generic Protocol Handling
+            return handleWithProtocolHandlers(data, protocol, packetType, version);
+
         } catch (Exception e) {
-            logger.error("Error processing protocol message: {}", e.getMessage(), e);
+            logger.error("Critical error processing protocol message: {}", e.getMessage());
+            logger.debug("Error stack trace:", e);
+            logger.debug("Problematic packet:\n{}", formatHexDump(data));
+            return createErrorResponse("PROCESSING_ERROR", e.getMessage());
         }
-        return null;
+    }
+
+    private DeviceMessage handleTeltonikaImei(byte[] data) {
+        // Validate packet structure
+        if (data.length < 4) {
+            logger.error("Invalid Teltonika IMEI packet: too short ({} bytes)", data.length);
+            return createErrorResponse("INVALID_IMEI", "Packet too short");
+        }
+
+        // Extract and validate length field
+        int declaredLength = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
+        if (data.length != declaredLength + 2) {
+            logger.error("Invalid Teltonika IMEI length: declared {} but got {} bytes",
+                    declaredLength, data.length - 2);
+            return createErrorResponse("INVALID_IMEI", "Length mismatch");
+        }
+
+        // Validate IMEI content
+        if (data.length < 17) {
+            logger.error("Incomplete IMEI data: need 15 bytes, got {}", data.length - 2);
+            return createErrorResponse("INCOMPLETE_IMEI", "Need 15 IMEI digits");
+        }
+
+        try {
+            String imei = new String(data, 2, 15, StandardCharsets.US_ASCII);
+            if (!imei.matches("^\\d{15}$")) {
+                logger.error("Invalid IMEI format: {}", imei);
+                return createErrorResponse("INVALID_IMEI", "Must be 15 digits");
+            }
+
+            DeviceMessage message = new DeviceMessage();
+            message.setProtocol("TELTONIKA");
+            message.setImei(imei);
+            message.setMessageType("IMEI");
+            message.addParsedData("response", new byte[]{0x01}); // Standard accept response
+            return message;
+        } catch (Exception e) {
+            logger.error("IMEI processing error: {}", e.getMessage());
+            return createErrorResponse("IMEI_ERROR", e.getMessage());
+        }
+    }
+
+    private DeviceMessage handleWithProtocolHandlers(byte[] data, String protocol,
+                                                     String packetType, String version) {
+        List<String> attemptedHandlers = new ArrayList<>();
+
+        for (ProtocolHandler handler : protocolHandlers) {
+            if (handler.canHandle(protocol, version)) {
+                attemptedHandlers.add(handler.getClass().getSimpleName());
+
+                try {
+                    DeviceMessage message = handler.handle(data);
+                    if (message != null) {
+                        logger.debug("Successfully processed with {}",
+                                handler.getClass().getSimpleName());
+                        return message;
+                    }
+                } catch (ProtocolException e) {
+                    logger.warn("Handler {} failed: {}",
+                            handler.getClass().getSimpleName(), e.getMessage());
+                    continue;
+                }
+            }
+        }
+
+        if (!attemptedHandlers.isEmpty()) {
+            logger.error("All {} handlers failed for {} {} (v{}): {}",
+                    attemptedHandlers.size(), protocol, packetType, version,
+                    String.join(", ", attemptedHandlers));
+        } else {
+            logger.error("No handlers available for {} {} (v{})",
+                    protocol, packetType, version);
+        }
+
+        return createErrorResponse("NO_HANDLER",
+                "No available handler could process this message");
+    }
+
+    private DeviceMessage createErrorResponse(String errorCode, String errorMessage) {
+        DeviceMessage errorMsg = new DeviceMessage();
+        errorMsg.setMessageType("ERROR");
+        errorMsg.addParsedData("errorCode", errorCode);
+        errorMsg.addParsedData("errorMessage", errorMessage);
+        return errorMsg;
     }
 
     private void logHexDump(byte[] data) {
