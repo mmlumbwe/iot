@@ -241,10 +241,6 @@ public class GpsServer {
 
                 DeviceMessage message = processProtocolMessage(receivedData);
 
-                logger.info("New connection from {}:{} (IMEI: {})",
-                        clientAddress, clientPort,
-                        message != null ? message.getImei() : "unknown");
-
                 if (message != null) {
                     // Process response if available
                     processResponse(output, message, clientAddress, clientPort);
