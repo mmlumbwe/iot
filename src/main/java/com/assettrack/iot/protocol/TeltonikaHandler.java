@@ -199,7 +199,22 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     private boolean isValidImei(String imei) {
-        return imei != null && IMEI_PATTERN.matcher(imei).matches();
+        // Check length (15 digits)
+        if (imei.length() != 15 || !imei.matches("\\d+")) {
+            return false;
+        }
+
+        // Luhn check (optional but recommended)
+        int sum = 0;
+        for (int i = 0; i < imei.length(); i++) {
+            int digit = Character.getNumericValue(imei.charAt(i));
+            if (i % 2 != 0) { // Double every other digit
+                digit *= 2;
+                if (digit > 9) digit = digit - 9;
+            }
+            sum += digit;
+        }
+        return sum % 10 == 0;
     }
 
     @Override
