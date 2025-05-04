@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -145,6 +146,12 @@ public class ProtocolDetector {
             return detectTeltonikaVersion(data);
         }
         return "1.0";
+    }
+
+    public static boolean isTeltonikaHeartbeat(byte[] data) {
+        return data != null &&
+                (data.length == 4 && Arrays.equals(data, new byte[4])) || // Empty heartbeat
+                (data.length == 8 && ByteBuffer.wrap(data).getInt() == 0); // Alternative format
     }
 
     private String bytesToHex(byte[] bytes) {

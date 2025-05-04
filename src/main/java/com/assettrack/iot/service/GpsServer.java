@@ -22,10 +22,7 @@ import java.io.OutputStream;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -35,11 +32,15 @@ public class GpsServer {
     private static final int SOCKET_TIMEOUT = 30000; // 30 seconds
     private static final int MAX_PACKET_SIZE = 2048;
     private static final int MAX_CONNECTION_AGE = 300000; // 5 minutes
+    private static final int MAX_RECONNECTIONS_BEFORE_ALERT = 5;
+    private static final int SUSPICIOUS_CONNECTION_THRESHOLD = 10;
+    private static final long SUSPICIOUS_TIME_WINDOW = 60000; // 1 minute
 
     private final PositionService positionService;
     private final ExecutorService threadPool;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private DatagramSocket udpSocket;
+    private ServerSocket tcpServerSocket;
 
     @Value("${gps.server.tcp.port:5023}")
     private int tcpPort;
@@ -50,12 +51,18 @@ public class GpsServer {
     @Value("${gps.server.threads:10}")
     private int maxThreads;
 
+    @Value("${gps.server.max.connections:100}")
+    private int maxConnections;
+
     @Autowired
     private ProtocolDetector protocolDetector;
 
     @Autowired
     private List<ProtocolHandler> protocolHandlers;
+
     private final Map<String, DeviceConnection> activeConnections = new ConcurrentHashMap<>();
+    private final Set<String> blacklistedIps = ConcurrentHashMap.newKeySet();
+
     class DeviceConnection {
         final String imei;
         final String ip;
@@ -75,7 +82,8 @@ public class GpsServer {
 
         public boolean isSuspicious() {
             long connectionInterval = lastSeen - firstSeen;
-            return connectionCount > 10 && connectionInterval < 60000; // >10 connections in <1min
+            return connectionCount > SUSPICIOUS_CONNECTION_THRESHOLD &&
+                    connectionInterval < SUSPICIOUS_TIME_WINDOW;
         }
     }
 
@@ -86,7 +94,13 @@ public class GpsServer {
                 now - entry.getValue().lastSeen > 3600000); // 1 hour timeout
     }
 
-    public GpsServer(ProtocolService protocolService, PositionService positionService,
+    @Scheduled(fixedRate = 3600000) // 1 hour
+    public void cleanupBlacklist() {
+        logger.info("Current blacklist size: {}", blacklistedIps.size());
+        // Implement logic to expire old blacklist entries if needed
+    }
+
+    public GpsServer(PositionService positionService,
                      @Value("${gps.server.threads:10}") int maxThreads) {
         this.positionService = positionService;
         if (maxThreads <= 0) {
@@ -102,7 +116,8 @@ public class GpsServer {
     public void start() {
         running.set(true);
         logger.info("Initializing GPS Server...");
-        logger.info("Configuration - TCP Port: {}, UDP Port: {}", tcpPort, udpPort);
+        logger.info("Configuration - TCP Port: {}, UDP Port: {}, Max Threads: {}, Max Connections: {}",
+                tcpPort, udpPort, maxThreads, maxConnections);
 
         startTcpServer();
         startUdpServer();
@@ -134,22 +149,52 @@ public class GpsServer {
             threadPool.shutdownNow();
             Thread.currentThread().interrupt();
         }
+
+        if (udpSocket != null && !udpSocket.isClosed()) {
+            udpSocket.close();
+        }
+
+        if (tcpServerSocket != null && !tcpServerSocket.isClosed()) {
+            try {
+                tcpServerSocket.close();
+            } catch (IOException e) {
+                logger.warn("Error closing TCP server socket", e);
+            }
+        }
     }
 
     @Async
     protected void startTcpServer() {
         logger.info("Starting TCP server on port {}", tcpPort);
-        try (ServerSocket serverSocket = new ServerSocket(tcpPort)) {
-            serverSocket.setSoTimeout(SOCKET_TIMEOUT);
+        try {
+            tcpServerSocket = new ServerSocket(tcpPort);
+            tcpServerSocket.setSoTimeout(SOCKET_TIMEOUT);
             logger.info("TCP server successfully bound to port {}", tcpPort);
 
             while (running.get()) {
                 try {
                     logger.debug("Waiting for TCP connection...");
-                    Socket clientSocket = serverSocket.accept();
+                    Socket clientSocket = tcpServerSocket.accept();
+
+                    // Check if we've reached max connections
+                    if (activeConnections.size() >= maxConnections) {
+                        logger.warn("Max connections reached ({}), rejecting new connection from {}",
+                                maxConnections, clientSocket.getInetAddress().getHostAddress());
+                        clientSocket.close();
+                        continue;
+                    }
+
+                    // Check if IP is blacklisted
+                    String clientIp = clientSocket.getInetAddress().getHostAddress();
+                    if (blacklistedIps.contains(clientIp)) {
+                        logger.warn("Rejecting connection from blacklisted IP: {}", clientIp);
+                        clientSocket.close();
+                        continue;
+                    }
+
                     clientSocket.setSoTimeout(SOCKET_TIMEOUT);
                     logger.info("New TCP connection from {}:{}",
-                            clientSocket.getInetAddress().getHostAddress(),
+                            clientIp,
                             clientSocket.getPort());
 
                     threadPool.execute(() -> handleTcpClient(clientSocket));
@@ -179,9 +224,9 @@ public class GpsServer {
     @Async
     protected void startUdpServer() {
         logger.info("Starting UDP server on port {}", udpPort);
-        try (DatagramSocket socket = new DatagramSocket(udpPort)) {
-            this.udpSocket = socket;
-            socket.setSoTimeout(SOCKET_TIMEOUT);
+        try {
+            udpSocket = new DatagramSocket(udpPort);
+            udpSocket.setSoTimeout(SOCKET_TIMEOUT);
             logger.info("UDP server successfully bound to port {}", udpPort);
 
             byte[] buffer = new byte[MAX_PACKET_SIZE];
@@ -190,9 +235,17 @@ public class GpsServer {
             while (running.get()) {
                 try {
                     logger.trace("Waiting for UDP datagram...");
-                    socket.receive(packet);
+                    udpSocket.receive(packet);
+
+                    // Check if IP is blacklisted
+                    String clientIp = packet.getAddress().getHostAddress();
+                    if (blacklistedIps.contains(clientIp)) {
+                        logger.debug("Ignoring UDP packet from blacklisted IP: {}", clientIp);
+                        continue;
+                    }
+
                     logger.info("Received UDP packet from {}:{} ({} bytes)",
-                            packet.getAddress().getHostAddress(),
+                            clientIp,
                             packet.getPort(),
                             packet.getLength());
 
@@ -218,50 +271,50 @@ public class GpsServer {
             logger.error("Failed to start UDP server on port {}", udpPort, e);
         } finally {
             logger.info("UDP server on port {} has stopped", udpPort);
+            if (udpSocket != null) {
+                udpSocket.close();
+            }
         }
     }
 
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
-        logger.info("Handling TCP client connection from {}:{}", clientAddress, clientPort);
 
-        try (InputStream input = clientSocket.getInputStream();
-             OutputStream output = clientSocket.getOutputStream()) {
+        try {
+            clientSocket.setKeepAlive(true);
+            clientSocket.setSoTimeout(SOCKET_TIMEOUT);
 
-            byte[] buffer = new byte[MAX_PACKET_SIZE];
-            int bytesRead = input.read(buffer);
+            logger.info("Handling TCP client connection from {}:{}", clientAddress, clientPort);
 
-            if (bytesRead > 0) {
-                byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
-                //logger.info("Full packet: {}", buffer);
-                logger.info("Received raw payload from {}:{} ({} bytes)",
-                        clientAddress, clientPort, bytesRead);
-                logHexDump(receivedData);
+            try (InputStream input = clientSocket.getInputStream();
+                 OutputStream output = clientSocket.getOutputStream()) {
 
-                DeviceMessage message = processProtocolMessage(receivedData);
+                byte[] buffer = new byte[MAX_PACKET_SIZE];
+                int bytesRead = input.read(buffer);
 
-                if (message != null) {
-                    // Process response if available
-                    processResponse(output, message, clientAddress, clientPort);
-                    // Process position if available
-                    processPosition(message, clientAddress, clientPort);
-                }
+                if (bytesRead > 0) {
+                    byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
+                    logger.info("Received raw payload from {}:{} ({} bytes)",
+                            clientAddress, clientPort, bytesRead);
+                    logHexDump(receivedData);
 
-                String imei = message.getImei(); // From your message processing
-                DeviceConnection conn = activeConnections.compute(imei, (k, v) -> {
-                    if (v == null) {
-                        return new DeviceConnection(imei, clientAddress, System.currentTimeMillis(), 1);
+                    DeviceMessage message = processProtocolMessage(receivedData);
+
+                    if (message != null) {
+                        // Process response if available
+                        processResponse(output, message, clientAddress, clientPort);
+
+                        // Process position if available
+                        processPosition(message, clientAddress, clientPort);
+
+                        // Track connection
+                        trackConnection(message, clientAddress);
                     }
-                    v.connectionCount++;
-                    v.lastSeen = System.currentTimeMillis();
-                    return v;
-                });
-
-                if (conn.connectionCount > 5) { // Threshold
-                    logger.warn("Frequent reconnections from IMEI: {} ({} times)", imei, conn.connectionCount);
                 }
             }
+        } catch (SocketTimeoutException e) {
+            logger.warn("Timeout reading from client {}:{}", clientAddress, clientPort);
         } catch (IOException e) {
             logger.error("I/O error with client {}:{} - {}", clientAddress, clientPort, e.getMessage());
         } catch (Exception e) {
@@ -274,6 +327,38 @@ public class GpsServer {
             } catch (IOException e) {
                 logger.warn("Error closing socket for {}:{} - {}",
                         clientAddress, clientPort, e.getMessage());
+            }
+        }
+    }
+
+    private void trackConnection(DeviceMessage message, String clientAddress) {
+        if (message == null || message.getImei() == null) {
+            return;
+        }
+
+        String imei = message.getImei();
+        DeviceConnection conn = activeConnections.compute(imei, (k, v) -> {
+            if (v == null) {
+                return new DeviceConnection(imei, clientAddress, System.currentTimeMillis(), 1);
+            }
+            v.connectionCount++;
+            v.lastSeen = System.currentTimeMillis();
+            return v;
+        });
+
+        if (conn.connectionCount > MAX_RECONNECTIONS_BEFORE_ALERT) {
+            logger.warn("Frequent reconnections from IMEI: {} ({} times)", imei, conn.connectionCount);
+        }
+
+        if (conn.isSuspicious()) {
+            logger.error("SUSPICIOUS CONNECTION PATTERN detected from IMEI: {} - {} connections in {} ms",
+                    imei, conn.connectionCount, (conn.lastSeen - conn.firstSeen));
+            conn.flagged = true;
+
+            // Add to blacklist if behavior is very suspicious
+            if (conn.connectionCount > SUSPICIOUS_CONNECTION_THRESHOLD * 2) {
+                blacklistedIps.add(clientAddress);
+                logger.warn("IP {} blacklisted due to suspicious activity", clientAddress);
             }
         }
     }
@@ -386,29 +471,7 @@ public class GpsServer {
 
             // Process position if available
             if (parsedData.containsKey("position")) {
-                Object positionObj = parsedData.get("position");
-                if (positionObj instanceof Position) {
-                    Position position = (Position) positionObj;
-                    if (position.getDevice() != null && position.getDevice().getImei() != null) {
-                        try {
-                            Position savedPosition = positionService.processAndSavePosition(position);
-                            if (savedPosition != null && savedPosition.getId() != null) {
-                                logger.info("Successfully saved UDP position ID {} for device {}",
-                                        savedPosition.getId(),
-                                        savedPosition.getDevice().getImei());
-                            } else {
-                                logger.error("UDP position save operation returned null or invalid position");
-                            }
-                        } catch (Exception e) {
-                            logger.error("Failed to save UDP position for device {}: {}",
-                                    position.getDevice().getImei(), e.getMessage(), e);
-                        }
-                    } else {
-                        logger.warn("Invalid UDP position data - missing device or IMEI");
-                    }
-                } else {
-                    logger.warn("Invalid UDP position type in parsed data");
-                }
+                processUdpPosition(parsedData.get("position"), clientAddress, clientPort, message);
             }
 
             // Send response if available
@@ -418,7 +481,36 @@ public class GpsServer {
             } else if (responseObj != null) {
                 logger.warn("Invalid UDP response type in parsed data");
             }
-            // No response needed if responseObj is null
+        }
+    }
+
+    private void processUdpPosition(Object positionObj, String clientAddress, int clientPort, DeviceMessage message) {
+        if (!(positionObj instanceof Position)) {
+            logger.warn("Invalid UDP position type from {}:{}", clientAddress, clientPort);
+            return;
+        }
+
+        Position position = (Position) positionObj;
+        if (position.getDevice() == null || position.getDevice().getImei() == null) {
+            logger.warn("Invalid UDP position data from {}:{} - missing device or IMEI",
+                    clientAddress, clientPort);
+            return;
+        }
+
+        String imei = position.getDevice().getImei();
+        try {
+            Position savedPosition = positionService.processAndSavePosition(position);
+            if (savedPosition != null && savedPosition.getId() != null) {
+                logger.info("Successfully saved UDP position ID {} for device {}",
+                        savedPosition.getId(), imei);
+                if (message != null) {
+                    trackConnection(message, clientAddress);
+                }
+            } else {
+                logger.error("UDP position save operation returned null or invalid position");
+            }
+        } catch (Exception e) {
+            logger.error("Failed to save UDP position for device {}: {}", imei, e.getMessage(), e);
         }
     }
 
@@ -429,7 +521,6 @@ public class GpsServer {
         }
 
         try {
-            // Step 1: Protocol Detection
             ProtocolDetector.ProtocolDetectionResult detection = protocolDetector.detect(data);
             String protocol = detection.getProtocol();
             String packetType = detection.getPacketType();
@@ -438,24 +529,18 @@ public class GpsServer {
             logger.debug("Detected protocol: {} (Type: {}, Version: {})",
                     protocol, packetType, version);
 
-            // Step 2: Handle Unknown Protocols
             if ("UNKNOWN".equals(protocol)) {
                 logger.warn("Unrecognized protocol format. Error: {}", detection.getError());
                 logger.debug("Full packet hex dump:\n{}", formatHexDump(data));
-
-                // Consider adding unknown protocol analysis/handling here
                 return createErrorResponse("UNSUPPORTED_PROTOCOL",
                         "No protocol detector matched this packet format");
             }
 
-            // Step 3: Special Protocol Handling (Teltonika IMEI)
             if ("TELTONIKA".equals(protocol) && "IMEI".equals(packetType)) {
                 return handleTeltonikaImei(data);
             }
 
-            // Step 4: Generic Protocol Handling
             return handleWithProtocolHandlers(data, protocol, packetType, version);
-
         } catch (Exception e) {
             logger.error("Critical error processing protocol message: {}", e.getMessage());
             logger.debug("Error stack trace:", e);
@@ -465,13 +550,11 @@ public class GpsServer {
     }
 
     private DeviceMessage handleTeltonikaImei(byte[] data) {
-        // Validate packet structure
         if (data.length < 4) {
             logger.error("Invalid Teltonika IMEI packet: too short ({} bytes)", data.length);
             return createErrorResponse("INVALID_IMEI", "Packet too short");
         }
 
-        // Extract and validate length field
         int declaredLength = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
         if (data.length != declaredLength + 2) {
             logger.error("Invalid Teltonika IMEI length: declared {} but got {} bytes",
@@ -479,7 +562,6 @@ public class GpsServer {
             return createErrorResponse("INVALID_IMEI", "Length mismatch");
         }
 
-        // Validate IMEI content
         if (data.length < 17) {
             logger.error("Incomplete IMEI data: need 15 bytes, got {}", data.length - 2);
             return createErrorResponse("INCOMPLETE_IMEI", "Need 15 IMEI digits");

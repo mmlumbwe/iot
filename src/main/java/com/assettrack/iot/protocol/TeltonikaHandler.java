@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.regex.Pattern;
 
 @Component
@@ -26,6 +27,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     private static final int CODEC_16 = 0x10;
     private static final int IMEI_LENGTH = 15;
     private static final Pattern IMEI_PATTERN = Pattern.compile("^\\d{15}$");
+    private static final byte[] HEARTBEAT_RESPONSE = new byte[] {0x00, 0x00, 0x00, 0x01};
 
     @Value("${teltonika.validation.mode:STRICT}")
     private ValidationMode validationMode;
@@ -37,10 +39,9 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
 
         ByteBuffer buffer = ByteBuffer.wrap(rawMessage).order(ByteOrder.BIG_ENDIAN);
-        Position position = new Position();
-        Device device = new Device();
 
         try {
+            // Validate packet structure
             if (buffer.getInt() != 0) {
                 throw new ProtocolException("Invalid preamble");
             }
@@ -55,6 +56,7 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Unsupported codec: " + codecId);
             }
 
+            // Parse IMEI
             byte[] imeiBytes = new byte[IMEI_LENGTH];
             buffer.get(imeiBytes);
             String imei = cleanImei(new String(imeiBytes, StandardCharsets.US_ASCII));
@@ -63,23 +65,28 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Invalid IMEI: " + imei);
             }
 
+            // Create device
+            Device device = new Device();
             device.setImei(imei);
             device.setProtocolType("TELTONIKA");
-            position.setDevice(device);
 
+            // Parse position data based on codec
+            Position position;
             switch (codecId) {
                 case CODEC_8:
                 case CODEC_8_EXT:
-                    parseCodec8Data(buffer, position);
+                    position = parseCodec8Data(buffer);
                     break;
                 case CODEC_16:
-                    parseCodec16Data(buffer, position);
+                    position = parseCodec16Data(buffer);
                     break;
                 default:
                     throw new ProtocolException("Unhandled codec: " + codecId);
             }
 
+            position.setDevice(device);
             return position;
+
         } catch (Exception e) {
             throw new ProtocolException("Failed to parse position", e);
         }
@@ -87,6 +94,15 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
+        if (data == null || data.length == 0) {
+            throw new ProtocolException("Empty data received");
+        }
+
+        // Check for heartbeat first
+        if (isHeartbeatPacket(data)) {
+            return handleHeartbeat();
+        }
+
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
 
@@ -101,45 +117,103 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
     }
 
+    private DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
+        // Validate packet length
+        if (data.length < 4 || data.length > 19) {
+            throw new ProtocolException("Invalid IMEI packet length");
+        }
+
+        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
+        if (length < 15 || length > 17) {
+            throw new ProtocolException("Invalid IMEI length");
+        }
+
+        String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
+        if (!isValidImei(cleanImei(imei))) {
+            throw new ProtocolException("Invalid IMEI format");
+        }
+
+        message.setImei(imei);
+        message.setMessageType("IMEI");
+
+        // Some devices expect 8-byte response (like data packets)
+        ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
+        response.putInt(0);       // Preamble
+        response.putInt(1);       // Number of accepted packets
+        message.addParsedData("response", response.array());
+
+        logger.info("Accepted IMEI from device {}", imei);
+        return message;
+    }
+
     private DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-        // Skip preamble and length (already validated)
-        buffer.position(8);
+        // Validate packet structure
+        if (buffer.remaining() < 12) {
+            throw new ProtocolException("Packet too short");
+        }
+
+        // Parse header
+        if (buffer.getInt() != 0) {
+            throw new ProtocolException("Invalid preamble");
+        }
+
+        int dataLength = buffer.getInt();
+        if (data.length < dataLength + 8) {
+            throw new ProtocolException("Packet length mismatch");
+        }
 
         int codecId = buffer.get() & 0xFF;
         String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
         message.setProtocolVersion(protocolVersion);
 
-        // More lenient record count handling
-        if (buffer.remaining() > 0) {
-            int records = buffer.get() & 0xFF;
-            message.addParsedData("records", records);
+        // Process based on codec type
+        switch (codecId) {
+            case CODEC_8:
+            case CODEC_8_EXT:
+                return processCodec8Packet(buffer, message);
+            case CODEC_16:
+                return processCodec16Packet(buffer, message);
+            default:
+                throw new ProtocolException("Unsupported codec: " + codecId);
+        }
+    }
 
-            if (records > 0 && buffer.remaining() >= 8) {
-                long timestamp = buffer.getLong();
-                message.setTimestamp(LocalDateTime.ofInstant(
-                        Instant.ofEpochMilli(timestamp),
-                        ZoneId.systemDefault()));
+    private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
+        int records = buffer.get() & 0xFF;
+        message.addParsedData("records", records);
+
+        if (records > 0 && buffer.remaining() >= 8) {
+            try {
+                Position position = parseCodec8Data(buffer); // Now takes only buffer
+                message.addParsedData("position", position);
+                message.setTimestamp(position.getTimestamp());
+            } catch (ProtocolException e) {
+                logger.warn("Failed to parse position data", e);
             }
         }
 
         // Generate response
         ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0);
-        response.putInt(1); // Acknowledge 1 packet
+        response.putInt(0); // Preamble
+        response.putInt(records); // Number of accepted records
         message.addParsedData("response", response.array());
 
         return message;
     }
 
-    private void parseCodec8Data(ByteBuffer buffer, Position position) throws ProtocolException {
+    private Position parseCodec8Data(ByteBuffer buffer) throws ProtocolException {
+        Position position = new Position();
+
         // Timestamp
         long timestamp = buffer.getLong();
         if (timestamp <= 0) {
             throw new ProtocolException("Invalid timestamp");
         }
-        position.setTimestamp(LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault()));
+        position.setTimestamp(LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(timestamp),
+                ZoneId.systemDefault()));
 
         // Coordinates
         double latitude = buffer.getInt() / 10000000.0;
@@ -159,14 +233,77 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // Skip remaining fields
         skipIoElements(buffer, CODEC_8);
+
+        return position;
     }
 
-    private void parseCodec16Data(ByteBuffer buffer, Position position) throws ProtocolException {
-        parseCodec8Data(buffer, position);
-        if (buffer.remaining() > 0) {
-            buffer.get();
+    private DeviceMessage processCodec16Packet(ByteBuffer buffer, DeviceMessage message) {
+        int records = buffer.get() & 0xFF;
+        message.addParsedData("records", records);
+
+        if (records > 0 && buffer.remaining() >= 8) {
+            try {
+                Position position = parseCodec16Data(buffer); // Now takes only buffer
+                message.addParsedData("position", position);
+                message.setTimestamp(position.getTimestamp());
+            } catch (ProtocolException e) {
+                logger.warn("Failed to parse position data", e);
+            }
         }
-        skipIoElements(buffer, CODEC_16);
+
+        // Generate response
+        ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
+        response.putInt(0);
+        response.putInt(records);
+        message.addParsedData("response", response.array());
+
+        return message;
+    }
+
+    private Position parseCodec16Data(ByteBuffer buffer) throws ProtocolException {
+        // Use the same parsing as Codec8 for base fields
+        Position position = parseCodec8Data(buffer);
+
+        // Handle Codec16 specific fields
+        if (buffer.remaining() > 0) {
+            buffer.get(); // Skip additional byte if present
+            skipIoElements(buffer, CODEC_16);
+        }
+
+        return position;
+    }
+
+    private DeviceMessage handleHeartbeat() {
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocol("TELTONIKA");
+        message.setMessageType("HEARTBEAT");
+        message.addParsedData("response", HEARTBEAT_RESPONSE);
+        logger.debug("Responded to heartbeat");
+        return message;
+    }
+
+    private boolean isHeartbeatPacket(byte[] data) {
+        if (data == null) return false;
+
+        // Standard 4-byte null heartbeat
+        if (data.length == 4) {
+            return data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0;
+        }
+
+        // Alternative 8-byte heartbeat format
+        if (data.length == 8) {
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+            return buffer.getInt() == 0 && buffer.getInt() == 0;
+        }
+
+        return false;
+    }
+
+    private boolean isImeiPacket(byte[] data) {
+        if (data == null || data.length < 4) return false;
+
+        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
+        return length >= 15 && length <= 17 && data.length >= length + 2;
     }
 
     private void validateCoordinates(double latitude, double longitude) throws ProtocolException {
@@ -199,7 +336,25 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     private boolean isValidImei(String imei) {
-        return imei != null && IMEI_PATTERN.matcher(imei).matches();
+        if (imei == null || imei.length() != 15 || !IMEI_PATTERN.matcher(imei).matches()) {
+            return false;
+        }
+
+        // Luhn check
+        int sum = 0;
+        for (int i = 0; i < imei.length(); i++) {
+            int digit = Character.getNumericValue(imei.charAt(i));
+            if (i % 2 != 0) { // Double every other digit (0-indexed)
+                digit *= 2;
+                if (digit > 9) digit -= 9;
+            }
+            sum += digit;
+        }
+        return sum % 10 == 0;
+    }
+
+    private boolean isSupportedCodec(int codecId) {
+        return codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16;
     }
 
     @Override
@@ -219,32 +374,6 @@ public class TeltonikaHandler implements ProtocolHandler {
     public boolean canHandle(String protocol, String version) {
         return "TELTONIKA".equalsIgnoreCase(protocol) &&
                 (version == null || version.startsWith("CODEC8") || version.startsWith("CODEC16"));
-    }
-
-    private DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
-        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
-        String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
-
-        if (!isValidImei(cleanImei(imei))) {
-            throw new ProtocolException("Invalid IMEI format");
-        }
-
-        message.setImei(imei);
-        message.setMessageType("IMEI");
-        message.addParsedData("response", new byte[]{0x01});
-        return message;
-    }
-
-    private boolean isImeiPacket(byte[] data) {
-        if (data == null || data.length < 4) return false;
-        int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
-        return length >= TeltonikaConstants.IMEI_MIN_LENGTH &&
-                length <= TeltonikaConstants.IMEI_MAX_LENGTH &&
-                data.length >= length + 2;
-    }
-
-    private boolean isSupportedCodec(int codecId) {
-        return codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16;
     }
 
     public enum ValidationMode {

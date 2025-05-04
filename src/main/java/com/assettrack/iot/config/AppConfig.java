@@ -40,10 +40,9 @@ public class AppConfig {
 
     @Bean
     @DependsOn({"transactionManager", "entityManagerFactory"})  // Ensure these are initialized first
-    public GpsServer gpsServer(ProtocolService protocolService,
-                               PositionService positionService,
+    public GpsServer gpsServer(PositionService positionService,
                                @Value("${gps.server.threads:10}") int threadPoolSize) {
-        return new GpsServer(protocolService, positionService, threadPoolSize);
+        return new GpsServer(positionService, threadPoolSize);
     }
 
     // Add this if you're using JPA
