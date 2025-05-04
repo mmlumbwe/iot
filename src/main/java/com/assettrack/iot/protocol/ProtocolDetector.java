@@ -313,4 +313,12 @@ public class ProtocolDetector {
     public String detectProtocol(byte[] data) {
         return detect(data).getProtocol();
     }
+
+    public static boolean isHeartbeatPacket(byte[] data) {
+        return data.length == 4 &&
+                data[0] == 0x00 &&
+                data[1] == 0x00 &&
+                data[2] == 0x00 &&
+                data[3] == 0x00;
+    }
 }

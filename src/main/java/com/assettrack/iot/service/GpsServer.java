@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -54,6 +55,36 @@ public class GpsServer {
 
     @Autowired
     private List<ProtocolHandler> protocolHandlers;
+    private final Map<String, DeviceConnection> activeConnections = new ConcurrentHashMap<>();
+    class DeviceConnection {
+        final String imei;
+        final String ip;
+        long lastSeen;
+        int connectionCount;
+        long firstSeen;
+        boolean flagged;
+
+        public DeviceConnection(String imei, String ip, long lastSeen, int connectionCount) {
+            this.imei = imei;
+            this.ip = ip;
+            this.lastSeen = lastSeen;
+            this.connectionCount = connectionCount;
+            this.firstSeen = System.currentTimeMillis();
+            this.flagged = false;
+        }
+
+        public boolean isSuspicious() {
+            long connectionInterval = lastSeen - firstSeen;
+            return connectionCount > 10 && connectionInterval < 60000; // >10 connections in <1min
+        }
+    }
+
+    @Scheduled(fixedRate = 300000) // 5 minutes
+    public void cleanupStaleConnections() {
+        long now = System.currentTimeMillis();
+        activeConnections.entrySet().removeIf(entry ->
+                now - entry.getValue().lastSeen > 3600000); // 1 hour timeout
+    }
 
     public GpsServer(ProtocolService protocolService, PositionService positionService,
                      @Value("${gps.server.threads:10}") int maxThreads) {
@@ -219,6 +250,20 @@ public class GpsServer {
                     processResponse(output, message, clientAddress, clientPort);
                     // Process position if available
                     processPosition(message, clientAddress, clientPort);
+                }
+
+                String imei = message.getImei(); // From your message processing
+                DeviceConnection conn = activeConnections.compute(imei, (k, v) -> {
+                    if (v == null) {
+                        return new DeviceConnection(imei, clientAddress, System.currentTimeMillis(), 1);
+                    }
+                    v.connectionCount++;
+                    v.lastSeen = System.currentTimeMillis();
+                    return v;
+                });
+
+                if (conn.connectionCount > 5) { // Threshold
+                    logger.warn("Frequent reconnections from IMEI: {} ({} times)", imei, conn.connectionCount);
                 }
             }
         } catch (IOException e) {
