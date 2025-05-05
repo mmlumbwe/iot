@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Component
 public class Gt06Handler implements ProtocolHandler {
@@ -83,18 +84,15 @@ public class Gt06Handler implements ProtocolHandler {
             byte protocol = buffer.get();
             parsedData.put("keepAlive", protocol != 0x7F);
 
-            // Handle both standard and extended protocol bytes
             switch (protocol) {
                 case PROTOCOL_LOGIN:
-                case PROTOCOL_LOGIN_EXT:  // Added support for extended login
+                case PROTOCOL_LOGIN_EXT:
                     return handleLogin(data, message.getRemoteAddress(), parsedData);
                 case PROTOCOL_GPS:
-                case PROTOCOL_GPS_EXT:     // Added support for extended GPS
                     return handleGps(data, message, parsedData);
                 case PROTOCOL_HEARTBEAT:
                     return handleHeartbeat(data, message, parsedData);
                 case PROTOCOL_ALARM:
-                case PROTOCOL_ALARM_EXT:   // Added support for extended alarm
                     return handleAlarm(data, message, parsedData);
                 default:
                     throw new ProtocolException("Unsupported protocol type: 0x" + String.format("%02X", protocol));
@@ -108,12 +106,11 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-
     private DeviceMessage handleLogin(byte[] data, SocketAddress remoteAddress, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
             validateLoginPacket(data);
-            String imei = extractImei(data);
+            String imei = extractImeiFromLoginPacket(data);
 
             this.lastValidImei = imei;
             parsedData.put("imei", imei);
@@ -128,10 +125,76 @@ public class Gt06Handler implements ProtocolHandler {
 
             return message;
         } catch (Exception e) {
+            logger.error("IMEI extraction failed for packet: {}", bytesToHex(data));
             throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
         }
     }
 
+    /**
+     * Enhanced IMEI extraction that handles different GT06 device variations
+     */
+    private String extractImeiFromLoginPacket(byte[] data) throws ProtocolException {
+        try {
+            // The IMEI appears to be in bytes 4-18 (0-based index)
+            if (data.length < IMEI_START_INDEX + IMEI_LENGTH) {
+                throw new ProtocolException("Packet too short for IMEI extraction");
+            }
+
+            // Extract potential IMEI bytes
+            byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START_INDEX, IMEI_START_INDEX + IMEI_LENGTH);
+
+            // Convert to ASCII string
+            String imeiStr = new String(imeiBytes, StandardCharsets.US_ASCII);
+
+            // Clean the string - keep only digits
+            String cleanImei = imeiStr.replaceAll("[^0-9]", "");
+
+            if (cleanImei.length() == 15) {
+                return cleanImei;
+            }
+
+            // Fallback: Try to find 15 consecutive digits in the entire packet
+            String fullPacketStr = new String(data, StandardCharsets.US_ASCII);
+            java.util.regex.Matcher matcher = Pattern.compile("\\d{15}").matcher(fullPacketStr);
+            if (matcher.find()) {
+                return matcher.group();
+            }
+
+            // Last resort: Use first 15 digits found in the packet
+            String digitsOnly = fullPacketStr.replaceAll("[^0-9]", "");
+            if (digitsOnly.length() >= 8) {  // Accept partial IMEI if needed
+                logger.warn("Using partial IMEI: {}", digitsOnly.substring(0, Math.min(15, digitsOnly.length())));
+                return digitsOnly.substring(0, Math.min(15, digitsOnly.length()));
+            }
+
+            throw new ProtocolException("No valid IMEI found in packet");
+        } catch (Exception e) {
+            throw new ProtocolException("IMEI extraction error: " + e.getMessage());
+        }
+    }
+
+    private byte[] createLoginResponse(byte[] loginPacket) {
+        byte[] response = new byte[11];
+        System.arraycopy(START_BYTES, 0, response, 0, 2);
+        response[2] = 0x05; // Length
+        response[3] = PROTOCOL_LOGIN;
+        response[4] = LOGIN_RESPONSE_SUCCESS;
+        response[5] = loginPacket[loginPacket.length-4]; // Serial
+        response[6] = loginPacket[loginPacket.length-3]; // Serial
+
+        // Calculate CRC
+        byte crc = 0;
+        for (int i = 2; i <= 6; i++) {
+            crc ^= response[i];
+        }
+        response[7] = crc;
+
+        // Terminator
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        return response;
+    }
     private void validateLoginPacket(byte[] data) throws ProtocolException {
         if (data.length < 12) { // Minimum possible login packet size
             throw new ProtocolException("Packet too short for login (minimum 12 bytes)");
@@ -185,51 +248,15 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     /**
-     * Converts a byte array to a hexadecimal string representation
-     * @param bytes The byte array to convert
-     * @return Hexadecimal string representation of the byte array
+     * Converts byte array to hex string for debugging
      */
     private String bytesToHex(byte[] bytes) {
-        if (bytes == null) {
-            return "null";
-        }
-
-        StringBuilder hexString = new StringBuilder();
+        if (bytes == null) return "null";
+        StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
-            String hex = String.format("%02X", b);
-            hexString.append(hex);
-            hexString.append(" "); // Add space between bytes for readability
+            sb.append(String.format("%02X ", b));
         }
-
-        // Remove trailing space if needed
-        if (hexString.length() > 0) {
-            hexString.setLength(hexString.length() - 1);
-        }
-
-        return hexString.toString();
-    }
-
-    private byte[] createLoginResponse(byte[] loginPacket) {
-        byte[] response = new byte[11];
-        System.arraycopy(START_BYTES, 0, response, 0, 2);
-        response[2] = 0x05; // Length
-        response[3] = PROTOCOL_LOGIN;
-        response[4] = LOGIN_RESPONSE_SUCCESS;
-        response[5] = loginPacket[loginPacket.length-4]; // Serial
-        response[6] = loginPacket[loginPacket.length-3]; // Serial
-
-        // Calculate CRC
-        byte crc = 0;
-        for (int i = 2; i <= 6; i++) {
-            crc ^= response[i];
-        }
-        response[7] = crc;
-
-        // Terminator
-        response[8] = 0x0D;
-        response[9] = 0x0A;
-
-        return response;
+        return sb.toString().trim();
     }
 
     private DeviceMessage handleGps(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
