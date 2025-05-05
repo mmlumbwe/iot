@@ -287,7 +287,6 @@ public class GpsServer {
 
     private void handleTcpClient(Socket clientSocket) {
         final long connectionStart = System.currentTimeMillis();
-
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
         SocketAddress remoteAddress = clientSocket.getRemoteSocketAddress();
@@ -317,20 +316,106 @@ public class GpsServer {
                     // Process and send response
                     processResponse(output, message, clientAddress, clientPort);
 
-                    // For Teltonika, keep connection open for data packets
-                    if ("TELTONIKA".equals(message.getProtocol())) {
-                        handleTeltonikaDataPhase(clientSocket, session);
+                    // For supported protocols, keep connection open for data packets
+                    if (shouldKeepConnectionOpen(message.getProtocol())) {
+                        handlePersistentConnection(clientSocket, session, message.getProtocol());
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Handling error", e);
+            logger.error("Handling error from {}:{} - {}",
+                    clientAddress, clientPort, e.getMessage());
         } finally {
             cleanupConnection(clientSocket, "normal");
             long duration = System.currentTimeMillis() - connectionStart;
             logger.info("Connection from {}:{} closed after {} ms",
                     clientAddress, clientPort, duration);
         }
+    }
+
+    private boolean shouldKeepConnectionOpen(String protocol) {
+        return "TELTONIKA".equals(protocol) || "GT06".equals(protocol);
+    }
+
+    private void handlePersistentConnection(Socket socket, DeviceSession session, String protocol) throws IOException {
+        if (socket == null || session == null || protocol == null) {
+            throw new IllegalArgumentException("Socket, session and protocol cannot be null");
+        }
+
+        final int bufferSize = getBufferSizeForProtocol(protocol);
+        try (InputStream input = socket.getInputStream();
+             OutputStream output = socket.getOutputStream()) {
+
+            byte[] buffer = new byte[bufferSize];
+            socket.setSoTimeout(getProtocolTimeout(protocol));
+
+            while (!socket.isClosed()) {
+                try {
+                    int bytesRead = input.read(buffer);
+                    if (bytesRead == -1) {
+                        logger.debug("End of stream reached for session {}", session.getSessionId());
+                        break;
+                    }
+
+                    byte[] data = Arrays.copyOf(buffer, bytesRead);
+                    DeviceMessage message = processProtocolMessage(data);
+
+                    if (message != null) {
+                        // Update session with latest IMEI if changed
+                        if (message.getImei() != null && !message.getImei().equals(session.getImei())) {
+                            session.setImei(message.getImei());
+                            sessionManager.updateSession(session);
+                            logger.debug("Updated IMEI for session {} to {}",
+                                    session.getSessionId(), message.getImei());
+                        }
+
+                        processResponse(output, message,
+                                socket.getInetAddress().getHostAddress(),
+                                socket.getPort());
+
+                        if (message.getParsedData() != null &&
+                                message.getParsedData().containsKey("position")) {
+                            processPosition(message,
+                                    socket.getInetAddress().getHostAddress(),
+                                    socket.getPort());
+                        }
+                    }
+                } catch (SocketTimeoutException e) {
+                    logger.debug("Connection timeout for {} protocol session {}",
+                            protocol, session.getSessionId());
+                    break;
+                } catch (IOException e) {
+                    logger.error("I/O error in persistent connection for session {}: {}",
+                            session.getSessionId(), e.getMessage());
+                    throw e;
+                } catch (Exception e) {
+                    logger.error("Unexpected error in persistent connection for session {}: {}",
+                            session.getSessionId(), e.getMessage(), e);
+                    break;
+                }
+            }
+        } finally {
+            if (!socket.isClosed()) {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    logger.warn("Error closing socket for session {}: {}",
+                            session.getSessionId(), e.getMessage());
+                }
+            }
+        }
+    }
+
+    private int getBufferSizeForProtocol(String protocol) {
+        // Default buffer size or protocol-specific sizes
+        return 8192; // 8KB default
+    }
+
+    private int getProtocolTimeout(String protocol) {
+        if ("GT06".equals(protocol)) {
+            return 30000; // 30 seconds for GT06
+        }
+        return 60000; // 60 seconds default (Teltonika)
     }
 
     private void handleTeltonikaDataPhase(Socket socket, DeviceSession session) throws IOException {

@@ -1,3 +1,4 @@
+// DeviceSession.java
 package com.assettrack.iot.model.session;
 
 import java.net.SocketAddress;
@@ -8,13 +9,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DeviceSession {
-    private final String imei;
+    private volatile String imei;
     private final String protocol;
-    private volatile SocketAddress remoteAddress;  // Made volatile for thread-safety
+    private volatile SocketAddress remoteAddress;
     private final Instant creationTime;
     private volatile Instant lastActiveTime;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
-    private final int sessionId;
+    private final String sessionId;
 
     public DeviceSession(String imei, String protocol, SocketAddress remoteAddress) {
         if (imei == null || imei.isBlank()) {
@@ -28,21 +29,23 @@ public class DeviceSession {
         this.sessionId = generateSessionId();
     }
 
-    // Thread-safe update methods
+    private String generateSessionId() {
+        return imei + "-" + System.currentTimeMillis() + "-" + Thread.currentThread().getId();
+    }
+
     public synchronized void updateLastActive() {
         this.lastActiveTime = Instant.now();
     }
 
     public synchronized void setRemoteAddress(SocketAddress remoteAddress) {
         this.remoteAddress = remoteAddress;
-        updateLastActive();  // Update activity timestamp when address changes
+        updateLastActive();
     }
 
     public boolean isStale(Duration timeout) {
-        return Instant.now().isAfter(lastActiveTime.plus(timeout));
+        return timeout != null && Instant.now().isAfter(lastActiveTime.plus(timeout));
     }
 
-    // Immutable getters
     public String getImei() {
         return imei;
     }
@@ -63,11 +66,17 @@ public class DeviceSession {
         return lastActiveTime;
     }
 
-    public int getSessionId() {
+    public String getSessionId() {
         return sessionId;
     }
 
-    // Attribute management
+    public synchronized void setImei(String imei) {
+        if (imei != null && !imei.isBlank()) {
+            this.imei = imei;
+            updateLastActive();
+        }
+    }
+
     public void setAttribute(String key, Object value) {
         if (key == null) {
             throw new IllegalArgumentException("Attribute key cannot be null");
@@ -85,11 +94,6 @@ public class DeviceSession {
 
     public Object removeAttribute(String key) {
         return attributes.remove(key);
-    }
-
-    // Private helper
-    private int generateSessionId() {
-        return (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
     }
 
     @Override

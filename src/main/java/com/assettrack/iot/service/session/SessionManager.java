@@ -1,3 +1,4 @@
+// SessionManager.java
 package com.assettrack.iot.service.session;
 
 import com.assettrack.iot.model.session.DeviceSession;
@@ -16,9 +17,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SessionManager {
     private static final Logger logger = LoggerFactory.getLogger(SessionManager.class);
     private final Map<String, DeviceSession> sessions = new ConcurrentHashMap<>();
-    private Duration sessionTimeout = Duration.ofHours(1);
+    private volatile Duration sessionTimeout = Duration.ofHours(1);
 
     public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
+        if (imei == null || imei.isBlank()) {
+            throw new IllegalArgumentException("IMEI cannot be null or blank");
+        }
+
         return sessions.compute(imei, (key, existing) -> {
             if (existing == null) {
                 DeviceSession newSession = new DeviceSession(imei, protocol, remoteAddress);
@@ -43,11 +48,29 @@ public class SessionManager {
     @Scheduled(fixedRate = 300000) // 5 minutes
     public void cleanupStaleSessions() {
         sessions.entrySet().removeIf(entry -> {
-            if (entry.getValue().isStale(sessionTimeout)) {
+            if (entry.getValue() == null || entry.getValue().isStale(sessionTimeout)) {
                 logger.info("Removing stale session for IMEI: {}", entry.getKey());
                 return true;
             }
             return false;
         });
+    }
+
+    public void updateSession(DeviceSession session) {
+        if (session != null && session.getImei() != null) {
+            sessions.compute(session.getImei(), (k, v) -> {
+                if (v == null || v.getSessionId() == session.getSessionId()) {
+                    return session;
+                }
+                logger.warn("Session update conflict for IMEI: {}", session.getImei());
+                return v; // Keep existing session if IDs don't match
+            });
+        }
+    }
+
+    public void setSessionTimeout(Duration sessionTimeout) {
+        if (sessionTimeout != null) {
+            this.sessionTimeout = sessionTimeout;
+        }
     }
 }

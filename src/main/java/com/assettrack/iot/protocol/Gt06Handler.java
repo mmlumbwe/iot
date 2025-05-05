@@ -32,6 +32,7 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_LOGIN = 0x01;
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
+    private static final byte PROTOCOL_DATA = 0x10;
     private static final int IMEI_LENGTH = 15;
     private String lastValidImei;
 
@@ -87,6 +88,9 @@ public class Gt06Handler implements ProtocolHandler {
 
             int declaredLength = buffer.get() & 0xFF;
             byte protocol = buffer.get();
+
+            // Set flag to keep connection open for all packet types except errors
+            parsedData.put("keepAlive", protocol != 0x7F); // 0x7F is error protocol
             int actualLength = data.length - HEADER_LENGTH - CHECKSUM_LENGTH;
 
             // Protocol handling
@@ -112,6 +116,17 @@ public class Gt06Handler implements ProtocolHandler {
             if (!parsedData.containsKey("response")) {
                 byte[] response = generateResponseForProtocol(protocol, data);
                 parsedData.put("response", response);
+            }
+
+            // Add this to the handle method, before returning the message:
+            if (protocol == PROTOCOL_LOGIN || protocol == PROTOCOL_GPS || protocol == PROTOCOL_HEARTBEAT) {
+                parsedData.put("keepAlive", true); // Tell server to keep connection open
+            }
+
+            // For heartbeat packets, you might want to add:
+            if (protocol == PROTOCOL_HEARTBEAT) {
+                parsedData.put("isHeartbeat", true);
+                logger.debug("Heartbeat received from IMEI: {}", lastValidImei);
             }
 
             message.setParsedData(parsedData);
