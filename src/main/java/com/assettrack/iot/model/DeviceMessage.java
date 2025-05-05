@@ -21,6 +21,7 @@ public class DeviceMessage {
     private LocalDateTime timestamp;
     private int signalStrength;
     private int batteryLevel;
+    private SocketAddress remoteAddress;
 
     // Standard message types
     public static final String TYPE_LOGIN = "LOGIN";
@@ -164,6 +165,7 @@ public class DeviceMessage {
         return protocolType;
     }
 
+
     @Override
     public String toString() {
         return "DeviceMessage{" +
@@ -189,6 +191,11 @@ public class DeviceMessage {
     }
 
     public void setRemoteAddress(SocketAddress remoteAddress) {
+        this.remoteAddress = remoteAddress;
+    }
+
+    public SocketAddress getRemoteAddress() {
+        return this.remoteAddress;
     }
 
     public static class Builder {

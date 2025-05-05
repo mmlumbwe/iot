@@ -80,4 +80,7 @@ public class SessionManager {
             this.sessionTimeout = sessionTimeout;
         }
     }
+
+    public void onShutdown() {
+    }
 }
