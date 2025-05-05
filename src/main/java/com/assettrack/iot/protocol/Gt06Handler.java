@@ -110,7 +110,7 @@ public class Gt06Handler implements ProtocolHandler {
             throws ProtocolException {
         try {
             validateLoginPacket(data);
-            String imei = extractImeiFromLoginPacket(data);
+            String imei = extractImeiFromPacket(data);
 
             this.lastValidImei = imei;
             parsedData.put("imei", imei);
@@ -133,36 +133,57 @@ public class Gt06Handler implements ProtocolHandler {
     /**
      * Enhanced IMEI extraction that handles different GT06 device variations
      */
-    private String extractImeiFromLoginPacket(byte[] data) throws ProtocolException {
+    private String extractImeiFromPacket(byte[] data) throws ProtocolException {
         try {
+            // Validate minimum packet length
             if (data.length < 12) {
                 throw new ProtocolException("Packet too short for IMEI extraction");
             }
 
-            // Special decoding for this specific device type
+            // Extract bytes 4-11 which contain the IMEI
             byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
+
+            // Convert to IMEI using the specific encoding scheme
             StringBuilder imeiBuilder = new StringBuilder();
 
-            // First byte is special - contains first digit in high nibble
-            imeiBuilder.append((imeiBytes[0] & 0xF0) >>> 4);  // Gets 8 from 0x08
+            // First byte (0x08) -> 8 and 6
+            imeiBuilder.append((imeiBytes[0] & 0xF0) >>> 4);  // 8
+            imeiBuilder.append((imeiBytes[0] & 0x0F));        // 6
 
-            // Remaining digits are in the following bytes
-            imeiBuilder.append((imeiBytes[0] & 0x0F));       // Gets 6 from 0x08
-            imeiBuilder.append((imeiBytes[1] & 0xF0) >>> 4);  // Gets 2 from 0x62
-            imeiBuilder.append((imeiBytes[1] & 0x0F));        // Gets 4 from 0x62
-            imeiBuilder.append((imeiBytes[2] & 0xF0) >>> 4);  // Gets 7 from 0x47
-            imeiBuilder.append((imeiBytes[2] & 0x0F));        // Gets 6 from 0x47
-            imeiBuilder.append((imeiBytes[3] & 0xF0) >>> 4);  // Gets 0 from 0x60
-            imeiBuilder.append((imeiBytes[3] & 0x0F));        // Gets 5 from 0x60
-            imeiBuilder.append((imeiBytes[4] & 0xF0) >>> 4);  // Gets 1 from 0x51
-            imeiBuilder.append((imeiBytes[4] & 0x0F));        // Gets 1 from 0x51
-            imeiBuilder.append((imeiBytes[5] & 0xF0) >>> 4);  // Gets 2 from 0x12
-            imeiBuilder.append((imeiBytes[5] & 0x0F));        // Gets 4 from 0x12
-            imeiBuilder.append((imeiBytes[6] & 0xF0) >>> 4);  // Gets 1 from 0x41
-            imeiBuilder.append((imeiBytes[6] & 0x0F));        // Gets 4 from 0x41
-            imeiBuilder.append((imeiBytes[7] & 0xF0) >>> 4);  // Gets 6 from 0x46
+            // Second byte (0x62) -> 2 and 4
+            imeiBuilder.append((imeiBytes[1] & 0xF0) >>> 4);  // 2
+            imeiBuilder.append((imeiBytes[1] & 0x0F));        // 4
 
-            return imeiBuilder.toString();
+            // Third byte (0x47) -> 7 and 6
+            imeiBuilder.append((imeiBytes[2] & 0xF0) >>> 4);  // 7
+            imeiBuilder.append((imeiBytes[2] & 0x0F));        // 6
+
+            // Fourth byte (0x60) -> 0 and 5
+            imeiBuilder.append((imeiBytes[3] & 0xF0) >>> 4);  // 0
+            imeiBuilder.append((imeiBytes[3] & 0x0F));        // 5
+
+            // Fifth byte (0x51) -> 1 and 1
+            imeiBuilder.append((imeiBytes[4] & 0xF0) >>> 4);  // 1
+            imeiBuilder.append((imeiBytes[4] & 0x0F));        // 1
+
+            // Sixth byte (0x12) -> 2 and 4
+            imeiBuilder.append((imeiBytes[5] & 0xF0) >>> 4);  // 2
+            imeiBuilder.append((imeiBytes[5] & 0x0F));        // 4
+
+            // Seventh byte (0x41) -> 1 and 4
+            imeiBuilder.append((imeiBytes[6] & 0xF0) >>> 4);  // 1
+            imeiBuilder.append((imeiBytes[6] & 0x0F));        // 4
+
+            // Eighth byte (0x46) -> 6 (last digit)
+            imeiBuilder.append((imeiBytes[7] & 0xF0) >>> 4);  // 6
+
+            String imei = imeiBuilder.toString();
+
+            if (imei.length() != 15) {
+                throw new ProtocolException("Invalid IMEI length: " + imei.length());
+            }
+
+            return imei;
         } catch (Exception e) {
             logger.error("IMEI extraction failed for packet: {}", bytesToHex(data));
             throw new ProtocolException("IMEI extraction error: " + e.getMessage());
