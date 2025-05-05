@@ -264,4 +264,17 @@ public class PositionService {
                 .findFirst()
                 .orElse(null);
     }
+
+    //@Override
+    @Transactional
+    public void updateDeviceStatus(String imei, String status) {
+        Device device = deviceRepository.findById(Long.valueOf(imei))
+                .orElseGet(() -> {
+                    Device newDevice = new Device();
+                    newDevice.setImei(imei);
+                    return newDevice;
+                });
+        device.setStatus(Device.Status.valueOf(status));
+        deviceRepository.save(device);
+    }
 }

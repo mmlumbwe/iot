@@ -2,8 +2,10 @@ package com.assettrack.iot.service;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.assettrack.iot.model.session.DeviceSession;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
+import com.assettrack.iot.service.session.SessionManager;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.commons.codec.binary.Hex;
@@ -59,6 +61,11 @@ public class GpsServer {
 
     @Autowired
     private List<ProtocolHandler> protocolHandlers;
+
+    @Autowired
+    private SessionManager sessionManager;
+
+    private final Map<SocketAddress, DeviceSession> addressToSessionMap = new ConcurrentHashMap<>();
 
     private final Map<String, DeviceConnection> activeConnections = new ConcurrentHashMap<>();
     private final Set<String> blacklistedIps = ConcurrentHashMap.newKeySet();
@@ -280,6 +287,7 @@ public class GpsServer {
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
+        SocketAddress remoteAddress = clientSocket.getRemoteSocketAddress();
 
         try {
             clientSocket.setKeepAlive(true);
@@ -300,34 +308,35 @@ public class GpsServer {
                     logHexDump(receivedData);
 
                     DeviceMessage message = processProtocolMessage(receivedData);
-
                     if (message != null) {
-                        // Process response if available
+                        // Create or update session
+                        DeviceSession session = sessionManager.getOrCreateSession(
+                                message.getImei(),
+                                message.getProtocol(),
+                                remoteAddress);
+                        addressToSessionMap.put(remoteAddress, session);
+
+                        // Process response
                         processResponse(output, message, clientAddress, clientPort);
 
-                        // Process position if available
+                        // Process position
                         processPosition(message, clientAddress, clientPort);
-
-                        // Track connection
-                        trackConnection(message, clientAddress);
                     }
                 }
             }
-        } catch (SocketTimeoutException e) {
-            logger.warn("Timeout reading from client {}:{}", clientAddress, clientPort);
-        } catch (IOException e) {
-            logger.error("I/O error with client {}:{} - {}", clientAddress, clientPort, e.getMessage());
         } catch (Exception e) {
-            logger.error("Unexpected error handling client {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage(), e);
+            logger.error("Error handling TCP client", e);
         } finally {
-            try {
-                clientSocket.close();
-                logger.info("Closed connection with {}:{}", clientAddress, clientPort);
-            } catch (IOException e) {
-                logger.warn("Error closing socket for {}:{} - {}",
-                        clientAddress, clientPort, e.getMessage());
-            }
+            cleanupConnection(clientSocket, remoteAddress);
+        }
+    }
+
+    private void cleanupConnection(Socket clientSocket, SocketAddress remoteAddress) {
+        try {
+            addressToSessionMap.remove(remoteAddress);
+            clientSocket.close();
+        } catch (IOException e) {
+            logger.warn("Error closing socket", e);
         }
     }
 
@@ -465,21 +474,24 @@ public class GpsServer {
         logUdpPacket(clientAddress, clientPort, data);
 
         DeviceMessage message = processProtocolMessage(data);
-
         if (message != null && message.getParsedData() != null) {
-            Map<String, Object> parsedData = message.getParsedData();
+            // Create or update session
+            DeviceSession session = sessionManager.getOrCreateSession(
+                    message.getImei(),
+                    message.getProtocol(),
+                    packet.getSocketAddress());
+            addressToSessionMap.put(packet.getSocketAddress(), session);
 
-            // Process position if available
-            if (parsedData.containsKey("position")) {
-                processUdpPosition(parsedData.get("position"), clientAddress, clientPort, message);
+            // Process position
+            if (message.getParsedData().containsKey("position")) {
+                processUdpPosition(message.getParsedData().get("position"),
+                        clientAddress, clientPort, message);
             }
 
-            // Send response if available
-            Object responseObj = parsedData.get("response");
+            // Send response
+            Object responseObj = message.getParsedData().get("response");
             if (responseObj instanceof byte[]) {
                 sendUdpResponse(packet, message);
-            } else if (responseObj != null) {
-                logger.warn("Invalid UDP response type in parsed data");
             }
         }
     }

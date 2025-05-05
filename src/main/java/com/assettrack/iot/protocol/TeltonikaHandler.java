@@ -140,6 +140,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
         response.putInt(0);       // Preamble
         response.putInt(1);       // Number of accepted packets
+        response.putInt(123456);  // Example session ID - should be dynamic in real implementation
         message.addParsedData("response", response.array());
 
         logger.info("Accepted IMEI from device {}", imei);
