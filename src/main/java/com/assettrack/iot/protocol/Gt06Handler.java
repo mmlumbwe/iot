@@ -3,13 +3,20 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.assettrack.iot.model.session.DeviceSession;
+import com.assettrack.iot.service.session.SessionManager;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -35,6 +42,7 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_DATA = 0x10;
     private static final int IMEI_LENGTH = 15;
     private String lastValidImei;
+    private Socket socket;
 
     private static final int MAX_MINUTE = 59;
     private static final int MAX_HOUR = 23;
@@ -51,7 +59,12 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int HEARTBEAT_LENGTH = 12;
     private static final int ALARM_PACKET_LENGTH = 35;
 
-    // Validation configuration (add with other constants)
+    private static final byte LOGIN_RESPONSE_SUCCESS = 0x01;
+    private static final byte[] START_BYTES = new byte[] {0x78, 0x78};
+    private static final int LOGIN_PACKET_MIN_LENGTH = 22;
+    private static final int IMEI_START_INDEX = 4;
+
+    // Validation configuration
     public enum ValidationMode {
         STRICT,    // Reject invalid values
         LENIENT,   // Clamp to nearest valid
@@ -63,6 +76,9 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Value("${gt06.validation.hour.mode:}")
     private Optional<ValidationMode> hourValidationMode;
+
+    @Autowired
+    private SessionManager sessionManager;
 
     @Override
     public boolean supports(String protocolType) {
@@ -76,6 +92,14 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
+        if (socket == null) {
+            throw new ProtocolException("Socket connection not available");
+        }
+        return handle(data, socket);
+    }
+
+    public DeviceMessage handle(byte[] data, Socket socket) throws ProtocolException {
+        this.socket = socket;
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("GT06");
         Map<String, Object> parsedData = new HashMap<>();
@@ -89,14 +113,12 @@ public class Gt06Handler implements ProtocolHandler {
             int declaredLength = buffer.get() & 0xFF;
             byte protocol = buffer.get();
 
-            // Set flag to keep connection open for all packet types except errors
-            parsedData.put("keepAlive", protocol != 0x7F); // 0x7F is error protocol
+            parsedData.put("keepAlive", protocol != 0x7F);
             int actualLength = data.length - HEADER_LENGTH - CHECKSUM_LENGTH;
 
-            // Protocol handling
             switch (protocol) {
                 case PROTOCOL_LOGIN:
-                    message = handleLogin(data, message, parsedData);
+                    message = handleLogin(data, socket.getRemoteSocketAddress(), parsedData);
                     break;
                 case PROTOCOL_GPS:
                     message = handleGps(data, message, parsedData);
@@ -112,25 +134,21 @@ public class Gt06Handler implements ProtocolHandler {
                             String.format("%02X", protocol));
             }
 
-            // Ensure response exists
             if (!parsedData.containsKey("response")) {
                 byte[] response = generateResponseForProtocol(protocol, data);
                 parsedData.put("response", response);
             }
 
-            // Add this to the handle method, before returning the message:
             if (protocol == PROTOCOL_LOGIN || protocol == PROTOCOL_GPS || protocol == PROTOCOL_HEARTBEAT) {
-                parsedData.put("keepAlive", true); // Tell server to keep connection open
+                parsedData.put("keepAlive", true);
             }
 
-            // For heartbeat packets, you might want to add:
             if (protocol == PROTOCOL_HEARTBEAT) {
                 parsedData.put("isHeartbeat", true);
                 logger.debug("Heartbeat received from IMEI: {}", lastValidImei);
             }
 
             message.setParsedData(parsedData);
-
             return message;
         } catch (ProtocolException e) {
             logger.warn("Protocol error: {}", e.getMessage());
@@ -161,10 +179,9 @@ public class Gt06Handler implements ProtocolHandler {
             byte errorCode = getErrorCode(error);
             String errorMsg = error.getMessage();
 
-            // Special handling for coordinate errors
             if (errorMsg.contains("longitude") || errorMsg.contains("latitude")) {
                 logger.warn("Attempting coordinate recovery for IMEI {}", lastValidImei);
-                errorCode = (byte) 0x81; // Special code for recoverable coordinate error
+                errorCode = (byte) 0x81;
             }
 
             return ByteBuffer.allocate(13)
@@ -172,7 +189,7 @@ public class Gt06Handler implements ProtocolHandler {
                     .put(PROTOCOL_HEADER_1)
                     .put(PROTOCOL_HEADER_2)
                     .put((byte) 0x05)
-                    .put((byte) 0x7F) // Error protocol
+                    .put((byte) 0x7F)
                     .put(serial[0])
                     .put(serial[1])
                     .put((byte) 0x00).put((byte) 0x00)
@@ -191,24 +208,17 @@ public class Gt06Handler implements ProtocolHandler {
         if (message.contains("minute")) return 0x02;
         if (message.contains("hour")) return 0x01;
         if (message.contains("second")) return 0x03;
-        return (byte) 0xFF; // Unknown error
+        return (byte) 0xFF;
     }
 
-    /**
-     * Extracts the serial number from a GT06 protocol packet
-     * @param data The raw packet data
-     * @return 2-byte array containing serial number
-     * @throws ProtocolException if packet is too short
-     */
     private byte[] extractSerialNumber(byte[] data) throws ProtocolException {
         if (data == null || data.length < 4) {
             throw new ProtocolException("Packet too short for serial number extraction");
         }
 
-        // Serial number is typically the last 4 bytes before checksum
         return new byte[] {
-                data[data.length - 4], // First byte of serial
-                data[data.length - 3]  // Second byte of serial
+                data[data.length - 4],
+                data[data.length - 3]
         };
     }
 
@@ -216,48 +226,124 @@ public class Gt06Handler implements ProtocolHandler {
         if (error.getMessage().contains("hour")) return 0x01;
         if (error.getMessage().contains("minute")) return 0x02;
         if (error.getMessage().contains("second")) return 0x03;
-        return (byte) 0xFF; // Generic error
+        return (byte) 0xFF;
     }
 
     private void validateBasicPacketStructure(byte[] data) throws ProtocolException {
-        // Basic null and minimum length check
         if (data == null || data.length < MIN_PACKET_LENGTH) {
             throw new ProtocolException("Invalid message length");
         }
 
-        // Protocol header check
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException("Invalid protocol header");
         }
 
-        // Verify checksum exists
         if (data.length < HEADER_LENGTH + CHECKSUM_LENGTH) {
             throw new ProtocolException("Message too short for checksum");
         }
     }
 
-    private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
-            throws ProtocolException {
-        if (data.length < LOGIN_PACKET_LENGTH) {
-            throw new ProtocolException("Login packet too short");
+    public DeviceMessage handleLogin(byte[] data, SocketAddress remoteAddress, Map<String, Object> parsedData) {
+        String imei = extractImei(data);
+        if (imei == null) {
+            throw new ProtocolException("Invalid login packet - IMEI extraction failed");
         }
-        logger.debug("Full login packet: {}", Hex.encodeHexString(data));
 
-        String imei = parseImei(data);
-        lastValidImei = imei;
+        this.lastValidImei = imei;
+        parsedData.put("imei", imei);
+
+        byte[] response = createLoginResponse(data);
+
+        DeviceMessage message = new DeviceMessage();
         message.setImei(imei);
-        message.setMessageType("LOGIN");
+        message.setProtocol("GT06");
+        message.setRawData(data);
+        message.setResponse(response);
+        message.setRemoteAddress(remoteAddress);
+        message.setParsedData(parsedData);
 
-        logger.info("Login request from IMEI: {}", imei);
-
-        byte[] response = generateLoginResponse(data);
-        parsedData.put("response", response);
-        parsedData.put("device_info", extractDeviceInfo(data));
-
-        logger.info("Generated login response for IMEI: {} ({} bytes)", imei, response.length);
         return message;
     }
 
+    public DeviceMessage handleMessage(byte[] data, SocketAddress remoteAddress) {
+        Map<String, Object> parsedData = new HashMap<>();
+        DeviceMessage message = new DeviceMessage();
+
+        if (data.length >= 3 && data[2] == 0x01) {
+            message = handleLogin(data, remoteAddress, parsedData);
+        } else if (data.length >= 3 && data[2] == 0x12) {
+            message = handleGpsData(data, remoteAddress, parsedData);
+        }
+
+        return message;
+    }
+
+    public byte[] createLoginResponse(byte[] loginPacket) {
+        if (loginPacket == null || loginPacket.length < LOGIN_PACKET_MIN_LENGTH) {
+            throw new IllegalArgumentException("Invalid login packet");
+        }
+
+        byte[] response = new byte[11];
+        System.arraycopy(START_BYTES, 0, response, 0, 2);
+        response[2] = 0x05;
+        response[3] = 0x01;
+        response[4] = LOGIN_RESPONSE_SUCCESS;
+        response[5] = loginPacket[loginPacket.length - 4];
+        response[6] = loginPacket[loginPacket.length - 3];
+
+        byte crc = 0;
+        for (int i = 2; i <= 6; i++) {
+            crc ^= response[i];
+        }
+        response[7] = crc;
+
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        logger.debug("Created login response: {}", bytesToHex(response));
+        return response;
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+
+    public String extractImei(byte[] data) {
+        if (data == null || data.length < LOGIN_PACKET_MIN_LENGTH) {
+            logger.warn("Invalid login packet length: {}", data != null ? data.length : "null");
+            return null;
+        }
+
+        if (data[0] != START_BYTES[0] || data[1] != START_BYTES[1]) {
+            logger.warn("Invalid packet start bytes");
+            return null;
+        }
+
+        if (data[2] != 0x01) {
+            logger.warn("Not a login packet, type: {}", String.format("%02X", data[2]));
+            return null;
+        }
+
+        try {
+            byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START_INDEX, IMEI_START_INDEX + IMEI_LENGTH);
+            String imei = new String(imeiBytes, StandardCharsets.US_ASCII);
+
+            if (!imei.matches("^\\d{15}$")) {
+                logger.warn("Invalid IMEI format: {}", imei);
+                return null;
+            }
+
+            logger.debug("Extracted IMEI: {}", imei);
+            return imei;
+        } catch (Exception e) {
+            logger.error("IMEI extraction failed", e);
+            return null;
+        }
+    }
 
     private DeviceMessage handleGps(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
@@ -284,6 +370,22 @@ public class Gt06Handler implements ProtocolHandler {
         return message;
     }
 
+    private DeviceMessage handleGpsData(byte[] data, SocketAddress remoteAddress, Map<String, Object> parsedData) {
+        DeviceMessage message = new DeviceMessage();
+        message.setImei(lastValidImei);
+        message.setMessageType("LOCATION");
+
+        try {
+            Position position = parseGpsData(data);
+            parsedData.put("position", position);
+            parsedData.put("response", generateGpsResponse(data));
+        } catch (ProtocolException e) {
+            message.setError(e.getMessage());
+        }
+
+        return message;
+    }
+
     private DeviceMessage handleHeartbeat(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         if (data.length < 12) {
@@ -293,7 +395,6 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(lastValidImei != null ? lastValidImei : "UNKNOWN");
         message.setMessageType("HEARTBEAT");
 
-        // Generate and store response
         byte[] response = generateHeartbeatResponse(data);
         parsedData.put("response", response);
         parsedData.put("status", extractStatusInfo(data));
@@ -312,21 +413,21 @@ public class Gt06Handler implements ProtocolHandler {
                     .order(ByteOrder.BIG_ENDIAN)
                     .put(PROTOCOL_HEADER_1)
                     .put(PROTOCOL_HEADER_2)
-                    .put((byte) 0x05) // Length
+                    .put((byte) 0x05)
                     .put(PROTOCOL_HEARTBEAT)
-                    .put(data[data.length-4]) // Serial
+                    .put(data[data.length-4])
                     .put(data[data.length-3])
                     .put((byte) 0x00).put((byte) 0x00)
                     .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x01) // Success
-                    .put((byte) 0x0D).put((byte) 0x0A) // End bytes
+                    .put((byte) 0x01)
+                    .put((byte) 0x0D).put((byte) 0x0A)
                     .array();
         } catch (Exception e) {
             logger.error("Failed to generate heartbeat response", e);
             return new byte[] {
                     PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
                     0x05, PROTOCOL_HEARTBEAT,
-                    0x00, 0x00, // Default serial
+                    0x00, 0x00,
                     0x00, 0x00, 0x00, 0x00,
                     0x01, 0x0D, 0x0A
             };
@@ -346,11 +447,9 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(lastValidImei);
         message.setMessageType("ALARM");
 
-        // Parse position and set alarm type
         Position position = parseGpsData(data);
         position.setAlarmType(extractAlarmType(data));
 
-        // Generate and store response
         byte[] response = generateAlarmResponse(data);
         parsedData.put("response", response);
         parsedData.put("position", position);
@@ -369,26 +468,27 @@ public class Gt06Handler implements ProtocolHandler {
                     .order(ByteOrder.BIG_ENDIAN)
                     .put(PROTOCOL_HEADER_1)
                     .put(PROTOCOL_HEADER_2)
-                    .put((byte) 0x05) // Length
+                    .put((byte) 0x05)
                     .put(PROTOCOL_ALARM)
-                    .put(data[data.length-4]) // Serial
+                    .put(data[data.length-4])
                     .put(data[data.length-3])
                     .put((byte) 0x00).put((byte) 0x00)
                     .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x01) // Success
-                    .put((byte) 0x0D).put((byte) 0x0A) // End bytes
+                    .put((byte) 0x01)
+                    .put((byte) 0x0D).put((byte) 0x0A)
                     .array();
         } catch (Exception e) {
             logger.error("Failed to generate alarm response", e);
             return new byte[] {
                     PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
                     0x05, PROTOCOL_ALARM,
-                    0x00, 0x00, // Default serial
+                    0x00, 0x00,
                     0x00, 0x00, 0x00, 0x00,
                     0x01, 0x0D, 0x0A
             };
         }
     }
+
     @Override
     public Position parsePosition(byte[] rawMessage) {
         try {
@@ -401,7 +501,7 @@ public class Gt06Handler implements ProtocolHandler {
             }
 
             ByteBuffer buffer = ByteBuffer.wrap(rawMessage).order(ByteOrder.BIG_ENDIAN);
-            buffer.position(3); // Skip header and length
+            buffer.position(3);
 
             byte protocol = buffer.get();
             if (protocol == PROTOCOL_GPS || protocol == PROTOCOL_ALARM) {
@@ -414,8 +514,12 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private Position parseGpsData(byte[] data) throws ProtocolException {
+        if (lastValidImei == null) {
+            throw new ProtocolException("No valid IMEI available for GPS data parsing");
+        }
+
         ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(4); // Skip header and length
+        buffer.position(4);
 
         Position position = new Position();
         Device device = new Device();
@@ -424,33 +528,21 @@ public class Gt06Handler implements ProtocolHandler {
         position.setDevice(device);
 
         try {
-            // Parse timestamp
             position.setTimestamp(parseTimestamp(buffer));
-
-            // Parse GPS info
             position.setValid(buffer.get() == 1);
 
-            // Parse coordinates with enhanced validation
             double latitude = buffer.getInt() / 1800000.0;
             double longitude = buffer.getInt() / 1800000.0;
 
-            try {
-                validateCoordinates(latitude, longitude);
-            } catch (ProtocolException e) {
-                logger.warn("Coordinate validation failed for IMEI {}: {}",
-                        lastValidImei, e.getMessage());
-                throw e;
-            }
+            validateCoordinates(latitude, longitude);
 
-            // Normalize coordinates
             double normalizedLat = normalizedLatitude(latitude);
             double normalizedLon = normalizedLongitude(longitude);
 
             position.setLatitude(normalizedLat);
             position.setLongitude(normalizedLon);
 
-            // Parse speed and course
-            position.setSpeed((buffer.get() & 0xFF) * 1.852); // Knots to km/h
+            position.setSpeed((buffer.get() & 0xFF) * 1.852);
             position.setCourse((double) (buffer.getShort() & 0xFFFF));
 
             logger.info("Processed location update for IMEI: {} - Lat: {}, Lon: {}",
@@ -462,30 +554,20 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    /**
-     * Normalizes latitude to ensure it's within valid range (-90 to 90)
-     * @param latitude Raw latitude value
-     * @return Normalized latitude value
-     * @throws ProtocolException if latitude cannot be normalized to valid range
-     */
     private double normalizedLatitude(double latitude) throws ProtocolException {
-        // Check for NaN
         if (Double.isNaN(latitude)) {
             throw new ProtocolException("Latitude is not a number");
         }
 
-        // Check for zero coordinates (common error)
         if (latitude == 0.0) {
             logger.warn("Zero latitude value from IMEI {}", lastValidImei);
             throw new ProtocolException("Invalid zero latitude");
         }
 
-        // Check if already in valid range
         if (latitude >= -90 && latitude <= 90) {
             return latitude;
         }
 
-        // Attempt to normalize (for cases like 91° which might mean 89°)
         double normalized = latitude;
         if (latitude > 90) {
             normalized = 90 - (latitude - 90);
@@ -493,7 +575,6 @@ public class Gt06Handler implements ProtocolHandler {
             normalized = -90 + (-90 - latitude);
         }
 
-        // Verify normalization worked
         if (normalized >= -90 && normalized <= 90) {
             logger.warn("Normalized latitude from {} to {}", latitude, normalized);
             return normalized;
@@ -503,33 +584,22 @@ public class Gt06Handler implements ProtocolHandler {
                 String.format("Invalid latitude: %.6f (valid range -90 to 90)", latitude));
     }
 
-    /**
-     * Normalizes longitude to ensure it's within valid range (-180 to 180)
-     * @param longitude Raw longitude value
-     * @return Normalized longitude value
-     * @throws ProtocolException if longitude cannot be normalized to valid range
-     */
     private double normalizedLongitude(double longitude) throws ProtocolException {
-        // Check for NaN
         if (Double.isNaN(longitude)) {
             throw new ProtocolException("Longitude is not a number");
         }
 
-        // Check for zero coordinates (common error)
         if (longitude == 0.0) {
             logger.warn("Zero longitude value from IMEI {}", lastValidImei);
             throw new ProtocolException("Invalid zero longitude");
         }
 
-        // Check if already in valid range
         if (longitude >= -180 && longitude <= 180) {
             return longitude;
         }
 
-        // Normalize longitude to -180..180 range
         double normalized = ((longitude + 180) % 360 + 360) % 360 - 180;
 
-        // Handle edge case where normalization might result in -180
         if (normalized == -180) {
             normalized = 180;
         }
@@ -554,7 +624,6 @@ public class Gt06Handler implements ProtocolHandler {
             int month = validateRange(buffer.get() & 0xFF, 1, 12, "month");
             int day = validateRange(buffer.get() & 0xFF, 1, 31, "day");
 
-            // Handle hour with original value preservation
             int originalHour = buffer.get() & 0xFF;
             int hour = originalHour;
             ValidationMode hourMode = getModeForField("hour");
@@ -567,7 +636,6 @@ public class Gt06Handler implements ProtocolHandler {
                 }
             }
 
-            // Handle minute with original value preservation
             int originalMinute = buffer.get() & 0xFF;
             int minute = originalMinute;
             ValidationMode minuteMode = getModeForField("minute");
@@ -589,24 +657,20 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private void validateCoordinates(double latitude, double longitude) throws ProtocolException {
-        // Check for "zero" coordinates (common error)
         if (latitude == 0.0 && longitude == 0.0) {
             throw new ProtocolException("Invalid zero coordinates");
         }
 
-        // Validate latitude range
         if (Double.isNaN(latitude) || latitude < -90 || latitude > 90) {
             throw new ProtocolException(
                     String.format("Invalid latitude: %.6f (valid range -90 to 90)", latitude));
         }
 
-        // Enhanced longitude validation with recovery suggestions
         if (Double.isNaN(longitude)) {
             throw new ProtocolException("Longitude is not a number");
         }
 
         if (longitude < -180 || longitude > 180) {
-            // Try to normalize longitude that's just slightly out of range
             double normalized = normalizeLongitude(longitude);
             if (normalized >= -180 && normalized <= 180) {
                 logger.warn("Normalized longitude from {} to {}", longitude, normalized);
@@ -619,17 +683,15 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private double normalizeLongitude(double longitude) {
-        // Handle common cases where longitude is in 0-360 range
         if (longitude > 180 && longitude <= 360) {
             return longitude - 360;
         }
-        // Handle wrapped longitudes
         return ((longitude + 180) % 360) - 180;
     }
 
     private String extractAlarmType(byte[] data) {
         ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(35); // Position where alarm type is stored
+        buffer.position(35);
         int alarmType = buffer.get() & 0xFF;
 
         switch (alarmType) {
@@ -651,43 +713,36 @@ public class Gt06Handler implements ProtocolHandler {
                 .order(ByteOrder.BIG_ENDIAN)
                 .put(PROTOCOL_HEADER_1)
                 .put(PROTOCOL_HEADER_2)
-                .put((byte) 0x05) // Length
+                .put((byte) 0x05)
                 .put(PROTOCOL_LOGIN)
-                .put((byte) 0x00).put((byte) 0x01) // Serial number
-                .put((byte) 0xD9) // Checksum
-                .put((byte) 0x0D).put((byte) 0x0A); // End bytes
+                .put((byte) 0x00).put((byte) 0x01)
+                .put((byte) 0xD9)
+                .put((byte) 0x0D).put((byte) 0x0A);
 
         return buffer.array();
     }
 
     private String parseImei(byte[] data) throws ProtocolException {
-        final Logger logger = LoggerFactory.getLogger(getClass());
         final int IMEI_START = 4;
         final int IMEI_END = 12;
         final int REQUIRED_IMEI_LENGTH = 15;
 
         try {
-            // Validate packet has minimum required length
             if (data == null || data.length < IMEI_END) {
                 throw new ProtocolException(String.format(
                         "Invalid packet length: %d bytes (requires at least %d)",
                         data != null ? data.length : 0, IMEI_END));
             }
 
-            // Extract the 8-byte IMEI section
             byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START, IMEI_END);
             String hexString = bytesToHex(imeiBytes);
-
-            // Extract digits starting from second hex character
             String imei = extractDigitsFromHex(hexString, 1);
 
-            // Validate we got exactly 15 digits
             if (imei.length() == REQUIRED_IMEI_LENGTH) {
                 logger.debug("Successfully extracted IMEI: {}", imei);
                 return imei;
             }
 
-            // Handle cases where we didn't get enough digits
             throw new ProtocolException(String.format(
                     "Extracted %d digits (needs %d) from hex: %s",
                     imei.length(), REQUIRED_IMEI_LENGTH, hexString));
@@ -699,20 +754,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    /**
-     * Converts byte array to lowercase hex string
-     */
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder hexBuilder = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            hexBuilder.append(String.format("%02x", b));
-        }
-        return hexBuilder.toString();
-    }
-
-    /**
-     * Extracts digits from hex string starting at specified offset
-     */
     private String extractDigitsFromHex(String hexString, int startOffset) {
         StringBuilder digits = new StringBuilder();
         for (int i = startOffset; i < hexString.length(); i++) {
@@ -749,54 +790,41 @@ public class Gt06Handler implements ProtocolHandler {
         return status;
     }
 
-    /**
-     * Generates a fallback response when normal response generation fails
-     * @param protocolType The protocol type (LOGIN, GPS, HEARTBEAT, ALARM)
-     * @return A valid GT06 protocol response packet (13 bytes)
-     */
     private byte[] generateFallbackResponse(byte protocolType) {
-        // Validate protocol type
         byte validProtocol = protocolType;
         if (protocolType != PROTOCOL_LOGIN &&
                 protocolType != PROTOCOL_GPS &&
                 protocolType != PROTOCOL_HEARTBEAT &&
                 protocolType != PROTOCOL_ALARM) {
-            validProtocol = PROTOCOL_LOGIN; // Default to login protocol
+            validProtocol = PROTOCOL_LOGIN;
         }
 
         return ByteBuffer.allocate(13)
                 .order(ByteOrder.BIG_ENDIAN)
                 .put(PROTOCOL_HEADER_1)
                 .put(PROTOCOL_HEADER_2)
-                .put((byte) 0x05) // Standard length for responses
+                .put((byte) 0x05)
                 .put(validProtocol)
-                .put((byte) 0x00) // Default serial number
                 .put((byte) 0x00)
-                .put((byte) 0x00) // Reserved
                 .put((byte) 0x00)
-                .put((byte) 0x00) // Reserved
                 .put((byte) 0x00)
-                .put((byte) 0x00) // Error indicator for fallback
-                .put((byte) 0x0D) // End marker
+                .put((byte) 0x00)
+                .put((byte) 0x00)
+                .put((byte) 0x00)
+                .put((byte) 0x00)
+                .put((byte) 0x0D)
                 .put((byte) 0x0A)
                 .array();
     }
 
-    /**
-     * Generates a fallback response with error information
-     * @param protocolType The protocol type
-     * @param errorCode Specific error code (0x00-0xFF)
-     * @return A valid GT06 error response packet (13 bytes)
-     */
     private byte[] generateFallbackResponse(byte protocolType, byte errorCode) {
         byte[] response = generateFallbackResponse(protocolType);
         if (response != null && response.length >= 12) {
-            response[11] = errorCode; // Set error code byte
+            response[11] = errorCode;
         }
         return response;
     }
 
-    // Helper method to get mode for specific field
     private ValidationMode getModeForField(String field) {
         return switch (field.toLowerCase()) {
             case "hour" -> hourValidationMode.orElse(validationMode);
@@ -804,21 +832,20 @@ public class Gt06Handler implements ProtocolHandler {
         };
     }
 
-    // Add this helper method to Gt06Handler:
     private byte[] generateStandardResponse(byte protocol, byte[] requestData) {
         try {
             return ByteBuffer.allocate(13)
                     .order(ByteOrder.BIG_ENDIAN)
                     .put(PROTOCOL_HEADER_1)
                     .put(PROTOCOL_HEADER_2)
-                    .put((byte) 0x05) // Length
+                    .put((byte) 0x05)
                     .put(protocol)
-                    .put(requestData[requestData.length-4]) // Serial MSB
-                    .put(requestData[requestData.length-3]) // Serial LSB
-                    .put((byte) 0x00).put((byte) 0x00) // Reserved
-                    .put((byte) 0x00).put((byte) 0x00) // Reserved
-                    .put((byte) 0x01) // Success
-                    .put((byte) 0x0D).put((byte) 0x0A) // End bytes
+                    .put(requestData[requestData.length-4])
+                    .put(requestData[requestData.length-3])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01)
+                    .put((byte) 0x0D).put((byte) 0x0A)
                     .array();
         } catch (Exception e) {
             logger.error("Failed to generate response", e);
@@ -826,7 +853,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    // Then update all response generation methods to use this:
     private byte[] generateLoginResponse(byte[] requestData) {
         return generateStandardResponse(PROTOCOL_LOGIN, requestData);
     }

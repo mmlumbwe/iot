@@ -4,6 +4,7 @@ import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.model.session.DeviceSession;
+import com.assettrack.iot.protocol.Protocol;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import com.assettrack.iot.service.session.SessionManager;
@@ -358,6 +359,13 @@ public class GpsServer {
                     }
 
                     byte[] data = Arrays.copyOf(buffer, bytesRead);
+                    String detectedProtocol = protocolDetector.detectProtocol(data);
+
+                    if (!Objects.equals(detectedProtocol, "GT06")) {
+                        logger.warn("Protocol mismatch for session {}: expected GT06, got {}",
+                                session.getSessionId(), detectedProtocol);
+                        break;
+                    }
                     DeviceMessage message = processProtocolMessage(data);
 
                     if (message != null) {

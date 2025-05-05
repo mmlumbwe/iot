@@ -1,5 +1,6 @@
 package com.assettrack.iot.model;
 
+import java.net.SocketAddress;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -182,6 +183,12 @@ public class DeviceMessage {
     // Builder pattern for fluent construction
     public static Builder builder() {
         return new Builder();
+    }
+
+    public void setResponse(byte[] response) {
+    }
+
+    public void setRemoteAddress(SocketAddress remoteAddress) {
     }
 
     public static class Builder {

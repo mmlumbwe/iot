@@ -30,9 +30,16 @@ public class SessionManager {
                 logger.info("Created new session {} for {}", newSession.getSessionId(), imei);
                 return newSession;
             }
-            existing.setRemoteAddress(remoteAddress);
-            existing.updateLastActive();
-            logger.debug("Updated existing session {} for {}", existing.getSessionId(), imei);
+
+            // Update existing session only if protocol matches
+            if (existing.getProtocol().equals(protocol)) {
+                existing.setRemoteAddress(remoteAddress);
+                existing.updateLastActive();
+                logger.debug("Updated existing session {} for {}", existing.getSessionId(), imei);
+            } else {
+                logger.warn("Protocol mismatch for IMEI {}: existing={}, new={}",
+                        imei, existing.getProtocol(), protocol);
+            }
             return existing;
         });
     }
