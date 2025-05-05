@@ -30,6 +30,11 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_LOGIN = 0x01;
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
+
+    private static final byte PROTOCOL_LOGIN_EXT = 0x11;
+    private static final byte PROTOCOL_GPS_EXT = 0x22;
+    private static final byte PROTOCOL_ALARM_EXT = 0x26;
+
     private static final int IMEI_LENGTH = 15;
     private String lastValidImei;
 
@@ -78,14 +83,18 @@ public class Gt06Handler implements ProtocolHandler {
             byte protocol = buffer.get();
             parsedData.put("keepAlive", protocol != 0x7F);
 
+            // Handle both standard and extended protocol bytes
             switch (protocol) {
                 case PROTOCOL_LOGIN:
+                case PROTOCOL_LOGIN_EXT:  // Added support for extended login
                     return handleLogin(data, message.getRemoteAddress(), parsedData);
                 case PROTOCOL_GPS:
+                case PROTOCOL_GPS_EXT:     // Added support for extended GPS
                     return handleGps(data, message, parsedData);
                 case PROTOCOL_HEARTBEAT:
                     return handleHeartbeat(data, message, parsedData);
                 case PROTOCOL_ALARM:
+                case PROTOCOL_ALARM_EXT:   // Added support for extended alarm
                     return handleAlarm(data, message, parsedData);
                 default:
                     throw new ProtocolException("Unsupported protocol type: 0x" + String.format("%02X", protocol));
@@ -98,6 +107,7 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Internal error: " + e.getMessage());
         }
     }
+
 
     private DeviceMessage handleLogin(byte[] data, SocketAddress remoteAddress, Map<String, Object> parsedData)
             throws ProtocolException {
@@ -129,7 +139,7 @@ public class Gt06Handler implements ProtocolHandler {
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException("Invalid protocol header");
         }
-        if (data[2] != PROTOCOL_LOGIN) {
+        if (data[2] != PROTOCOL_LOGIN && data[2] != PROTOCOL_LOGIN_EXT) {
             throw new ProtocolException("Not a login packet");
         }
     }
