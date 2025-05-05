@@ -133,26 +133,80 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private void validateLoginPacket(byte[] data) throws ProtocolException {
-        if (data.length < LOGIN_PACKET_MIN_LENGTH) {
-            throw new ProtocolException("Packet too short for IMEI extraction");
+        if (data.length < 12) { // Minimum possible login packet size
+            throw new ProtocolException("Packet too short for login (minimum 12 bytes)");
         }
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException("Invalid protocol header");
         }
+        // Accept either standard (0x01) or extended (0x11) login protocol byte
         if (data[2] != PROTOCOL_LOGIN && data[2] != PROTOCOL_LOGIN_EXT) {
-            throw new ProtocolException("Not a login packet");
+            throw new ProtocolException("Not a login packet (protocol byte: 0x" +
+                    String.format("%02X", data[2]) + ")");
         }
     }
 
     private String extractImei(byte[] data) throws ProtocolException {
-        byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START_INDEX, IMEI_START_INDEX + IMEI_LENGTH);
-        String imei = new String(imeiBytes, StandardCharsets.US_ASCII);
+        try {
+            // Try standard GT06 IMEI position first (bytes 4-18)
+            if (data.length >= IMEI_START_INDEX + IMEI_LENGTH) {
+                byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START_INDEX, IMEI_START_INDEX + IMEI_LENGTH);
+                String imei = new String(imeiBytes, StandardCharsets.US_ASCII);
 
-        if (!imei.matches("^\\d{15}$")) {
-            throw new ProtocolException("Invalid IMEI format: " + imei);
+                if (imei.matches("^\\d{15}$")) {
+                    return imei;
+                }
+            }
+
+            // Fallback: Try to find IMEI in the packet by scanning for 15 consecutive digits
+            String packetString = new String(data, StandardCharsets.US_ASCII);
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d{15}").matcher(packetString);
+            if (matcher.find()) {
+                return matcher.group();
+            }
+
+            // Last resort: Extract bytes that might represent IMEI (even if not perfect)
+            int start = Math.max(4, data.length - 20); // Look in last 20 bytes
+            int end = Math.min(start + 15, data.length);
+            byte[] possibleImei = Arrays.copyOfRange(data, start, end);
+            String possibleImeiStr = new String(possibleImei, StandardCharsets.US_ASCII)
+                    .replaceAll("[^0-9]", ""); // Remove non-digit characters
+
+            if (possibleImeiStr.length() >= 8) { // Accept partial IMEI if necessary
+                logger.warn("Using partial IMEI: {}", possibleImeiStr);
+                return possibleImeiStr;
+            }
+
+            throw new ProtocolException("No valid IMEI found in packet");
+        } catch (Exception e) {
+            logger.error("IMEI extraction error from packet: {}", bytesToHex(data));
+            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Converts a byte array to a hexadecimal string representation
+     * @param bytes The byte array to convert
+     * @return Hexadecimal string representation of the byte array
+     */
+    private String bytesToHex(byte[] bytes) {
+        if (bytes == null) {
+            return "null";
         }
 
-        return imei;
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : bytes) {
+            String hex = String.format("%02X", b);
+            hexString.append(hex);
+            hexString.append(" "); // Add space between bytes for readability
+        }
+
+        // Remove trailing space if needed
+        if (hexString.length() > 0) {
+            hexString.setLength(hexString.length() - 1);
+        }
+
+        return hexString.toString();
     }
 
     private byte[] createLoginResponse(byte[] loginPacket) {
@@ -411,7 +465,9 @@ public class Gt06Handler implements ProtocolHandler {
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException("Invalid protocol header");
         }
-        if (data.length < HEADER_LENGTH + CHECKSUM_LENGTH) {
+        // Don't validate checksum for login packets to be more lenient
+        if (data[2] != PROTOCOL_LOGIN && data[2] != PROTOCOL_LOGIN_EXT &&
+                data.length < HEADER_LENGTH + CHECKSUM_LENGTH) {
             throw new ProtocolException("Message too short for checksum");
         }
     }
