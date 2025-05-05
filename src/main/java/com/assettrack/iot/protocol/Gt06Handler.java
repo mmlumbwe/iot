@@ -47,11 +47,6 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte LOGIN_RESPONSE_SUCCESS = 0x01;
     private static final byte[] START_BYTES = new byte[]{PROTOCOL_HEADER_1, PROTOCOL_HEADER_2};
 
-    // Configuration
-    public enum ValidationMode {
-        STRICT, LENIENT, RECOVER
-    }
-
     @Value("${gt06.validation.mode:STRICT}")
     private ValidationMode validationMode;
 
@@ -116,6 +111,7 @@ public class Gt06Handler implements ProtocolHandler {
             DeviceMessage message = new DeviceMessage();
             message.setImei(imei);
             message.setProtocol("GT06");
+            message.setMessageType("LOGIN");
             message.setRemoteAddress(remoteAddress);
             message.setParsedData(parsedData);
             message.addParsedData("response", createLoginResponse(data));
@@ -186,7 +182,7 @@ public class Gt06Handler implements ProtocolHandler {
         parsedData.put("response", generateStandardResponse(PROTOCOL_GPS, data));
 
         message.setImei(lastValidImei);
-        message.setMessageType("LOCATION");
+        message.setMessageType("DATA");
         return message;
     }
 
@@ -410,11 +406,7 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X ", b));
-        }
-        return sb.toString().trim();
+    public enum ValidationMode {
+        STRICT, LENIENT, RECOVER
     }
 }
