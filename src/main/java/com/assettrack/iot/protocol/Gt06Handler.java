@@ -135,40 +135,41 @@ public class Gt06Handler implements ProtocolHandler {
      */
     private String extractImeiFromLoginPacket(byte[] data) throws ProtocolException {
         try {
-            // The IMEI appears to be in bytes 4-18 (0-based index)
-            if (data.length < IMEI_START_INDEX + IMEI_LENGTH) {
+            // Validate minimum packet length
+            if (data.length < 12) {
                 throw new ProtocolException("Packet too short for IMEI extraction");
             }
 
-            // Extract potential IMEI bytes
-            byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START_INDEX, IMEI_START_INDEX + IMEI_LENGTH);
+            // The IMEI is encoded in bytes 4-11 (8 bytes) in a specific format
+            // Example packet: 78 78 11 01 08 62 47 60 51 12 41 46 80 39 0C 81 00 13 D3 48 0D 0A
+            // Correct IMEI: 862476051124146
 
-            // Convert to ASCII string
-            String imeiStr = new String(imeiBytes, StandardCharsets.US_ASCII);
+            // Extract the relevant bytes (positions 4-11)
+            byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
 
-            // Clean the string - keep only digits
-            String cleanImei = imeiStr.replaceAll("[^0-9]", "");
+            // Convert to IMEI string - each byte represents part of the IMEI
+            StringBuilder imeiBuilder = new StringBuilder();
 
-            if (cleanImei.length() == 15) {
-                return cleanImei;
+            // First byte is special - contains first digit in high nibble
+            imeiBuilder.append((imeiBytes[0] & 0xF0) >>> 4);  // First digit (8)
+            imeiBuilder.append(imeiBytes[0] & 0x0F);           // Second digit (6)
+
+            // Remaining bytes represent two digits each in BCD format
+            for (int i = 1; i < imeiBytes.length; i++) {
+                imeiBuilder.append((imeiBytes[i] & 0xF0) >>> 4);  // High nibble
+                imeiBuilder.append(imeiBytes[i] & 0x0F);          // Low nibble
             }
 
-            // Fallback: Try to find 15 consecutive digits in the entire packet
-            String fullPacketStr = new String(data, StandardCharsets.US_ASCII);
-            java.util.regex.Matcher matcher = Pattern.compile("\\d{15}").matcher(fullPacketStr);
-            if (matcher.find()) {
-                return matcher.group();
+            String imei = imeiBuilder.toString();
+
+            // Validate length
+            if (imei.length() != 15) {
+                throw new ProtocolException("Invalid IMEI length: " + imei.length());
             }
 
-            // Last resort: Use first 15 digits found in the packet
-            String digitsOnly = fullPacketStr.replaceAll("[^0-9]", "");
-            if (digitsOnly.length() >= 8) {  // Accept partial IMEI if needed
-                logger.warn("Using partial IMEI: {}", digitsOnly.substring(0, Math.min(15, digitsOnly.length())));
-                return digitsOnly.substring(0, Math.min(15, digitsOnly.length()));
-            }
-
-            throw new ProtocolException("No valid IMEI found in packet");
+            return imei;
         } catch (Exception e) {
+            logger.error("IMEI extraction failed for packet: {}", bytesToHex(data));
             throw new ProtocolException("IMEI extraction error: " + e.getMessage());
         }
     }
