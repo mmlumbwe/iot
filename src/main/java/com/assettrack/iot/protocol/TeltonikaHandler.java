@@ -196,7 +196,16 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         if (records > 0 && buffer.remaining() >= 8) {
             try {
-                Position position = parseCodec8Data(buffer); // Now takes only buffer
+                Position position = parseCodec8Data(buffer);
+
+                // Ensure device is set from session
+                if (message.getImei() != null) {
+                    Device device = new Device();
+                    device.setImei(message.getImei());
+                    device.setProtocolType("TELTONIKA");
+                    position.setDevice(device);
+                }
+
                 message.addParsedData("position", position);
                 message.setTimestamp(position.getTimestamp());
             } catch (ProtocolException e) {

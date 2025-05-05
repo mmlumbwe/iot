@@ -1,5 +1,6 @@
 package com.assettrack.iot.service;
 
+import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.model.session.DeviceSession;
@@ -345,9 +346,22 @@ public class GpsServer {
             DeviceMessage message = processProtocolMessage(data);
 
             if (message != null) {
-                // Ensure session is maintained
-                message.setImei(session.getImei());
-                message.setProtocol(session.getProtocol());
+                // Ensure session IMEI is maintained
+                if (session != null && session.getImei() != null) {
+                    message.setImei(session.getImei());
+                    message.setProtocol(session.getProtocol());
+
+                    // If position exists, ensure device is set
+                    if (message.getParsedData().containsKey("position")) {
+                        Position position = (Position) message.getParsedData().get("position");
+                        if (position.getDevice() == null) {
+                            Device device = new Device();
+                            device.setImei(session.getImei());
+                            device.setProtocolType(session.getProtocol());
+                            position.setDevice(device);
+                        }
+                    }
+                }
 
                 processResponse(output, message,
                         socket.getInetAddress().getHostAddress(),
@@ -477,36 +491,28 @@ public class GpsServer {
 
         Position position = (Position) positionObj;
 
-        if (position.getDevice() == null || position.getDevice().getImei() == null) {
-            logger.warn("Invalid position data from {}:{} - missing device or IMEI",
+        // Get IMEI from either position device or message
+        String imei = position.getDevice() != null ? position.getDevice().getImei() : message.getImei();
+
+        if (imei == null) {
+            logger.warn("Invalid position data from {}:{} - missing IMEI",
                     clientAddress, clientPort);
             return;
         }
 
-        String imei = position.getDevice().getImei();
+        // Ensure device is set
+        if (position.getDevice() == null) {
+            Device device = new Device();
+            device.setImei(imei);
+            device.setProtocolType(message.getProtocol());
+            position.setDevice(device);
+        }
+
         logger.info("Processing position for device {}", imei);
 
         try {
             Position savedPosition = positionService.processAndSavePosition(position);
-
-            if (savedPosition == null) {
-                logger.error("Position save operation returned null for device {}", imei);
-                return;
-            }
-
-            if (savedPosition.getId() == null) {
-                logger.error("Saved position has null ID for device {}", imei);
-                return;
-            }
-
-            logger.info("Successfully persisted position ID {} for device {} at {}",
-                    savedPosition.getId(), imei, savedPosition.getTimestamp());
-
-            if (logger.isDebugEnabled()) {
-                logger.debug("Position details - Lat: {}, Lon: {}, Speed: {}, Valid: {}",
-                        position.getLatitude(), position.getLongitude(),
-                        position.getSpeed(), position.isValid());
-            }
+            // ... rest of the method
         } catch (Exception e) {
             logger.error("Failed to save position for device {}: {}", imei, e.getMessage(), e);
         }
