@@ -148,40 +148,49 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     private DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
-        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        try {
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-        // Validate packet structure
-        if (buffer.remaining() < 12) {
-            throw new ProtocolException("Packet too short");
-        }
+            // Validate packet structure
+            if (buffer.remaining() < 12) {
+                throw new ProtocolException("Packet too short");
+            }
 
-        // Parse header
-        if (buffer.getInt() != 0) {
-            throw new ProtocolException("Invalid preamble");
-        }
+            // Parse header
+            if (buffer.getInt() != 0) {
+                throw new ProtocolException("Invalid preamble");
+            }
 
-        int dataLength = buffer.getInt();
-        if (data.length < dataLength + 8) {
-            throw new ProtocolException("Packet length mismatch");
-        }
+            int dataLength = buffer.getInt();
+            if (data.length < dataLength + 8) {
+                throw new ProtocolException("Packet length mismatch");
+            }
 
-        int codecId = buffer.get() & 0xFF;
-        String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
-        message.setProtocolVersion(protocolVersion);
+            int codecId = buffer.get() & 0xFF;
+            String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
+            message.setProtocolVersion(protocolVersion);
+            message.setMessageType("DATA"); // Ensure message type is set
 
-        // Process based on codec type
-        switch (codecId) {
-            case CODEC_8:
-            case CODEC_8_EXT:
-                return processCodec8Packet(buffer, message);
-            case CODEC_16:
-                return processCodec16Packet(buffer, message);
-            default:
-                throw new ProtocolException("Unsupported codec: " + codecId);
+            // Process based on codec type
+            switch (codecId) {
+                case CODEC_8:
+                case CODEC_8_EXT:
+                    return processCodec8Packet(buffer, message);
+                case CODEC_16:
+                    return processCodec16Packet(buffer, message);
+                default:
+                    throw new ProtocolException("Unsupported codec: " + codecId);
+            }
+        } catch (Exception e) {
+            message.setMessageType("ERROR");
+            message.addParsedData("error", e.getMessage());
+            throw new ProtocolException("Failed to handle data packet", e);
         }
     }
 
     private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
+        message.setMessageType("DATA");
+
         int records = buffer.get() & 0xFF;
         message.addParsedData("records", records);
 

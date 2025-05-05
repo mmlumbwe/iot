@@ -345,6 +345,10 @@ public class GpsServer {
             DeviceMessage message = processProtocolMessage(data);
 
             if (message != null) {
+                // Ensure session is maintained
+                message.setImei(session.getImei());
+                message.setProtocol(session.getProtocol());
+
                 processResponse(output, message,
                         socket.getInetAddress().getHostAddress(),
                         socket.getPort());
@@ -418,8 +422,7 @@ public class GpsServer {
 
             Object responseObj = message.getParsedData().get("response");
             if (responseObj == null) {
-                logger.error("CRITICAL: No response generated for {} (MessageType: {})",
-                        clientAddress, message.getMessageType());
+                logger.error("CRITICAL: No response generated for {}", clientAddress);
                 return;
             }
 
@@ -433,13 +436,20 @@ public class GpsServer {
             output.write(responseBytes);
             output.flush();
 
-            if (message.getMessageType().equals("ERROR")) {
+            // Modified message type check with null safety
+            String messageType = message.getMessageType();
+            if (messageType == null) {
+                logger.warn("Message type not set for message from {}", clientAddress);
+                return;
+            }
+
+            if ("ERROR".equals(messageType)) {
                 logger.warn("Sent error response to {}:{} ({} bytes) - Error: {}",
                         clientAddress, clientPort, responseBytes.length,
                         message.getError() != null ? message.getError() : "Unknown error");
             } else {
                 logger.info("Sent {} response to {}:{} ({} bytes)",
-                        message.getMessageType(),
+                        messageType,
                         clientAddress, clientPort,
                         responseBytes.length);
             }
