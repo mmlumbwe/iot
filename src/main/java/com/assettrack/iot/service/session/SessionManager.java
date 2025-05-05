@@ -21,10 +21,13 @@ public class SessionManager {
     public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
         return sessions.compute(imei, (key, existing) -> {
             if (existing == null) {
-                logger.info("Creating new session for IMEI: {}", imei);
-                return new DeviceSession(imei, protocol, remoteAddress);
+                DeviceSession newSession = new DeviceSession(imei, protocol, remoteAddress);
+                logger.info("Created new session {} for {}", newSession.getSessionId(), imei);
+                return newSession;
             }
+            existing.setRemoteAddress(remoteAddress);
             existing.updateLastActive();
+            logger.debug("Updated existing session {} for {}", existing.getSessionId(), imei);
             return existing;
         });
     }

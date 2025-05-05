@@ -138,7 +138,7 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // Some devices expect 8-byte response (like data packets)
         ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0);       // Preamble
+        response.putInt(0x00000000);  // Preamble
         response.putInt(1);       // Number of accepted packets
         response.putInt(123456);  // Example session ID - should be dynamic in real implementation
         message.addParsedData("response", response.array());

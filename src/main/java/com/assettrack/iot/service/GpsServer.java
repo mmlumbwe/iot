@@ -285,58 +285,94 @@ public class GpsServer {
     }
 
     private void handleTcpClient(Socket clientSocket) {
+        final long connectionStart = System.currentTimeMillis();
+
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
         SocketAddress remoteAddress = clientSocket.getRemoteSocketAddress();
 
-        try {
-            clientSocket.setKeepAlive(true);
-            clientSocket.setSoTimeout(SOCKET_TIMEOUT);
+        try (InputStream input = clientSocket.getInputStream();
+             OutputStream output = clientSocket.getOutputStream()) {
 
-            logger.info("Handling TCP client connection from {}:{}", clientAddress, clientPort);
+            byte[] buffer = new byte[MAX_PACKET_SIZE];
+            int bytesRead = input.read(buffer);
 
-            try (InputStream input = clientSocket.getInputStream();
-                 OutputStream output = clientSocket.getOutputStream()) {
+            if (bytesRead > 0) {
+                byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
+                DeviceMessage message = processProtocolMessage(receivedData);
 
-                byte[] buffer = new byte[MAX_PACKET_SIZE];
-                int bytesRead = input.read(buffer);
+                if (message != null) {
+                    // Enhanced session handling
+                    DeviceSession session = sessionManager.getOrCreateSession(
+                            message.getImei(),
+                            message.getProtocol(),
+                            remoteAddress
+                    );
+                    addressToSessionMap.put(remoteAddress, session);
 
-                if (bytesRead > 0) {
-                    byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
-                    logger.info("Received raw payload from {}:{} ({} bytes)",
-                            clientAddress, clientPort, bytesRead);
-                    logHexDump(receivedData);
+                    // Store session ID in message for protocol handlers
+                    message.addParsedData("sessionId", session.getSessionId());
 
-                    DeviceMessage message = processProtocolMessage(receivedData);
-                    if (message != null) {
-                        // Create or update session
-                        DeviceSession session = sessionManager.getOrCreateSession(
-                                message.getImei(),
-                                message.getProtocol(),
-                                remoteAddress);
-                        addressToSessionMap.put(remoteAddress, session);
+                    // Process and send response
+                    processResponse(output, message, clientAddress, clientPort);
 
-                        // Process response
-                        processResponse(output, message, clientAddress, clientPort);
-
-                        // Process position
-                        processPosition(message, clientAddress, clientPort);
+                    // For Teltonika, keep connection open for data packets
+                    if ("TELTONIKA".equals(message.getProtocol())) {
+                        handleTeltonikaDataPhase(clientSocket, session);
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Error handling TCP client", e);
+            logger.error("Handling error", e);
         } finally {
-            cleanupConnection(clientSocket, remoteAddress);
+            cleanupConnection(clientSocket, "normal");
+            long duration = System.currentTimeMillis() - connectionStart;
+            logger.info("Connection from {}:{} closed after {} ms",
+                    clientAddress, clientPort, duration);
         }
     }
 
-    private void cleanupConnection(Socket clientSocket, SocketAddress remoteAddress) {
-        try {
-            addressToSessionMap.remove(remoteAddress);
-            clientSocket.close();
-        } catch (IOException e) {
-            logger.warn("Error closing socket", e);
+    private void handleTeltonikaDataPhase(Socket socket, DeviceSession session) throws IOException {
+        InputStream input = socket.getInputStream();
+        OutputStream output = socket.getOutputStream();
+        byte[] buffer = new byte[MAX_PACKET_SIZE];
+
+        while (!socket.isClosed()) {
+            int bytesRead = input.read(buffer);
+            if (bytesRead == -1) break;
+
+            byte[] data = Arrays.copyOf(buffer, bytesRead);
+            DeviceMessage message = processProtocolMessage(data);
+
+            if (message != null) {
+                processResponse(output, message,
+                        socket.getInetAddress().getHostAddress(),
+                        socket.getPort());
+
+                if (message.getParsedData().containsKey("position")) {
+                    processPosition(message,
+                            socket.getInetAddress().getHostAddress(),
+                            socket.getPort());
+                }
+            }
+        }
+    }
+
+    private void cleanupConnection(Socket clientSocket, String reason) {  // Removed second parameter
+        if (clientSocket != null && !clientSocket.isClosed()) {
+            try {
+                String clientAddress = clientSocket.getInetAddress().getHostAddress();
+                int clientPort = clientSocket.getPort();
+
+                // Remove from session mapping
+                addressToSessionMap.remove(clientSocket.getRemoteSocketAddress());
+
+                clientSocket.close();
+                logger.info("Closed connection with {}:{} (Reason: {})",
+                        clientAddress, clientPort, reason);
+            } catch (IOException e) {
+                logger.warn("Error closing socket", e);
+            }
         }
     }
 
