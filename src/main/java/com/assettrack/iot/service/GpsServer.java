@@ -321,7 +321,13 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Create session on first valid message
+                    // Get sequence number for logging
+                    short sequenceNumber = -1;
+                    if ("GT06".equals(message.getProtocol())) {
+                        sequenceNumber = gt06Handler.extractSequenceNumber(receivedData);
+                    }
+
+                    // Create session on first message with IMEI
                     if (session == null && message.getImei() != null) {
                         session = sessionManager.getOrCreateSession(
                                 message.getImei(),
@@ -335,8 +341,9 @@ public class GpsServer {
                     if (response != null) {
                         output.write(response);
                         output.flush();
-                        logger.debug("Sent {} response to {}:{}",
-                                message.getMessageType(), clientAddress, clientPort);
+                        logger.debug("Sent response for {} message (seq:{})",
+                                message.getMessageType(),
+                                sequenceNumber);
                     }
 
                     // Update session activity

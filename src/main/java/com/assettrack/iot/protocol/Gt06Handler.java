@@ -30,6 +30,9 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int SEQUENCE_NUMBER_POS = 16;
     private final Set<String> loggedInDevices = ConcurrentHashMap.newKeySet();
 
+    private static final short INITIAL_SEQUENCE = 0;
+    private final Map<String, Short> deviceSequences = new ConcurrentHashMap<>();
+
 
     // Protocol constants
     private static final byte PROTOCOL_HEADER_1 = 0x78;
@@ -202,30 +205,36 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        if (data.length < LOGIN_PACKET_LENGTH) {
-            throw new ProtocolException("Login packet too short");
-        }
-
         String imei = parseImei(data);
+        short sequenceNumber = extractSequenceNumber(data);
+
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(SEQUENCE_NUMBER_POS);
-        short sequenceNumber = buffer.getShort();
-
-        // First login or new sequence
-        if (!loggedInDevices.contains(imei) || isNewSequence(imei, sequenceNumber)) {
+        // Only respond to the first login or sequence resets
+        if (shouldRespond(imei, sequenceNumber)) {
             byte[] response = generateLoginResponse(data);
             parsedData.put("response", response);
-            lastSequenceNumbers.put(imei, sequenceNumber);
-            loggedInDevices.add(imei);
-            logger.info("Responding to login (seq:{}) for IMEI: {}", sequenceNumber, imei);
+            deviceSequences.put(imei, sequenceNumber);
+            logger.info("Responded to login (seq:{}) for IMEI: {}", sequenceNumber, imei);
         } else {
-            logger.debug("Skipping duplicate login (seq:{}) for IMEI: {}", sequenceNumber, imei);
+            logger.debug("Skipping login response (seq:{}) for IMEI: {}", sequenceNumber, imei);
         }
 
         return message;
+    }
+
+    private boolean shouldRespond(String imei, short sequenceNumber) {
+        Short lastSequence = deviceSequences.get(imei);
+        return lastSequence == null ||
+                sequenceNumber == INITIAL_SEQUENCE ||
+                sequenceNumber < lastSequence; // Handle sequence reset
+    }
+
+    public short extractSequenceNumber(byte[] data) {
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        buffer.position(SEQUENCE_NUMBER_POS);
+        return buffer.getShort();
     }
 
     private boolean isNewSequence(String imei, short sequenceNumber) {
@@ -804,4 +813,5 @@ public class Gt06Handler implements ProtocolHandler {
     public enum ValidationMode {
         STRICT, LENIENT, RECOVER
     }
+
 }
