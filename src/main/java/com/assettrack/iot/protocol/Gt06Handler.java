@@ -3,10 +3,12 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.sun.tools.jconsole.JConsoleContext;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.net.SocketAddress;
@@ -31,6 +33,8 @@ public class Gt06Handler implements ProtocolHandler {
 
     private static final short INITIAL_SEQUENCE = 0;
     private final Map<String, Short> deviceSequences = new ConcurrentHashMap<>();
+
+    //private final Map<String, JConsoleContext.ConnectionState> deviceStates = new ConcurrentHashMap<>();
 
 
     // Protocol constants
@@ -61,7 +65,25 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int ALARM_PACKET_MIN_LENGTH = 35;
     private static final int HEARTBEAT_PACKET_LENGTH = 12;
 
+    private static class DeviceState {
+        private short lastSequence;
+        private boolean loggedIn;
+        private long lastActivityTime;
 
+        public DeviceState() {
+            this.lastActivityTime = System.currentTimeMillis();
+        }
+
+        public void updateActivity() {
+            this.lastActivityTime = System.currentTimeMillis();
+        }
+
+        public long getLastActivityTime() {
+            return lastActivityTime;
+        }
+    }
+
+    private final Map<String, DeviceState> deviceStates = new ConcurrentHashMap<>();
 
     // Response constants
     private static final byte LOGIN_RESPONSE_SUCCESS = 0x01;
@@ -81,6 +103,12 @@ public class Gt06Handler implements ProtocolHandler {
     @Override
     public boolean canHandle(String protocol, String version) {
         return supports(protocol);
+    }
+
+    private static class ConnectionState {
+        short lastSequence;
+        boolean loggedIn;
+        long lastActivity;
     }
 
     @Override
@@ -207,22 +235,37 @@ public class Gt06Handler implements ProtocolHandler {
         String imei = parseImei(data);
         short sequenceNumber = extractSequenceNumber(data);
 
+        DeviceState state = deviceStates.computeIfAbsent(imei, k -> new DeviceState());
+        state.updateActivity();
+
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Only generate response for initial login (seq=0) or sequence resets
-        if (shouldRespondToLogin(imei, sequenceNumber)) {
+        if (!state.loggedIn || sequenceNumber == INITIAL_SEQUENCE || sequenceNumber < state.lastSequence) {
             byte[] response = generateLoginResponse(data);
             parsedData.put("response", response);
-            lastSequenceNumbers.put(imei, sequenceNumber);
+            state.loggedIn = true;
+            state.lastSequence = sequenceNumber;
             logger.info("Responded to login (seq:{}) for IMEI: {}", sequenceNumber, imei);
         } else {
             logger.debug("Skipping login response (seq:{}) for IMEI: {}", sequenceNumber, imei);
-            // Explicitly remove any existing response to prevent sending
             parsedData.remove("response");
         }
 
         return message;
+    }
+
+    @Scheduled(fixedRate = 300000) // 5 minutes
+    public void cleanupStaleDevices() {
+        long now = System.currentTimeMillis();
+        deviceStates.entrySet().removeIf(entry ->
+                (now - entry.getValue().getLastActivityTime()) > 600000); // 10 minute timeout
+    }
+
+    private short extractSequenceNumber(byte[] data) {
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        buffer.position(SEQUENCE_NUMBER_POS);
+        return buffer.getShort();
     }
 
     private boolean shouldRespondToLogin(String imei, short sequenceNumber) {
@@ -237,11 +280,6 @@ public class Gt06Handler implements ProtocolHandler {
                 sequenceNumber < lastSequence; // Handle sequence reset
     }
 
-    public short extractSequenceNumber(byte[] data) {
-        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(SEQUENCE_NUMBER_POS);
-        return buffer.getShort();
-    }
 
     private boolean isNewSequence(String imei, short sequenceNumber) {
         Short lastSequence = lastSequenceNumbers.get(imei);
