@@ -305,55 +305,39 @@ public class GpsServer {
     }
 
     private void handleTcpClient(Socket clientSocket) {
-        final String clientAddress = clientSocket.getInetAddress().getHostAddress();
-        final int clientPort = clientSocket.getPort();
+        String clientAddress = clientSocket.getInetAddress().getHostAddress();
+        int clientPort = clientSocket.getPort();
         DeviceSession session = null;
+        boolean isInitialLogin = true;
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
 
-            // Initial login handling
             byte[] buffer = new byte[MAX_PACKET_SIZE];
-            int bytesRead = input.read(buffer);
+            while (!clientSocket.isClosed() && running.get()) {
+                int bytesRead = input.read(buffer);
+                if (bytesRead == -1) break;
 
-            if (bytesRead > 0) {
                 byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Send login response
-                    byte[] response = (byte[]) message.getParsedData().get("response");
-                    if (response != null) {
-                        output.write(response);
-                        output.flush();
-                        logger.info("Sent initial login response to {}:{}", clientAddress, clientPort);
-                    }
-
-                    // Create session
-                    if (message.getImei() != null) {
+                    // Handle session creation on first login
+                    if (isInitialLogin && "LOGIN".equals(message.getMessageType())) {
                         session = sessionManager.getOrCreateSession(
                                 message.getImei(),
                                 message.getProtocol(),
                                 clientSocket.getRemoteSocketAddress());
                         addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
+                        isInitialLogin = false;
                     }
-                }
-            }
 
-            // Persistent connection handling
-            while (!clientSocket.isClosed() && running.get()) {
-                bytesRead = input.read(buffer);
-                if (bytesRead == -1) break; // Connection closed by client
-
-                byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
-                DeviceMessage message = processProtocolMessage(receivedData);
-
-                if (message != null) {
-                    // Handle subsequent messages
+                    // Send response if available
                     byte[] response = (byte[]) message.getParsedData().get("response");
                     if (response != null) {
                         output.write(response);
                         output.flush();
+                        logger.debug("Sent response for {} message", message.getMessageType());
                     }
 
                     // Update session activity

@@ -90,10 +90,4 @@ public class SessionManager {
         logger.debug("Closed session {}", sessionId);
     }
 
-    /*@Scheduled(fixedRate = 30000) // Run every 30 seconds
-    public void cleanupExpiredSessions() {
-        long now = System.currentTimeMillis();
-        sessionManager.getSessions().values().removeIf(session ->
-                session.isExpired(SESSION_TIMEOUT));
-    }*/
 }

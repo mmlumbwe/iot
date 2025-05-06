@@ -18,11 +18,14 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 @Component
 public class Gt06Handler implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(Gt06Handler.class);
+
+    private final Map<String, Short> lastSequenceNumbers = new ConcurrentHashMap<>();
 
     // Protocol constants
     private static final byte PROTOCOL_HEADER_1 = 0x78;
@@ -204,14 +207,37 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Always generate and store response
-        byte[] response = generateLoginResponse(data);
-        parsedData.put("response", response);
-        parsedData.put("device_info", extractDeviceInfo(data));
+        // Only generate response for first login packet in sequence
+        if (shouldRespondToLogin(data)) {
+            byte[] response = generateLoginResponse(data);
+            parsedData.put("response", response);
+            parsedData.put("device_info", extractDeviceInfo(data));
+            logger.info("Responding to login from IMEI: {}", imei);
+        } else {
+            logger.debug("Skipping response for sequential login packet");
+        }
 
-        logger.info("Processed GT06 login from IMEI: {} with response: {}",
-                imei, bytesToHex(response));
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        buffer.position(16);
+        short sequenceNumber = buffer.getShort();
+
+        // Only respond to new sequence numbers
+        Short lastSequence = lastSequenceNumbers.get(imei);
+        if (lastSequence == null || sequenceNumber > lastSequence) {
+            byte[] response = generateLoginResponse(data);
+            parsedData.put("response", response);
+            lastSequenceNumbers.put(imei, sequenceNumber);
+        }
+
         return message;
+    }
+
+    private boolean shouldRespondToLogin(byte[] data) {
+        // Check if this is the first login packet in a sequence
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        buffer.position(16); // Position of sequence number in packet
+        short sequence = buffer.getShort();
+        return sequence == 0x0001; // Only respond to first in sequence
     }
 
     public byte[] generateLoginResponse(byte[] requestData) {
