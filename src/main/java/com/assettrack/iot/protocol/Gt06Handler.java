@@ -217,29 +217,28 @@ public class Gt06Handler implements ProtocolHandler {
     public byte[] generateLoginResponse(byte[] requestData) {
         try {
             if (requestData == null || requestData.length < 22) {
-                logger.warn("Invalid login packet for response generation");
-                return generateFallbackResponse(PROTOCOL_LOGIN);
+                throw new IllegalArgumentException("Invalid login packet");
             }
 
             byte[] response = new byte[11];
-            // Header
+            // Header (2 bytes)
             response[0] = PROTOCOL_HEADER_1;
             response[1] = PROTOCOL_HEADER_2;
-            // Length and protocol
+            // Length + Protocol (2 bytes)
             response[2] = 0x05;
             response[3] = PROTOCOL_LOGIN;
-            // Serial number (from original packet)
-            response[4] = requestData[requestData.length-4]; // Serial byte 1
-            response[5] = requestData[requestData.length-3]; // Serial byte 2
-            // Success flag
+            // Serial number (2 bytes from original packet)
+            response[4] = requestData[requestData.length-4];
+            response[5] = requestData[requestData.length-3];
+            // Success flag (1 byte)
             response[6] = 0x01;
-            // CRC calculation
+            // CRC (1 byte)
             byte crc = 0;
             for (int i = 2; i <= 6; i++) {
                 crc ^= response[i];
             }
             response[7] = crc;
-            // Terminator
+            // Terminator (2 bytes)
             response[8] = 0x0D;
             response[9] = 0x0A;
 
@@ -247,7 +246,14 @@ public class Gt06Handler implements ProtocolHandler {
             return response;
         } catch (Exception e) {
             logger.error("Error generating login response", e);
-            return generateFallbackResponse(PROTOCOL_LOGIN);
+            // Fallback minimal response
+            return new byte[] {
+                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                    0x05, PROTOCOL_LOGIN,
+                    0x00, 0x00, 0x01,
+                    0x01, // Simple CRC
+                    0x0D, 0x0A
+            };
         }
     }
 

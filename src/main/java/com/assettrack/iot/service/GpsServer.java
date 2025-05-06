@@ -305,8 +305,8 @@ public class GpsServer {
     }
 
     private void handleTcpClient(Socket clientSocket) {
-        String clientAddress = clientSocket.getInetAddress().getHostAddress();
-        int clientPort = clientSocket.getPort();
+        final String clientAddress = clientSocket.getInetAddress().getHostAddress();
+        final int clientPort = clientSocket.getPort();
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
@@ -319,28 +319,37 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Send response if available
-                    byte[] response = (byte[]) message.getParsedData().get("response");
-                    if (response != null) {
+                    // Get response from parsed data
+                    Object responseObj = message.getParsedData().get("response");
+
+                    // Handle byte[] response
+                    if (responseObj instanceof byte[]) {
+                        byte[] response = (byte[]) responseObj;
                         output.write(response);
                         output.flush();
-                        logger.info("Sent {} response to {}:{} ({} bytes)",
+                        logger.info("Sent {} response to {}:{} - {} bytes: {}",
                                 message.getMessageType(),
                                 clientAddress,
                                 clientPort,
-                                response.length);
+                                response.length,
+                                bytesToHex(response));
+                    }
+                    // Handle other response types if needed
+                    else if (responseObj != null) {
+                        logger.warn("Unexpected response type: {} for {}",
+                                responseObj.getClass().getSimpleName(),
+                                message.getMessageType());
                     } else {
-                        logger.warn("No response available for {} message",
+                        logger.warn("No response generated for {} message",
                                 message.getMessageType());
                     }
 
-                    // Handle session creation
+                    // Create session if we have an IMEI
                     if (message.getImei() != null) {
                         DeviceSession session = sessionManager.getOrCreateSession(
                                 message.getImei(),
                                 message.getProtocol(),
-                                clientSocket.getRemoteSocketAddress()
-                        );
+                                clientSocket.getRemoteSocketAddress());
                         addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
                     }
                 }
@@ -718,12 +727,18 @@ public class GpsServer {
             // Handle GT06 packets first
             if ("GT06".equals(protocol)) {
                 DeviceMessage message = gt06Handler.handle(data);
-                // Double-check response exists for login packets
-                if ("LOGIN".equals(packetType) && message.getParsedData().get("response") == null) {
-                    message.getParsedData().put("response", gt06Handler.generateLoginResponse(data));
+
+                // For login packets, ensure response exists
+                if ("LOGIN".equals(packetType)) {
+                    if (message.getParsedData().get("response") == null) {
+                        byte[] response = gt06Handler.generateLoginResponse(data);
+                        message.getParsedData().put("response", response);
+                        logger.debug("Added missing login response: {}", bytesToHex(response));
+                    }
                 }
                 return message;
             }
+
 
             // Handle Teltonika IMEI packets
             if ("TELTONIKA".equals(protocol) && "IMEI".equals(packetType)) {
