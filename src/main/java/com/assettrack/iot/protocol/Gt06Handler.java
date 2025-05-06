@@ -28,7 +28,6 @@ public class Gt06Handler implements ProtocolHandler {
 
     private final Map<String, Short> lastSequenceNumbers = new ConcurrentHashMap<>();
     private static final int SEQUENCE_NUMBER_POS = 16;
-    private final Set<String> loggedInDevices = ConcurrentHashMap.newKeySet();
 
     private static final short INITIAL_SEQUENCE = 0;
     private final Map<String, Short> deviceSequences = new ConcurrentHashMap<>();
@@ -211,17 +210,24 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Only respond to the first login or sequence resets
-        if (shouldRespond(imei, sequenceNumber)) {
+        // Only generate response for initial login (seq=0) or sequence resets
+        if (shouldRespondToLogin(imei, sequenceNumber)) {
             byte[] response = generateLoginResponse(data);
             parsedData.put("response", response);
-            deviceSequences.put(imei, sequenceNumber);
+            lastSequenceNumbers.put(imei, sequenceNumber);
             logger.info("Responded to login (seq:{}) for IMEI: {}", sequenceNumber, imei);
         } else {
             logger.debug("Skipping login response (seq:{}) for IMEI: {}", sequenceNumber, imei);
+            // Explicitly remove any existing response to prevent sending
+            parsedData.remove("response");
         }
 
         return message;
+    }
+
+    private boolean shouldRespondToLogin(String imei, short sequenceNumber) {
+        Short lastSequence = lastSequenceNumbers.get(imei);
+        return lastSequence == null || sequenceNumber == 0 || sequenceNumber < lastSequence;
     }
 
     private boolean shouldRespond(String imei, short sequenceNumber) {
@@ -253,39 +259,29 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public byte[] generateLoginResponse(byte[] requestData) {
-        // Validate input
-        if (requestData == null || requestData.length < 22) {
-            logger.warn("Invalid login packet for response generation");
-            return getFallbackLoginResponse();
+        byte[] response = new byte[11];
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        // Length and protocol
+        response[2] = 0x05;
+        response[3] = PROTOCOL_LOGIN;
+        // Serial number (from original packet)
+        response[4] = requestData[requestData.length-4];
+        response[5] = requestData[requestData.length-3];
+        // Success flag
+        response[6] = 0x01;
+        // CRC calculation
+        byte crc = 0;
+        for (int i = 2; i <= 6; i++) {
+            crc ^= response[i];
         }
+        response[7] = crc;
+        // Terminator
+        response[8] = 0x0D;
+        response[9] = 0x0A;
 
-        try {
-            byte[] response = new byte[11];
-            // Header
-            response[0] = PROTOCOL_HEADER_1;
-            response[1] = PROTOCOL_HEADER_2;
-            // Length + Protocol
-            response[2] = 0x05;
-            response[3] = PROTOCOL_LOGIN;
-            // Serial number (from original packet)
-            response[4] = requestData[requestData.length-4];
-            response[5] = requestData[requestData.length-3];
-            // Success flag
-            response[6] = 0x01;
-            // CRC
-            byte crc = 0;
-            for (int i = 2; i <= 6; i++) crc ^= response[i];
-            response[7] = crc;
-            // Terminator
-            response[8] = 0x0D;
-            response[9] = 0x0A;
-
-            logger.debug("Generated GT06 login response: {}", bytesToHex(response));
-            return response;
-        } catch (Exception e) {
-            logger.error("Error generating login response", e);
-            return getFallbackLoginResponse();
-        }
+        return response;
     }
 
     private byte[] getFallbackLoginResponse() {
