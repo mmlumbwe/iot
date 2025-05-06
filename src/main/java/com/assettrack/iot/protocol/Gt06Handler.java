@@ -305,37 +305,51 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // GT06 login packet structure:
-            // [0x78, 0x78] - header
-            // [length] - packet length
-            // [0x01] - protocol number (login)
-            // [IMEI] - 8 bytes containing 15-digit IMEI
-            if (data.length < 17) {  // Minimum login packet size
-                throw new ProtocolException("Packet too short for IMEI extraction");
-            }
+            // IMEI is packed in bytes 4-11 (8 bytes) as BCD digits
+            // We need to extract exactly 15 digits in this specific pattern:
+            // 8 6 2 4 7 6 0 5 1 1 2 4 1 4 6
 
-            // The IMEI starts at byte 4 (after 0x78, 0x78, length, 0x01)
             StringBuilder imei = new StringBuilder(15);
-            for (int i = 2; i <= 9; i++) {  // Bytes 4-11 contain the IMEI
-                byte b = data[i];
-                // First nibble (high 4 bits)
-                imei.append((b >> 4) & 0x0F);
-                // Second nibble (low 4 bits) - except we might stop at 15 digits
-                if (imei.length() < 15) {
-                    imei.append(b & 0x0F);
-                }
-            }
+
+            // Byte 4 (0x08) -> 0 and 8 (but we want 8 and 6)
+            // Corrected: We need to skip the first nibble (0) and take the second (8)
+            // Then get the first nibble from next byte (6 from 0x62)
+            imei.append(data[4] & 0x0F);         // 8 (from 0x08)
+            imei.append((data[5] >> 4) & 0x0F);  // 6 (from 0x62)
+
+            // Byte 5 (0x62) -> remaining nibbles
+            imei.append(data[5] & 0x0F);         // 2 (from 0x62)
+            imei.append((data[6] >> 4) & 0x0F);  // 4 (from 0x47)
+
+            // Byte 6 (0x47) -> remaining nibbles
+            imei.append(data[6] & 0x0F);         // 7 (from 0x47)
+            imei.append((data[7] >> 4) & 0x0F);  // 6 (from 0x60)
+
+            // Byte 7 (0x60) -> remaining nibbles
+            imei.append(data[7] & 0x0F);         // 0 (from 0x60)
+            imei.append((data[8] >> 4) & 0x0F);  // 5 (from 0x51)
+
+            // Byte 8 (0x51) -> remaining nibbles
+            imei.append(data[8] & 0x0F);         // 1 (from 0x51)
+            imei.append((data[9] >> 4) & 0x0F);  // 1 (from 0x12)
+
+            // Byte 9 (0x12) -> remaining nibbles
+            imei.append(data[9] & 0x0F);         // 2 (from 0x12)
+            imei.append((data[10] >> 4) & 0x0F); // 4 (from 0x41)
+
+            // Byte 10 (0x41) -> remaining nibbles
+            imei.append(data[10] & 0x0F);        // 1 (from 0x41)
+            imei.append((data[11] >> 4) & 0x0F); // 4 (from 0x46)
+
+            // Byte 11 (0x46) -> remaining nibble
+            imei.append(data[11] & 0x0F);        // 6 (from 0x46)
 
             String imeiStr = imei.toString();
 
-            if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
-                // Diagnostic logging
-                logger.error("Invalid IMEI format - raw bytes: {}",
-                        Arrays.toString(Arrays.copyOfRange(data, 4, 12)));
+            if (imeiStr.length() != 15 || !imeiStr.matches("\\d+")) {
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
 
-            logger.info("Successfully extracted IMEI: {}", imeiStr);
             return imeiStr;
         } catch (IndexOutOfBoundsException e) {
             throw new ProtocolException("IMEI extraction failed: insufficient data");
