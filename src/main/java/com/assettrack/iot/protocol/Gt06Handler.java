@@ -306,24 +306,24 @@ public class Gt06Handler implements ProtocolHandler {
     private String parseImei(byte[] data) throws ProtocolException {
         try {
             // IMEI is packed in bytes 4-11 (8 bytes) as BCD digits
-            // Each byte contains 2 digits (high nibble and low nibble)
-            // The 15th digit is in the high nibble of byte 12
+            // We need to extract exactly 15 digits:
+            // - First 14 digits from bytes 4-11 (7 bytes)
+            // - 15th digit from high nibble of byte 12
+
             StringBuilder imei = new StringBuilder(15);
 
-            // Process bytes 4-11 (8 bytes = 16 digits, but we only need first 14)
-            for (int i = 4; i <= 11; i++) {
-                // High nibble (first digit)
-                imei.append((data[i] >> 4) & 0x0F);
-                // Low nibble (second digit)
-                imei.append(data[i] & 0x0F);
+            // Process first 7 bytes (4-10) for 14 digits
+            for (int i = 4; i <= 10; i++) {
+                imei.append((data[i] >> 4) & 0x0F); // High nibble
+                imei.append(data[i] & 0x0F);        // Low nibble
             }
 
-            // Get the 15th digit from high nibble of byte 12
+            // Get 15th digit from high nibble of byte 12
             imei.append((data[12] >> 4) & 0x0F);
 
             String imeiStr = imei.toString();
 
-            // Validate IMEI length and digits
+            // Validate IMEI
             if (imeiStr.length() != 15 || !imeiStr.matches("\\d+")) {
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
@@ -420,11 +420,22 @@ public class Gt06Handler implements ProtocolHandler {
         return response;
     }
     private void validateLoginPacket(byte[] data) throws ProtocolException {
-        if (data.length < 17) { // Minimum login packet size
+        // Minimum login packet is 17 bytes (including headers and termination)
+        if (data.length < 17) {
             throw new ProtocolException("Login packet too short");
         }
-        if (data[2] != 0x11) { // Login packet length byte
-            throw new ProtocolException("Invalid login packet length");
+
+        // Verify protocol byte (should be 0x01 for login)
+        if (data[3] != 0x01) {
+            throw new ProtocolException("Invalid login protocol byte");
+        }
+
+        // Verify packet length byte matches actual length
+        int declaredLength = data[2] & 0xFF;
+        if (declaredLength != 0x11) { // 0x11 = 17 bytes (including headers)
+            throw new ProtocolException(String.format(
+                    "Length mismatch (declared: %d, expected: 17)",
+                    declaredLength));
         }
     }
 
