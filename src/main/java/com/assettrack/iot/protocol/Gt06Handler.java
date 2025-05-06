@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -26,6 +27,9 @@ public class Gt06Handler implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(Gt06Handler.class);
 
     private final Map<String, Short> lastSequenceNumbers = new ConcurrentHashMap<>();
+    private static final int SEQUENCE_NUMBER_POS = 16;
+    private final Set<String> loggedInDevices = ConcurrentHashMap.newKeySet();
+
 
     // Protocol constants
     private static final byte PROTOCOL_HEADER_1 = 0x78;
@@ -203,33 +207,32 @@ public class Gt06Handler implements ProtocolHandler {
         }
 
         String imei = parseImei(data);
-        lastValidImei = imei;
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Only generate response for first login packet in sequence
-        if (shouldRespondToLogin(data)) {
-            byte[] response = generateLoginResponse(data);
-            parsedData.put("response", response);
-            parsedData.put("device_info", extractDeviceInfo(data));
-            logger.info("Responding to login from IMEI: {}", imei);
-        } else {
-            logger.debug("Skipping response for sequential login packet");
-        }
-
         ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(16);
+        buffer.position(SEQUENCE_NUMBER_POS);
         short sequenceNumber = buffer.getShort();
 
-        // Only respond to new sequence numbers
-        Short lastSequence = lastSequenceNumbers.get(imei);
-        if (lastSequence == null || sequenceNumber > lastSequence) {
+        // First login or new sequence
+        if (!loggedInDevices.contains(imei) || isNewSequence(imei, sequenceNumber)) {
             byte[] response = generateLoginResponse(data);
             parsedData.put("response", response);
             lastSequenceNumbers.put(imei, sequenceNumber);
+            loggedInDevices.add(imei);
+            logger.info("Responding to login (seq:{}) for IMEI: {}", sequenceNumber, imei);
+        } else {
+            logger.debug("Skipping duplicate login (seq:{}) for IMEI: {}", sequenceNumber, imei);
         }
 
         return message;
+    }
+
+    private boolean isNewSequence(String imei, short sequenceNumber) {
+        Short lastSequence = lastSequenceNumbers.get(imei);
+        return lastSequence == null ||
+                sequenceNumber > lastSequence ||
+                sequenceNumber == 0; // Handle sequence reset
     }
 
     private boolean shouldRespondToLogin(byte[] data) {

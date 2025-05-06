@@ -308,7 +308,6 @@ public class GpsServer {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
         DeviceSession session = null;
-        boolean isInitialLogin = true;
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
@@ -322,14 +321,13 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Handle session creation on first login
-                    if (isInitialLogin && "LOGIN".equals(message.getMessageType())) {
+                    // Create session on first valid message
+                    if (session == null && message.getImei() != null) {
                         session = sessionManager.getOrCreateSession(
                                 message.getImei(),
                                 message.getProtocol(),
                                 clientSocket.getRemoteSocketAddress());
                         addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
-                        isInitialLogin = false;
                     }
 
                     // Send response if available
@@ -337,7 +335,8 @@ public class GpsServer {
                     if (response != null) {
                         output.write(response);
                         output.flush();
-                        logger.debug("Sent response for {} message", message.getMessageType());
+                        logger.debug("Sent {} response to {}:{}",
+                                message.getMessageType(), clientAddress, clientPort);
                     }
 
                     // Update session activity
@@ -347,9 +346,10 @@ public class GpsServer {
                 }
             }
         } catch (SocketTimeoutException e) {
-            logger.debug("Socket timeout for {}:{}", clientAddress, clientPort);
+            logger.debug("Connection timeout for {}:{}", clientAddress, clientPort);
         } catch (Exception e) {
-            logger.error("Connection error for {}:{} - {}", clientAddress, clientPort, e.getMessage());
+            logger.error("Connection error for {}:{} - {}",
+                    clientAddress, clientPort, e.getMessage());
         } finally {
             cleanupConnection(clientSocket, session);
         }

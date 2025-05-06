@@ -16,6 +16,7 @@ public class DeviceSession {
     private volatile Instant lastActiveTime;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final String sessionId;
+    private volatile short lastSequenceNumber;
 
     public DeviceSession(String imei, String protocol, SocketAddress remoteAddress) {
         if (imei == null || imei.isBlank()) {
@@ -107,5 +108,14 @@ public class DeviceSession {
                 '}';
     }
 
+    public void updateActivity(short sequenceNumber) {
+        this.lastActiveTime = Instant.ofEpochSecond(System.currentTimeMillis());
+        this.lastSequenceNumber = sequenceNumber;
+    }
+
+    public boolean isSequenceNewer(short sequenceNumber) {
+        return sequenceNumber > this.lastSequenceNumber ||
+                sequenceNumber == 0; // Handle reset
+    }
 
 }
