@@ -117,7 +117,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
     }
 
-    private DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
+    public DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         // Validate packet length
         if (data.length < 4 || data.length > 19) {
             throw new ProtocolException("Invalid IMEI packet length");

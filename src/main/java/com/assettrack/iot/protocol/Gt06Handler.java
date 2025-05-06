@@ -194,22 +194,47 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        if (data.length < LOGIN_PACKET_LENGTH) {
-            throw new ProtocolException("Login packet too short");
-        }
+        validateLoginPacket(data);
 
         String imei = parseImei(data);
         lastValidImei = imei;
         message.setImei(imei);
         message.setMessageType("LOGIN");
+        message.setProtocol("GT06");
 
         // Generate and store response
-        byte[] response = generateLoginResponse(data);
+        byte[] response = createLoginResponse(data);
         parsedData.put("response", response);
         parsedData.put("device_info", extractDeviceInfo(data));
 
-        logger.info("Processed login from IMEI: {}", imei);
+        logger.info("Processed GT06 login from IMEI: {}", imei);
         return message;
+    }
+
+    private byte[] createLoginResponse(byte[] loginPacket) {
+        byte[] response = new byte[11];
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        // Length and protocol
+        response[2] = 0x05;
+        response[3] = PROTOCOL_LOGIN;
+        // Serial number (from original packet)
+        response[4] = loginPacket[loginPacket.length-4];
+        response[5] = loginPacket[loginPacket.length-3];
+        // Success flag
+        response[6] = 0x01;
+        // CRC calculation
+        byte crc = 0;
+        for (int i = 2; i <= 6; i++) {
+            crc ^= response[i];
+        }
+        response[7] = crc;
+        // Terminator
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        return response;
     }
 
     private Map<String, Object> extractDeviceInfo(byte[] data) {
@@ -232,7 +257,7 @@ public class Gt06Handler implements ProtocolHandler {
         return info;
     }
 
-    private byte[] generateLoginResponse(byte[] requestData) {
+    public byte[] generateLoginResponse(byte[] requestData) {
         try {
             // Standard GT06 login response format:
             // [0x78, 0x78, 0x05, 0x01, serial1, serial2, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0D, 0x0A]
@@ -306,43 +331,39 @@ public class Gt06Handler implements ProtocolHandler {
     private String parseImei(byte[] data) throws ProtocolException {
         try {
             // IMEI is packed in bytes 4-11 (8 bytes) as BCD digits
-            // We need to extract exactly 15 digits in this specific pattern:
-            // 8 6 2 4 7 6 0 5 1 1 2 4 1 4 6
-
+            // Correct extraction for IMEI: 862476051124146
             StringBuilder imei = new StringBuilder(15);
 
-            // Byte 4 (0x08) -> 0 and 8 (but we want 8 and 6)
-            // Corrected: We need to skip the first nibble (0) and take the second (8)
-            // Then get the first nibble from next byte (6 from 0x62)
-            imei.append(data[4] & 0x0F);         // 8 (from 0x08)
-            imei.append((data[5] >> 4) & 0x0F);  // 6 (from 0x62)
+            // Byte 4 (0x08) -> low nibble (8)
+            imei.append(data[4] & 0x0F);
 
-            // Byte 5 (0x62) -> remaining nibbles
-            imei.append(data[5] & 0x0F);         // 2 (from 0x62)
-            imei.append((data[6] >> 4) & 0x0F);  // 4 (from 0x47)
+            // Byte 5 (0x62) -> high nibble (6), low nibble (2)
+            imei.append((data[5] >> 4) & 0x0F);
+            imei.append(data[5] & 0x0F);
 
-            // Byte 6 (0x47) -> remaining nibbles
-            imei.append(data[6] & 0x0F);         // 7 (from 0x47)
-            imei.append((data[7] >> 4) & 0x0F);  // 6 (from 0x60)
+            // Byte 6 (0x47) -> high nibble (4), low nibble (7)
+            imei.append((data[6] >> 4) & 0x0F);
+            imei.append(data[6] & 0x0F);
 
-            // Byte 7 (0x60) -> remaining nibbles
-            imei.append(data[7] & 0x0F);         // 0 (from 0x60)
-            imei.append((data[8] >> 4) & 0x0F);  // 5 (from 0x51)
+            // Byte 7 (0x60) -> high nibble (6), low nibble (0)
+            imei.append((data[7] >> 4) & 0x0F);
+            imei.append(data[7] & 0x0F);
 
-            // Byte 8 (0x51) -> remaining nibbles
-            imei.append(data[8] & 0x0F);         // 1 (from 0x51)
-            imei.append((data[9] >> 4) & 0x0F);  // 1 (from 0x12)
+            // Byte 8 (0x51) -> high nibble (5), low nibble (1)
+            imei.append((data[8] >> 4) & 0x0F);
+            imei.append(data[8] & 0x0F);
 
-            // Byte 9 (0x12) -> remaining nibbles
-            imei.append(data[9] & 0x0F);         // 2 (from 0x12)
-            imei.append((data[10] >> 4) & 0x0F); // 4 (from 0x41)
+            // Byte 9 (0x12) -> high nibble (1), low nibble (2)
+            imei.append((data[9] >> 4) & 0x0F);
+            imei.append(data[9] & 0x0F);
 
-            // Byte 10 (0x41) -> remaining nibbles
-            imei.append(data[10] & 0x0F);        // 1 (from 0x41)
-            imei.append((data[11] >> 4) & 0x0F); // 4 (from 0x46)
+            // Byte 10 (0x41) -> high nibble (4), low nibble (1)
+            imei.append((data[10] >> 4) & 0x0F);
+            imei.append(data[10] & 0x0F);
 
-            // Byte 11 (0x46) -> remaining nibble
-            imei.append(data[11] & 0x0F);        // 6 (from 0x46)
+            // Byte 11 (0x46) -> high nibble (4), low nibble (6)
+            imei.append((data[11] >> 4) & 0x0F);
+            imei.append(data[11] & 0x0F);
 
             String imeiStr = imei.toString();
 
@@ -416,34 +437,10 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    private byte[] createLoginResponse(byte[] loginPacket) {
-        byte[] response = new byte[11];
-        // Header
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        // Length and protocol
-        response[2] = 0x05;
-        response[3] = PROTOCOL_LOGIN;
-        // Success flag
-        response[4] = 0x01;
-        // Serial number (from original packet)
-        response[5] = loginPacket[loginPacket.length-4];
-        response[6] = loginPacket[loginPacket.length-3];
-        // CRC calculation
-        byte crc = 0;
-        for (int i = 2; i <= 6; i++) {
-            crc ^= response[i];
-        }
-        response[7] = crc;
-        // Terminator
-        response[8] = 0x0D;
-        response[9] = 0x0A;
 
-        return response;
-    }
     private void validateLoginPacket(byte[] data) throws ProtocolException {
-        // Minimum login packet is 17 bytes (including headers and termination)
-        if (data.length < 17) {
+        // Minimum login packet is 22 bytes (including headers and termination)
+        if (data.length < 22) {
             throw new ProtocolException("Login packet too short");
         }
 
@@ -454,10 +451,15 @@ public class Gt06Handler implements ProtocolHandler {
 
         // Verify packet length byte matches actual length
         int declaredLength = data[2] & 0xFF;
-        if (declaredLength != 0x11) { // 0x11 = 17 bytes (including headers)
+        if (declaredLength != 0x11) { // 0x11 = 17 bytes payload (22 total)
             throw new ProtocolException(String.format(
                     "Length mismatch (declared: %d, expected: 17)",
                     declaredLength));
+        }
+
+        // Verify termination bytes
+        if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
+            throw new ProtocolException("Invalid packet termination");
         }
     }
 

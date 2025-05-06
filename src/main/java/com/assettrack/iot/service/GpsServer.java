@@ -4,8 +4,10 @@ import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.model.session.DeviceSession;
+import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
+import com.assettrack.iot.protocol.TeltonikaHandler;
 import com.assettrack.iot.service.session.SessionManager;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -24,10 +26,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static com.assettrack.iot.protocol.Gt06Handler.*;
 
 @Component
 public class GpsServer {
@@ -38,6 +43,10 @@ public class GpsServer {
     private static final int MAX_RECONNECTIONS_BEFORE_ALERT = 5;
     private static final int SUSPICIOUS_CONNECTION_THRESHOLD = 10;
     private static final long SUSPICIOUS_TIME_WINDOW = 60000; // 1 minute
+
+    private static final byte PROTOCOL_HEADER_1 = 0x78;
+    private static final byte PROTOCOL_HEADER_2 = 0x78;
+    private static final byte PROTOCOL_LOGIN = 0x01;
 
     // Protocol constants
     private static final String PROTOCOL_TELTONIKA = "TELTONIKA";
@@ -68,6 +77,12 @@ public class GpsServer {
 
     @Autowired
     private ProtocolDetector protocolDetector;
+
+    @Autowired
+    private Gt06Handler gt06Handler;
+
+    @Autowired
+    private TeltonikaHandler teltonikaHandler;
 
     @Autowired
     private List<ProtocolHandler> protocolHandlers;
@@ -353,26 +368,39 @@ public class GpsServer {
         }
     }
 
-    private void handleGt06Protocol(Socket socket, DeviceMessage message,
-                                    DeviceSession session, OutputStream output)
-            throws IOException {
-        if (PACKET_TYPE_LOGIN.equals(message.getMessageType())) {
-            processResponse(output, message,
-                    socket.getInetAddress().getHostAddress(),
-                    socket.getPort());
-            handleGt06DataPhase(socket, session);
-        } else if (PACKET_TYPE_DATA.equals(message.getMessageType()) ||
-                PACKET_TYPE_ALARM.equals(message.getMessageType()) ||
-                PACKET_TYPE_HEARTBEAT.equals(message.getMessageType())) {
-            processResponse(output, message,
-                    socket.getInetAddress().getHostAddress(),
-                    socket.getPort());
-            if (message.getParsedData().containsKey("position")) {
-                processPosition(message,
-                        socket.getInetAddress().getHostAddress(),
-                        socket.getPort());
+    private void handleGt06Protocol(Socket clientSocket, DeviceMessage message,
+                                    DeviceSession session, OutputStream output) {
+        try {
+            byte[] response = (byte[]) message.getParsedData().get("response");
+            if (response != null && response.length > 0) {
+                output.write(response);
+                output.flush();
+                logger.info("Sent GT06 response to {}: {}",
+                        session.getImei(), bytesToHex(response));
+            } else {
+                logger.warn("No GT06 response generated for {}", session.getImei());
+                // Fallback response if none was generated
+                byte[] fallbackResponse = generateGt06FallbackResponse(message);
+                output.write(fallbackResponse);
+                output.flush();
             }
+        } catch (IOException e) {
+            logger.error("Failed to send GT06 response to {}", session.getImei(), e);
         }
+    }
+
+    private byte[] generateGt06FallbackResponse(DeviceMessage message) {
+        return ByteBuffer.allocate(11)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Length
+                .put(PROTOCOL_LOGIN)
+                .put((byte) 0x00) // Default serial
+                .put((byte) 0x00)
+                .put((byte) 0x01) // Success
+                .put((byte) 0x0D).put((byte) 0x0A)
+                .array();
     }
 
     private void handleTeltonikaDataPhase(Socket socket, DeviceSession session) throws IOException {
@@ -689,8 +717,14 @@ public class GpsServer {
                         "No protocol detector matched this packet format");
             }
 
+            // Handle Teltonika IMEI packets
             if (PROTOCOL_TELTONIKA.equals(protocol) && PACKET_TYPE_IMEI.equals(packetType)) {
                 return handleTeltonikaImei(data);
+            }
+
+            // Handle GT06 login packets
+            if (PROTOCOL_GT06.equals(protocol) && PACKET_TYPE_LOGIN.equals(packetType)) {
+                return handleGt06Login(data);
             }
 
             return handleWithProtocolHandlers(data, protocol, packetType, version);
@@ -701,6 +735,40 @@ public class GpsServer {
             return createErrorResponse("PROCESSING_ERROR", e.getMessage());
         }
     }
+
+    private DeviceMessage handleGt06Login(byte[] data) {
+        try {
+            DeviceMessage message = gt06Handler.handle(data);
+            if (message == null) {
+                throw new ProtocolException("GT06 handler returned null message");
+            }
+
+            // Ensure response is generated for login packets
+            if (!message.getParsedData().containsKey("response")) {
+                byte[] response = gt06Handler.generateLoginResponse(data);
+                message.getParsedData().put("response", response);
+                logger.debug("Generated GT06 login response for IMEI: {}", message.getImei());
+            }
+
+            return message;
+        } catch (Exception e) {
+            logger.error("GT06 login processing failed", e);
+            return createErrorResponse("GT06_LOGIN_ERROR", e.getMessage());
+        }
+    }
+
+    /*private DeviceMessage handleTeltonikaImei(byte[] data) {
+        try {
+            DeviceMessage message = teltonikaHandler.handleImeiPacket(data);
+            if (message == null) {
+                throw new ProtocolException("Teltonika IMEI handler returned null message");
+            }
+            return message;
+        } catch (Exception e) {
+            logger.error("Teltonika IMEI processing failed", e);
+            return createErrorResponse("TELTONIKA_IMEI_ERROR", e.getMessage());
+        }
+    }*/
 
     private DeviceMessage handleTeltonikaImei(byte[] data) {
         if (data.length < 4) {
