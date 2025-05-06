@@ -3,6 +3,7 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.assettrack.iot.model.session.DeviceSession;
 import com.sun.tools.jconsole.JConsoleContext;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ import java.util.regex.Pattern;
 public class Gt06Handler implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(Gt06Handler.class);
 
+    private final Map<String, String> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, Short> lastSequenceNumbers = new ConcurrentHashMap<>();
     private static final int SEQUENCE_NUMBER_POS = 16;
     private static final long HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -45,6 +47,10 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_LOGIN = 0x01;
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
+
+    private static final byte PROTOCOL_GPS_LBS = 0x12;
+    private static final byte PROTOCOL_STATUS = 0x23;
+
 
     private static final int LOGIN_RESPONSE_LENGTH = 11;
 
@@ -136,6 +142,7 @@ public class Gt06Handler implements ProtocolHandler {
                 case PROTOCOL_GPS:
                     return handleGps(data, message, parsedData);
                 case PROTOCOL_HEARTBEAT:
+                case PROTOCOL_STATUS:
                     return handleHeartbeat(data, message, parsedData);
                 case PROTOCOL_ALARM:
                     return handleAlarm(data, message, parsedData);
@@ -152,7 +159,7 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private void validatePacket(byte[] data) throws ProtocolException {
-        if (data == null || data.length < MIN_PACKET_LENGTH) {
+        if (data == null || data.length < 12) {
             throw new ProtocolException("Packet too short");
         }
 
@@ -161,12 +168,34 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Invalid protocol header");
         }
 
+        // Check declared length matches actual length
+        int declaredLength = data[2] & 0xFF;
+        if (data.length != declaredLength + 5) { // +5 for header(2), length(1), and checksum(2)
+            throw new ProtocolException("Packet length mismatch");
+        }
+
         // Check termination bytes
         if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
             throw new ProtocolException("Invalid packet termination");
         }
+
+        // Verify checksum
+        if (!verifyChecksum(data)) {
+            throw new ProtocolException("Invalid checksum");
+        }
     }
 
+    private boolean verifyChecksum(byte[] data) {
+        if (data.length < 4) return false;
+
+        int calculatedCrc = 0;
+        for (int i = 2; i < data.length - 4; i++) {
+            calculatedCrc ^= (data[i] & 0xFF);
+        }
+
+        int receivedCrc = ((data[data.length-4] & 0xFF) << 8) | (data[data.length-3] & 0xFF);
+        return calculatedCrc == receivedCrc;
+    }
 
     private byte getErrorCode(Exception error) {
         String message = error.getMessage();
@@ -236,33 +265,17 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         String imei = parseImei(data);
-        short sequenceNumber = extractSequenceNumber(data);
-
-        DeviceState state = deviceStates.computeIfAbsent(imei, k -> new DeviceState());
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Initial login or sequence reset
-        if (!state.loggedIn || sequenceNumber == INITIAL_SEQUENCE || sequenceNumber < state.lastSequence) {
-            byte[] response = generateLoginResponse(data);
-            parsedData.put("response", response);
-            state.loggedIn = true;
-            state.updateActivity(sequenceNumber);
-            logger.info("Responded to initial login (seq:{}) for IMEI: {}", sequenceNumber, imei);
-        }
-        // Sequential login packet (treated as heartbeat)
-        else if (state.needsHeartbeatResponse()) {
-            byte[] response = generateHeartbeatResponse(data);
-            parsedData.put("response", response);
-            state.lastHeartbeatTime = System.currentTimeMillis();
-            logger.debug("Responded to heartbeat login (seq:{}) for IMEI: {}", sequenceNumber, imei);
-        }
-        else {
-            logger.trace("Skipping login response (seq:{}) for IMEI: {}", sequenceNumber, imei);
-            parsedData.remove("response");
-        }
+        // Store the session
+        activeSessions.put(imei, String.valueOf(System.currentTimeMillis()));
 
-        state.updateActivity(sequenceNumber);
+        // Generate login response
+        byte[] response = generateLoginResponse(data);
+        parsedData.put("response", response);
+
+        lastValidImei = imei;
         return message;
     }
 
@@ -633,20 +646,33 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleGps(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        if (data.length < GPS_PACKET_MIN_LENGTH) {
+        if (data.length < 35) { // Minimum GPS packet length
             throw new ProtocolException("GPS packet too short");
-        }
-        if (lastValidImei == null) {
-            throw new ProtocolException("No valid IMEI from previous login");
         }
 
         Position position = parseGpsData(data);
         parsedData.put("position", position);
-        parsedData.put("response", generateStandardResponse(PROTOCOL_GPS, data));
+
+        // Generate proper response
+        parsedData.put("response", generateGpsResponse(data));
 
         message.setImei(lastValidImei);
-        message.setMessageType("DATA");
+        message.setMessageType("GPS");
         return message;
+    }
+    private byte[] generateGpsResponse(byte[] requestData) {
+        return ByteBuffer.allocate(11)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Length
+                .put(PROTOCOL_GPS) // Protocol number
+                .put(requestData[requestData.length-4]) // Serial number part 1
+                .put(requestData[requestData.length-3]) // Serial number part 2
+                .put((byte) 0x01) // Success
+                .put((byte) 0x0D) // End bytes
+                .put((byte) 0x0A)
+                .array();
     }
 
     private Position parseGpsData(byte[] data) throws ProtocolException {
@@ -660,20 +686,34 @@ public class Gt06Handler implements ProtocolHandler {
         position.setDevice(device);
 
         try {
-            position.setTimestamp(parseTimestamp(buffer));
-            position.setValid(buffer.get() == 1);
+            // Parse date/time (YY MM DD HH MM SS)
+            int year = 2000 + (buffer.get() & 0xFF);
+            int month = buffer.get() & 0xFF;
+            int day = buffer.get() & 0xFF;
+            int hour = buffer.get() & 0xFF;
+            int minute = buffer.get() & 0xFF;
+            int second = buffer.get() & 0xFF;
+
+            position.setTimestamp(LocalDateTime.of(year, month, day, hour, minute, second));
+
+            // Parse GPS info
+            int satellites = buffer.get() & 0xFF;
+            position.setSatellites(satellites);
 
             double latitude = buffer.getInt() / 1800000.0;
             double longitude = buffer.getInt() / 1800000.0;
-
-            validateCoordinates(latitude, longitude);
             position.setLatitude(latitude);
             position.setLongitude(longitude);
 
-            position.setSpeed((buffer.get() & 0xFF) * 1.852); // Convert knots to km/h
+            // Speed and course
+            position.setSpeed((buffer.get() & 0xFF) * 1.852); // Knots to km/h
             position.setCourse((double) (buffer.getShort() & 0xFFFF));
 
-            logger.debug("Processed GPS data for IMEI: {}", lastValidImei);
+            // Status flags
+            int flags = buffer.getShort() & 0xFFFF;
+            position.setValid((flags & 0x1000) != 0);
+            position.setIgnition((flags & 0x8000) != 0);
+
             return position;
         } catch (BufferUnderflowException e) {
             throw new ProtocolException("Incomplete GPS data packet");
