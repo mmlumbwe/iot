@@ -204,39 +204,51 @@ public class Gt06Handler implements ProtocolHandler {
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
-        // Generate and store response
+        // Always generate and store response
         byte[] response = generateLoginResponse(data);
         parsedData.put("response", response);
         parsedData.put("device_info", extractDeviceInfo(data));
 
-        logger.info("Processed GT06 login from IMEI: {}", imei);
+        logger.info("Processed GT06 login from IMEI: {} with response: {}",
+                imei, bytesToHex(response));
         return message;
     }
 
     public byte[] generateLoginResponse(byte[] requestData) {
-        byte[] response = new byte[LOGIN_RESPONSE_LENGTH];
-        // Header
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        // Length and protocol
-        response[2] = 0x05;
-        response[3] = PROTOCOL_LOGIN;
-        // Serial number (from original packet)
-        response[4] = requestData[requestData.length-4];
-        response[5] = requestData[requestData.length-3];
-        // Success flag
-        response[6] = 0x01;
-        // CRC calculation
-        byte crc = 0;
-        for (int i = 2; i <= 6; i++) {
-            crc ^= response[i];
-        }
-        response[7] = crc;
-        // Terminator
-        response[8] = 0x0D;
-        response[9] = 0x0A;
+        try {
+            if (requestData == null || requestData.length < 22) {
+                logger.warn("Invalid login packet for response generation");
+                return generateFallbackResponse(PROTOCOL_LOGIN);
+            }
 
-        return response;
+            byte[] response = new byte[11];
+            // Header
+            response[0] = PROTOCOL_HEADER_1;
+            response[1] = PROTOCOL_HEADER_2;
+            // Length and protocol
+            response[2] = 0x05;
+            response[3] = PROTOCOL_LOGIN;
+            // Serial number (from original packet)
+            response[4] = requestData[requestData.length-4]; // Serial byte 1
+            response[5] = requestData[requestData.length-3]; // Serial byte 2
+            // Success flag
+            response[6] = 0x01;
+            // CRC calculation
+            byte crc = 0;
+            for (int i = 2; i <= 6; i++) {
+                crc ^= response[i];
+            }
+            response[7] = crc;
+            // Terminator
+            response[8] = 0x0D;
+            response[9] = 0x0A;
+
+            logger.debug("Generated GT06 login response: {}", bytesToHex(response));
+            return response;
+        } catch (Exception e) {
+            logger.error("Error generating login response", e);
+            return generateFallbackResponse(PROTOCOL_LOGIN);
+        }
     }
 
     private byte[] createLoginResponse(byte[] loginPacket) {

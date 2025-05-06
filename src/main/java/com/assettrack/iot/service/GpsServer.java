@@ -305,10 +305,8 @@ public class GpsServer {
     }
 
     private void handleTcpClient(Socket clientSocket) {
-        final long connectionStart = System.currentTimeMillis();
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
-        SocketAddress remoteAddress = clientSocket.getRemoteSocketAddress();
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
@@ -321,36 +319,37 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Always send response if one exists
+                    // Send response if available
                     byte[] response = (byte[]) message.getParsedData().get("response");
-                    if (response != null && response.length > 0) {
+                    if (response != null) {
                         output.write(response);
                         output.flush();
-                        logger.info("Sent response to {}:{} - {} bytes",
-                                clientAddress, clientPort, response.length);
+                        logger.info("Sent {} response to {}:{} ({} bytes)",
+                                message.getMessageType(),
+                                clientAddress,
+                                clientPort,
+                                response.length);
                     } else {
-                        logger.warn("No response generated for {} protocol", message.getProtocol());
+                        logger.warn("No response available for {} message",
+                                message.getMessageType());
                     }
 
-                    // Only create session if we have an IMEI
+                    // Handle session creation
                     if (message.getImei() != null) {
                         DeviceSession session = sessionManager.getOrCreateSession(
                                 message.getImei(),
                                 message.getProtocol(),
-                                remoteAddress
+                                clientSocket.getRemoteSocketAddress()
                         );
-                        addressToSessionMap.put(remoteAddress, session);
-                        message.addParsedData("sessionId", session.getSessionId());
+                        addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Connection handling error from {}:{}", clientAddress, clientPort, e);
+            logger.error("Error handling client {}:{} - {}",
+                    clientAddress, clientPort, e.getMessage());
         } finally {
             cleanupConnection(clientSocket, "normal");
-            long duration = System.currentTimeMillis() - connectionStart;
-            logger.info("Connection from {}:{} closed after {} ms",
-                    clientAddress, clientPort, duration);
         }
     }
 
@@ -716,18 +715,12 @@ public class GpsServer {
             logger.debug("Detected protocol: {} (Type: {}, Version: {})",
                     protocol, packetType, version);
 
-            if ("UNKNOWN".equals(protocol)) {
-                logger.warn("Unrecognized protocol format");
-                return createErrorResponse("UNSUPPORTED_PROTOCOL", "Protocol not recognized");
-            }
-
-            // Handle GT06 login packets explicitly
-            if ("GT06".equals(protocol) && "LOGIN".equals(packetType)) {
+            // Handle GT06 packets first
+            if ("GT06".equals(protocol)) {
                 DeviceMessage message = gt06Handler.handle(data);
-                // Ensure we always have a response for login
-                if (message.getParsedData().get("response") == null) {
-                    message.getParsedData().put("response",
-                            gt06Handler.generateLoginResponse(data));
+                // Double-check response exists for login packets
+                if ("LOGIN".equals(packetType) && message.getParsedData().get("response") == null) {
+                    message.getParsedData().put("response", gt06Handler.generateLoginResponse(data));
                 }
                 return message;
             }
@@ -735,6 +728,11 @@ public class GpsServer {
             // Handle Teltonika IMEI packets
             if ("TELTONIKA".equals(protocol) && "IMEI".equals(packetType)) {
                 return handleTeltonikaImei(data);
+            }
+
+            if ("UNKNOWN".equals(protocol)) {
+                logger.warn("Unrecognized protocol format");
+                return createErrorResponse("UNSUPPORTED_PROTOCOL", "Protocol not recognized");
             }
 
             // Default handling
