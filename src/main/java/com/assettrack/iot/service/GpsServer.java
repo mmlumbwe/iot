@@ -319,12 +319,18 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Get response from parsed data
-                    Object responseObj = message.getParsedData().get("response");
+                    // FIRST TRY: Get response from standard location
+                    byte[] response = (byte[]) message.getParsedData().get("response");
 
-                    // Handle byte[] response
-                    if (responseObj instanceof byte[]) {
-                        byte[] response = (byte[]) responseObj;
+                    // SECOND TRY: For GT06 login, get directly from handler if missing
+                    if (response == null && "GT06".equals(message.getProtocol())
+                            && "LOGIN".equals(message.getMessageType())) {
+                        response = gt06Handler.generateLoginResponse(receivedData);
+                        logger.debug("Fallback generated GT06 login response");
+                    }
+
+                    // Send response if we have one
+                    if (response != null && response.length > 0) {
                         output.write(response);
                         output.flush();
                         logger.info("Sent {} response to {}:{} - {} bytes: {}",
@@ -333,24 +339,18 @@ public class GpsServer {
                                 clientPort,
                                 response.length,
                                 bytesToHex(response));
-                    }
-                    // Handle other response types if needed
-                    else if (responseObj != null) {
-                        logger.warn("Unexpected response type: {} for {}",
-                                responseObj.getClass().getSimpleName(),
-                                message.getMessageType());
-                    } else {
-                        logger.warn("No response generated for {} message",
-                                message.getMessageType());
-                    }
 
-                    // Create session if we have an IMEI
-                    if (message.getImei() != null) {
-                        DeviceSession session = sessionManager.getOrCreateSession(
-                                message.getImei(),
-                                message.getProtocol(),
-                                clientSocket.getRemoteSocketAddress());
-                        addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
+                        // Only create session after successful response
+                        if (message.getImei() != null) {
+                            DeviceSession session = sessionManager.getOrCreateSession(
+                                    message.getImei(),
+                                    message.getProtocol(),
+                                    clientSocket.getRemoteSocketAddress());
+                            addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
+                        }
+                    } else {
+                        logger.warn("No response available to send for {} message",
+                                message.getMessageType());
                     }
                 }
             }
@@ -717,6 +717,7 @@ public class GpsServer {
 
         try {
             ProtocolDetector.ProtocolDetectionResult detection = protocolDetector.detect(data);
+            DeviceMessage message;
             String protocol = detection.getProtocol();
             String packetType = detection.getPacketType();
             String version = detection.getVersion();
@@ -724,16 +725,16 @@ public class GpsServer {
             logger.debug("Detected protocol: {} (Type: {}, Version: {})",
                     protocol, packetType, version);
 
-            // Handle GT06 packets first
-            if ("GT06".equals(protocol)) {
-                DeviceMessage message = gt06Handler.handle(data);
+            // Explicit GT06 handling
+            if ("GT06".equals(detection.getProtocol())) {
+                message = gt06Handler.handle(data);
 
-                // For login packets, ensure response exists
-                if ("LOGIN".equals(packetType)) {
+                // Ensure login responses exist
+                if ("LOGIN".equals(detection.getPacketType())){
                     if (message.getParsedData().get("response") == null) {
-                        byte[] response = gt06Handler.generateLoginResponse(data);
-                        message.getParsedData().put("response", response);
-                        logger.debug("Added missing login response: {}", bytesToHex(response));
+                        message.getParsedData().put("response",
+                                gt06Handler.generateLoginResponse(data));
+                        logger.debug("Added missing GT06 login response");
                     }
                 }
                 return message;

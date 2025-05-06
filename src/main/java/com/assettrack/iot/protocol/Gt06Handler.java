@@ -215,30 +215,30 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public byte[] generateLoginResponse(byte[] requestData) {
-        try {
-            if (requestData == null || requestData.length < 22) {
-                throw new IllegalArgumentException("Invalid login packet");
-            }
+        // Validate input
+        if (requestData == null || requestData.length < 22) {
+            logger.warn("Invalid login packet for response generation");
+            return getFallbackLoginResponse();
+        }
 
+        try {
             byte[] response = new byte[11];
-            // Header (2 bytes)
+            // Header
             response[0] = PROTOCOL_HEADER_1;
             response[1] = PROTOCOL_HEADER_2;
-            // Length + Protocol (2 bytes)
+            // Length + Protocol
             response[2] = 0x05;
             response[3] = PROTOCOL_LOGIN;
-            // Serial number (2 bytes from original packet)
+            // Serial number (from original packet)
             response[4] = requestData[requestData.length-4];
             response[5] = requestData[requestData.length-3];
-            // Success flag (1 byte)
+            // Success flag
             response[6] = 0x01;
-            // CRC (1 byte)
+            // CRC
             byte crc = 0;
-            for (int i = 2; i <= 6; i++) {
-                crc ^= response[i];
-            }
+            for (int i = 2; i <= 6; i++) crc ^= response[i];
             response[7] = crc;
-            // Terminator (2 bytes)
+            // Terminator
             response[8] = 0x0D;
             response[9] = 0x0A;
 
@@ -246,15 +246,18 @@ public class Gt06Handler implements ProtocolHandler {
             return response;
         } catch (Exception e) {
             logger.error("Error generating login response", e);
-            // Fallback minimal response
-            return new byte[] {
-                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                    0x05, PROTOCOL_LOGIN,
-                    0x00, 0x00, 0x01,
-                    0x01, // Simple CRC
-                    0x0D, 0x0A
-            };
+            return getFallbackLoginResponse();
         }
+    }
+
+    private byte[] getFallbackLoginResponse() {
+        return new byte[] {
+                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                0x05, PROTOCOL_LOGIN,
+                0x00, 0x00, 0x01,
+                0x01, // Simple CRC
+                0x0D, 0x0A
+        };
     }
 
     private byte[] createLoginResponse(byte[] loginPacket) {
