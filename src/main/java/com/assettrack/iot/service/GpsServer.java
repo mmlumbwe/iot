@@ -321,15 +321,7 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    DeviceSession session = sessionManager.getOrCreateSession(
-                            message.getImei(),
-                            message.getProtocol(),
-                            remoteAddress
-                    );
-                    addressToSessionMap.put(remoteAddress, session);
-                    message.addParsedData("sessionId", session.getSessionId());
-
-                    // Send response if one exists
+                    // Always send response if one exists
                     byte[] response = (byte[]) message.getParsedData().get("response");
                     if (response != null && response.length > 0) {
                         output.write(response);
@@ -338,6 +330,17 @@ public class GpsServer {
                                 clientAddress, clientPort, response.length);
                     } else {
                         logger.warn("No response generated for {} protocol", message.getProtocol());
+                    }
+
+                    // Only create session if we have an IMEI
+                    if (message.getImei() != null) {
+                        DeviceSession session = sessionManager.getOrCreateSession(
+                                message.getImei(),
+                                message.getProtocol(),
+                                remoteAddress
+                        );
+                        addressToSessionMap.put(remoteAddress, session);
+                        message.addParsedData("sessionId", session.getSessionId());
                     }
                 }
             }
@@ -721,8 +724,8 @@ public class GpsServer {
             // Handle GT06 login packets explicitly
             if ("GT06".equals(protocol) && "LOGIN".equals(packetType)) {
                 DeviceMessage message = gt06Handler.handle(data);
+                // Ensure we always have a response for login
                 if (message.getParsedData().get("response") == null) {
-                    // Ensure we always have a response for login
                     message.getParsedData().put("response",
                             gt06Handler.generateLoginResponse(data));
                 }
