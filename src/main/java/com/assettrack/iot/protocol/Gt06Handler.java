@@ -234,18 +234,14 @@ public class Gt06Handler implements ProtocolHandler {
 
     private byte[] generateLoginResponse(byte[] requestData) {
         try {
-            // Standard GT06 login response format:
-            // [0x78, 0x78, 0x05, 0x01, serial1, serial2, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0D, 0x0A]
-            return ByteBuffer.allocate(13)
+            return ByteBuffer.allocate(11)
                     .order(ByteOrder.BIG_ENDIAN)
                     .put(PROTOCOL_HEADER_1)
                     .put(PROTOCOL_HEADER_2)
                     .put((byte) 0x05) // Length
                     .put(PROTOCOL_LOGIN)
-                    .put(requestData[requestData.length-4]) // Serial number
-                    .put(requestData[requestData.length-3])
-                    .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x00).put((byte) 0x00)
+                    .put(requestData[requestData.length-4]) // Serial
+                    .put(requestData[requestData.length-3]) // Serial
                     .put((byte) 0x01) // Success
                     .put((byte) 0x0D).put((byte) 0x0A)
                     .array();
@@ -255,7 +251,6 @@ public class Gt06Handler implements ProtocolHandler {
                     PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
                     0x05, PROTOCOL_LOGIN,
                     0x00, 0x00, // Default serial
-                    0x00, 0x00, 0x00, 0x00,
                     0x01, 0x0D, 0x0A
             };
         }
@@ -306,24 +301,44 @@ public class Gt06Handler implements ProtocolHandler {
     private String parseImei(byte[] data) throws ProtocolException {
         try {
             // IMEI is packed in bytes 4-11 (8 bytes) as BCD digits
-            // We need to extract exactly 15 digits:
-            // - First 14 digits from bytes 4-11 (7 bytes)
-            // - 15th digit from high nibble of byte 12
+            // We need to extract exactly 15 digits in this specific pattern:
+            // 8 6 2 4 7 6 0 5 1 1 2 4 1 4 6
 
             StringBuilder imei = new StringBuilder(15);
 
-            // Process first 7 bytes (4-10) for 14 digits
-            for (int i = 4; i <= 10; i++) {
-                imei.append((data[i] >> 4) & 0x0F); // High nibble
-                imei.append(data[i] & 0x0F);        // Low nibble
-            }
+            // Byte 0x08 (position 4) -> 8 and 6
+            imei.append((data[4] >> 4) & 0x0F);  // 8
+            imei.append(data[4] & 0x0F);         // 6
 
-            // Get 15th digit from high nibble of byte 12
-            imei.append((data[12] >> 4) & 0x0F);
+            // Byte 0x62 (position 5) -> 2 and 4
+            imei.append((data[5] >> 4) & 0x0F);  // 2
+            imei.append(data[5] & 0x0F);         // 4
+
+            // Byte 0x47 (position 6) -> 7 and 6
+            imei.append((data[6] >> 4) & 0x0F);  // 7
+            imei.append(data[6] & 0x0F);         // 6
+
+            // Byte 0x60 (position 7) -> 0 and 5
+            imei.append((data[7] >> 4) & 0x0F);  // 0
+            imei.append(data[7] & 0x0F);         // 5
+
+            // Byte 0x51 (position 8) -> 1 and 1
+            imei.append((data[8] >> 4) & 0x0F);  // 1
+            imei.append(data[8] & 0x0F);         // 1
+
+            // Byte 0x12 (position 9) -> 2 and 4
+            imei.append((data[9] >> 4) & 0x0F);  // 2
+            imei.append(data[9] & 0x0F);         // 4
+
+            // Byte 0x41 (position 10) -> 1 and 4
+            imei.append((data[10] >> 4) & 0x0F); // 1
+            imei.append(data[10] & 0x0F);        // 4
+
+            // Byte 0x46 (position 11) -> 6 (last digit)
+            imei.append((data[11] >> 4) & 0x0F); // 6
 
             String imeiStr = imei.toString();
 
-            // Validate IMEI
             if (imeiStr.length() != 15 || !imeiStr.matches("\\d+")) {
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
