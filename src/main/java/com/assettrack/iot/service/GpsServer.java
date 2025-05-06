@@ -307,10 +307,12 @@ public class GpsServer {
     private void handleTcpClient(Socket clientSocket) {
         final String clientAddress = clientSocket.getInetAddress().getHostAddress();
         final int clientPort = clientSocket.getPort();
+        DeviceSession session = null;
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
 
+            // Initial login handling
             byte[] buffer = new byte[MAX_PACKET_SIZE];
             int bytesRead = input.read(buffer);
 
@@ -319,46 +321,67 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // FIRST TRY: Get response from standard location
+                    // Send login response
                     byte[] response = (byte[]) message.getParsedData().get("response");
-
-                    // SECOND TRY: For GT06 login, get directly from handler if missing
-                    if (response == null && "GT06".equals(message.getProtocol())
-                            && "LOGIN".equals(message.getMessageType())) {
-                        response = gt06Handler.generateLoginResponse(receivedData);
-                        logger.debug("Fallback generated GT06 login response");
-                    }
-
-                    // Send response if we have one
-                    if (response != null && response.length > 0) {
+                    if (response != null) {
                         output.write(response);
                         output.flush();
-                        logger.info("Sent {} response to {}:{} - {} bytes: {}",
-                                message.getMessageType(),
-                                clientAddress,
-                                clientPort,
-                                response.length,
-                                bytesToHex(response));
+                        logger.info("Sent initial login response to {}:{}", clientAddress, clientPort);
+                    }
 
-                        // Only create session after successful response
-                        if (message.getImei() != null) {
-                            DeviceSession session = sessionManager.getOrCreateSession(
-                                    message.getImei(),
-                                    message.getProtocol(),
-                                    clientSocket.getRemoteSocketAddress());
-                            addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
-                        }
-                    } else {
-                        logger.warn("No response available to send for {} message",
-                                message.getMessageType());
+                    // Create session
+                    if (message.getImei() != null) {
+                        session = sessionManager.getOrCreateSession(
+                                message.getImei(),
+                                message.getProtocol(),
+                                clientSocket.getRemoteSocketAddress());
+                        addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
                     }
                 }
             }
+
+            // Persistent connection handling
+            while (!clientSocket.isClosed() && running.get()) {
+                bytesRead = input.read(buffer);
+                if (bytesRead == -1) break; // Connection closed by client
+
+                byte[] receivedData = Arrays.copyOf(buffer, bytesRead);
+                DeviceMessage message = processProtocolMessage(receivedData);
+
+                if (message != null) {
+                    // Handle subsequent messages
+                    byte[] response = (byte[]) message.getParsedData().get("response");
+                    if (response != null) {
+                        output.write(response);
+                        output.flush();
+                    }
+
+                    // Update session activity
+                    if (session != null) {
+                        session.updateLastActive();
+                    }
+                }
+            }
+        } catch (SocketTimeoutException e) {
+            logger.debug("Socket timeout for {}:{}", clientAddress, clientPort);
         } catch (Exception e) {
-            logger.error("Error handling client {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage());
+            logger.error("Connection error for {}:{} - {}", clientAddress, clientPort, e.getMessage());
         } finally {
-            cleanupConnection(clientSocket, "normal");
+            cleanupConnection(clientSocket, session);
+        }
+    }
+
+    private void cleanupConnection(Socket socket, DeviceSession session) {
+        if (socket != null && !socket.isClosed()) {
+            try {
+                socket.close();
+                if (session != null) {
+                    sessionManager.closeSession(session.getSessionId());
+                }
+                logger.info("Closed connection for {}", socket.getRemoteSocketAddress());
+            } catch (IOException e) {
+                logger.warn("Error closing socket", e);
+            }
         }
     }
 

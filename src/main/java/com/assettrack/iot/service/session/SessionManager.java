@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class SessionManager {
     private static final Logger logger = LoggerFactory.getLogger(SessionManager.class);
+    private static final long SESSION_TIMEOUT = 30;
     private final Map<String, DeviceSession> sessions = new ConcurrentHashMap<>();
     private volatile Duration sessionTimeout = Duration.ofHours(1);
 
@@ -83,4 +84,16 @@ public class SessionManager {
 
     public void onShutdown() {
     }
+
+    public void closeSession(String sessionId) {
+        sessions.remove(sessionId);
+        logger.debug("Closed session {}", sessionId);
+    }
+
+    /*@Scheduled(fixedRate = 30000) // Run every 30 seconds
+    public void cleanupExpiredSessions() {
+        long now = System.currentTimeMillis();
+        sessionManager.getSessions().values().removeIf(session ->
+                session.isExpired(SESSION_TIMEOUT));
+    }*/
 }

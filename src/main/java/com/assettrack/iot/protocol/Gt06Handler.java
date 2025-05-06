@@ -653,6 +653,7 @@ public class Gt06Handler implements ProtocolHandler {
         parsedData.put("response", response);
         parsedData.put("status", extractStatusInfo(data));
 
+        logger.debug("Processed heartbeat for IMEI {}", message.getImei());
         return message;
     }
 
