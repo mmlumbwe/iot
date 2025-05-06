@@ -30,6 +30,7 @@ public class Gt06Handler implements ProtocolHandler {
 
     private final Map<String, Short> lastSequenceNumbers = new ConcurrentHashMap<>();
     private static final int SEQUENCE_NUMBER_POS = 16;
+    private static final long HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
     private static final short INITIAL_SEQUENCE = 0;
     private final Map<String, Short> deviceSequences = new ConcurrentHashMap<>();
@@ -69,17 +70,19 @@ public class Gt06Handler implements ProtocolHandler {
         private short lastSequence;
         private boolean loggedIn;
         private long lastActivityTime;
+        private long lastHeartbeatTime;
 
         public DeviceState() {
             this.lastActivityTime = System.currentTimeMillis();
         }
 
-        public void updateActivity() {
+        public void updateActivity(short sequenceNumber) {
             this.lastActivityTime = System.currentTimeMillis();
+            this.lastSequence = sequenceNumber;
         }
 
-        public long getLastActivityTime() {
-            return lastActivityTime;
+        public boolean needsHeartbeatResponse() {
+            return (System.currentTimeMillis() - lastHeartbeatTime) > HEARTBEAT_INTERVAL;
         }
     }
 
@@ -236,30 +239,56 @@ public class Gt06Handler implements ProtocolHandler {
         short sequenceNumber = extractSequenceNumber(data);
 
         DeviceState state = deviceStates.computeIfAbsent(imei, k -> new DeviceState());
-        state.updateActivity();
-
         message.setImei(imei);
         message.setMessageType("LOGIN");
 
+        // Initial login or sequence reset
         if (!state.loggedIn || sequenceNumber == INITIAL_SEQUENCE || sequenceNumber < state.lastSequence) {
             byte[] response = generateLoginResponse(data);
             parsedData.put("response", response);
             state.loggedIn = true;
-            state.lastSequence = sequenceNumber;
-            logger.info("Responded to login (seq:{}) for IMEI: {}", sequenceNumber, imei);
-        } else {
-            logger.debug("Skipping login response (seq:{}) for IMEI: {}", sequenceNumber, imei);
+            state.updateActivity(sequenceNumber);
+            logger.info("Responded to initial login (seq:{}) for IMEI: {}", sequenceNumber, imei);
+        }
+        // Sequential login packet (treated as heartbeat)
+        else if (state.needsHeartbeatResponse()) {
+            byte[] response = generateHeartbeatResponse(data);
+            parsedData.put("response", response);
+            state.lastHeartbeatTime = System.currentTimeMillis();
+            logger.debug("Responded to heartbeat login (seq:{}) for IMEI: {}", sequenceNumber, imei);
+        }
+        else {
+            logger.trace("Skipping login response (seq:{}) for IMEI: {}", sequenceNumber, imei);
             parsedData.remove("response");
         }
 
+        state.updateActivity(sequenceNumber);
         return message;
+    }
+
+    private byte[] generateHeartbeatResponse(byte[] data) {
+        // Same format as login response but with heartbeat flag
+        byte[] response = new byte[11];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05;
+        response[3] = PROTOCOL_HEARTBEAT; // 0x13 for heartbeat
+        System.arraycopy(data, data.length-4, response, 4, 2); // Copy serial
+        response[6] = 0x01; // Success
+        // Calculate CRC
+        byte crc = 0;
+        for (int i = 2; i <= 6; i++) crc ^= response[i];
+        response[7] = crc;
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+        return response;
     }
 
     @Scheduled(fixedRate = 300000) // 5 minutes
     public void cleanupStaleDevices() {
         long now = System.currentTimeMillis();
         deviceStates.entrySet().removeIf(entry ->
-                (now - entry.getValue().getLastActivityTime()) > 600000); // 10 minute timeout
+                (now - entry.getValue().lastActivityTime) > 600000); // 10 minute timeout
     }
 
     private short extractSequenceNumber(byte[] data) {
