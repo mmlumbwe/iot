@@ -36,9 +36,6 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int IMEI_LENGTH = 8;
     private static final int LOGIN_PACKET_LENGTH = 22;
 
-    private static final byte PROTOCOL_LOGIN_EXT = 0x11;
-    private static final byte PROTOCOL_GPS_EXT = 0x22;
-    private static final byte PROTOCOL_ALARM_EXT = 0x26;
 
     //private static final int IMEI_LENGTH = 15;
     private String lastValidImei;
@@ -52,6 +49,8 @@ public class Gt06Handler implements ProtocolHandler {
     private static final int GPS_PACKET_MIN_LENGTH = 35;
     private static final int ALARM_PACKET_MIN_LENGTH = 35;
     private static final int HEARTBEAT_PACKET_LENGTH = 12;
+
+
 
     // Response constants
     private static final byte LOGIN_RESPONSE_SUCCESS = 0x01;
@@ -75,22 +74,91 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocol("GT06");
+        Map<String, Object> parsedData = new HashMap<>();
+        message.setParsedData(parsedData);
+
         try {
-            validateLoginPacket(data);
-            String imei = extractCorrectImei(data); // Using corrected extraction
+            validateBasicPacketStructure(data);
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-            DeviceMessage message = new DeviceMessage();
-            message.setImei(imei);
-            message.setProtocol("GT06");
-            message.setMessageType("LOGIN");
-            message.addParsedData("response", createLoginResponse(data));
+            // Skip header (0x78 0x78)
+            buffer.position(2);
 
-            logger.info("Processed GT06 login for IMEI: {}", imei);
-            return message;
+            int length = buffer.get() & 0xFF;
+            byte protocol = buffer.get();
 
+            switch (protocol) {
+                case PROTOCOL_LOGIN:
+                    return handleLogin(data, message, parsedData);
+                case PROTOCOL_GPS:
+                    return handleGps(data, message, parsedData);
+                case PROTOCOL_HEARTBEAT:
+                    return handleHeartbeat(data, message, parsedData);
+                case PROTOCOL_ALARM:
+                    return handleAlarm(data, message, parsedData);
+                default:
+                    throw new ProtocolException("Unsupported protocol type: 0x" +
+                            String.format("%02X", protocol));
+            }
         } catch (Exception e) {
-            logger.error("GT06 processing failed for packet: {}", bytesToHex(data));
-            throw new ProtocolException("GT06 handler error: " + e.getMessage());
+            logger.error("GT06 processing error", e);
+            message.setMessageType("ERROR");
+            message.setError(e.getMessage());
+            parsedData.put("response", generateErrorResponse(data, e));
+            return message;
+        }
+    }
+
+    private byte getErrorCode(Exception error) {
+        String message = error.getMessage();
+        if (message.contains("minute")) return 0x02;
+        if (message.contains("hour")) return 0x01;
+        if (message.contains("second")) return 0x03;
+        return (byte) 0xFF; // Unknown error
+    }
+
+    private byte[] extractSerialNumber(byte[] data) throws ProtocolException {
+        if (data == null || data.length < 4) {
+            throw new ProtocolException("Packet too short for serial number extraction");
+        }
+
+        // Serial number is typically the last 4 bytes before checksum
+        return new byte[] {
+                data[data.length - 4], // First byte of serial
+                data[data.length - 3]  // Second byte of serial
+        };
+    }
+
+    private byte[] generateErrorResponse(byte[] requestData, Exception error) {
+        try {
+            byte[] serial = extractSerialNumber(requestData);
+            byte errorCode = getErrorCode(error);
+            String errorMsg = error.getMessage();
+
+            // Special handling for coordinate errors
+            if (errorMsg.contains("longitude") || errorMsg.contains("latitude")) {
+                logger.warn("Attempting coordinate recovery for IMEI {}", lastValidImei);
+                errorCode = (byte) 0x81; // Special code for recoverable coordinate error
+            }
+
+            return ByteBuffer.allocate(13)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(PROTOCOL_HEADER_1)
+                    .put(PROTOCOL_HEADER_2)
+                    .put((byte) 0x05)
+                    .put((byte) 0x7F) // Error protocol
+                    .put(serial[0])
+                    .put(serial[1])
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put(errorCode)
+                    .put((byte) 0x0D).put((byte) 0x0A)
+                    .array();
+        } catch (Exception e) {
+            logger.error("Failed to generate error response", e);
+            return generateFallbackResponse((byte) 0x7F);
         }
     }
 
@@ -130,27 +198,18 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Login packet too short");
         }
 
-        try {
-            // Parse IMEI from bytes 4-11 (8 bytes)
-            String imei = parseImei(data);
-            lastValidImei = imei;
-            message.setImei(imei);
-            message.setMessageType("LOGIN");
+        String imei = parseImei(data);
+        lastValidImei = imei;
+        message.setImei(imei);
+        message.setMessageType("LOGIN");
 
-            logger.info("Login request from IMEI: {}", imei);
+        // Generate and store response
+        byte[] response = generateLoginResponse(data);
+        parsedData.put("response", response);
+        parsedData.put("device_info", extractDeviceInfo(data));
 
-            // Extract device info (language, timezone, firmware version)
-            Map<String, Object> deviceInfo = extractDeviceInfo(data);
-            parsedData.put("device_info", deviceInfo);
-
-            // Generate and store response
-            byte[] response = generateLoginResponse(data);
-            parsedData.put("response", response);
-
-            return message;
-        } catch (IndexOutOfBoundsException e) {
-            throw new ProtocolException("Invalid login packet structure");
-        }
+        logger.info("Processed login from IMEI: {}", imei);
+        return message;
     }
 
     private Map<String, Object> extractDeviceInfo(byte[] data) {
@@ -175,10 +234,6 @@ public class Gt06Handler implements ProtocolHandler {
 
     private byte[] generateLoginResponse(byte[] requestData) {
         try {
-            if (requestData == null || requestData.length < LOGIN_PACKET_LENGTH) {
-                throw new ProtocolException("Invalid login packet");
-            }
-
             // Standard GT06 login response format:
             // [0x78, 0x78, 0x05, 0x01, serial1, serial2, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0D, 0x0A]
             return ByteBuffer.allocate(13)
@@ -187,16 +242,22 @@ public class Gt06Handler implements ProtocolHandler {
                     .put(PROTOCOL_HEADER_2)
                     .put((byte) 0x05) // Length
                     .put(PROTOCOL_LOGIN)
-                    .put(requestData[requestData.length-4]) // Serial number (2 bytes)
+                    .put(requestData[requestData.length-4]) // Serial number
                     .put(requestData[requestData.length-3])
-                    .put((byte) 0x00).put((byte) 0x00) // Reserved
-                    .put((byte) 0x00).put((byte) 0x00) // Reserved
-                    .put((byte) 0x01) // Success status
-                    .put((byte) 0x0D).put((byte) 0x0A) // End marker
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x00).put((byte) 0x00)
+                    .put((byte) 0x01) // Success
+                    .put((byte) 0x0D).put((byte) 0x0A)
                     .array();
         } catch (Exception e) {
-            logger.error("Login response generation failed", e);
-            return generateFallbackResponse(PROTOCOL_LOGIN);
+            logger.error("Failed to generate login response", e);
+            return new byte[] {
+                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                    0x05, PROTOCOL_LOGIN,
+                    0x00, 0x00, // Default serial
+                    0x00, 0x00, 0x00, 0x00,
+                    0x01, 0x0D, 0x0A
+            };
         }
     }
 
@@ -244,17 +305,26 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            StringBuilder imei = new StringBuilder();
-            // IMEI is packed in bytes 4-11 (8 bytes) as BCD
-            for (int i = 4; i <= 11; i++) {
-                imei.append((data[i] >> 4) & 0x0F);  // High nibble
-                imei.append(data[i] & 0x0F);         // Low nibble
-            }
+            // IMEI is packed in bytes 4-11 (8 bytes) as BCD digits
+            // Each byte contains 2 digits (high nibble and low nibble)
             // The 15th digit is in the high nibble of byte 12
+            StringBuilder imei = new StringBuilder(15);
+
+            // Process bytes 4-11 (8 bytes = 16 digits, but we only need first 14)
+            for (int i = 4; i <= 11; i++) {
+                // High nibble (first digit)
+                imei.append((data[i] >> 4) & 0x0F);
+                // Low nibble (second digit)
+                imei.append(data[i] & 0x0F);
+            }
+
+            // Get the 15th digit from high nibble of byte 12
             imei.append((data[12] >> 4) & 0x0F);
 
             String imeiStr = imei.toString();
-            if (!imeiStr.matches("^\\d{15}$")) {
+
+            // Validate IMEI length and digits
+            if (imeiStr.length() != 15 || !imeiStr.matches("\\d+")) {
                 throw new ProtocolException("Invalid IMEI format: " + imeiStr);
             }
 
@@ -350,14 +420,11 @@ public class Gt06Handler implements ProtocolHandler {
         return response;
     }
     private void validateLoginPacket(byte[] data) throws ProtocolException {
-        if (data.length != LOGIN_PACKET_LENGTH) {
+        if (data.length < 17) { // Minimum login packet size
+            throw new ProtocolException("Login packet too short");
+        }
+        if (data[2] != 0x11) { // Login packet length byte
             throw new ProtocolException("Invalid login packet length");
-        }
-        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-            throw new ProtocolException("Invalid protocol header");
-        }
-        if (data[2] != PROTOCOL_LOGIN) {
-            throw new ProtocolException("Not a login packet");
         }
     }
 
@@ -637,22 +704,15 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private void validateBasicPacketStructure(byte[] data) throws ProtocolException {
-        // Basic null and minimum length check
         if (data == null || data.length < MIN_PACKET_LENGTH) {
-            throw new ProtocolException("Invalid message length");
+            throw new ProtocolException("Packet too short");
         }
 
-        // Protocol header check
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException("Invalid protocol header");
         }
 
-        // Verify checksum exists
-        if (data.length < HEADER_LENGTH + CHECKSUM_LENGTH) {
-            throw new ProtocolException("Message too short for checksum");
-        }
-
-        // Verify ending bytes
+        // Verify ending bytes (0x0D 0x0A)
         if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
             throw new ProtocolException("Invalid packet termination");
         }
