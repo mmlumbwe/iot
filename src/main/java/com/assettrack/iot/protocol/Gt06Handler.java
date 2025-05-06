@@ -32,6 +32,8 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
 
+    private static final int LOGIN_RESPONSE_LENGTH = 11;
+
     private static final int IMEI_START_INDEX = 4;
     private static final int IMEI_LENGTH = 8;
     private static final int LOGIN_PACKET_LENGTH = 22;
@@ -80,12 +82,11 @@ public class Gt06Handler implements ProtocolHandler {
         message.setParsedData(parsedData);
 
         try {
-            validateBasicPacketStructure(data);
+            validatePacket(data);
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
             // Skip header (0x78 0x78)
             buffer.position(2);
-
             int length = buffer.get() & 0xFF;
             byte protocol = buffer.get();
 
@@ -99,17 +100,33 @@ public class Gt06Handler implements ProtocolHandler {
                 case PROTOCOL_ALARM:
                     return handleAlarm(data, message, parsedData);
                 default:
-                    throw new ProtocolException("Unsupported protocol type: 0x" +
-                            String.format("%02X", protocol));
+                    throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
             }
         } catch (Exception e) {
             logger.error("GT06 processing error", e);
             message.setMessageType("ERROR");
             message.setError(e.getMessage());
-            parsedData.put("response", generateErrorResponse(data, e));
+            parsedData.put("response", generateErrorResponse(e));
             return message;
         }
     }
+
+    private void validatePacket(byte[] data) throws ProtocolException {
+        if (data == null || data.length < MIN_PACKET_LENGTH) {
+            throw new ProtocolException("Packet too short");
+        }
+
+        // Check protocol header
+        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
+            throw new ProtocolException("Invalid protocol header");
+        }
+
+        // Check termination bytes
+        if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
+            throw new ProtocolException("Invalid packet termination");
+        }
+    }
+
 
     private byte getErrorCode(Exception error) {
         String message = error.getMessage();
@@ -131,35 +148,19 @@ public class Gt06Handler implements ProtocolHandler {
         };
     }
 
-    private byte[] generateErrorResponse(byte[] requestData, Exception error) {
-        try {
-            byte[] serial = extractSerialNumber(requestData);
-            byte errorCode = getErrorCode(error);
-            String errorMsg = error.getMessage();
-
-            // Special handling for coordinate errors
-            if (errorMsg.contains("longitude") || errorMsg.contains("latitude")) {
-                logger.warn("Attempting coordinate recovery for IMEI {}", lastValidImei);
-                errorCode = (byte) 0x81; // Special code for recoverable coordinate error
-            }
-
-            return ByteBuffer.allocate(13)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .put(PROTOCOL_HEADER_1)
-                    .put(PROTOCOL_HEADER_2)
-                    .put((byte) 0x05)
-                    .put((byte) 0x7F) // Error protocol
-                    .put(serial[0])
-                    .put(serial[1])
-                    .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x00).put((byte) 0x00)
-                    .put(errorCode)
-                    .put((byte) 0x0D).put((byte) 0x0A)
-                    .array();
-        } catch (Exception e) {
-            logger.error("Failed to generate error response", e);
-            return generateFallbackResponse((byte) 0x7F);
-        }
+    private byte[] generateErrorResponse(Exception error) {
+        return ByteBuffer.allocate(11)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05)
+                .put((byte) 0x7F) // Error protocol
+                .put((byte) 0x00) // Default serial
+                .put((byte) 0x00)
+                .put(getErrorCode(error))
+                .put((byte) 0x0D)
+                .put((byte) 0x0A)
+                .array();
     }
 
             /**
@@ -194,21 +195,48 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        validateLoginPacket(data);
+        if (data.length < LOGIN_PACKET_LENGTH) {
+            throw new ProtocolException("Login packet too short");
+        }
 
         String imei = parseImei(data);
         lastValidImei = imei;
         message.setImei(imei);
         message.setMessageType("LOGIN");
-        message.setProtocol("GT06");
 
         // Generate and store response
-        byte[] response = createLoginResponse(data);
+        byte[] response = generateLoginResponse(data);
         parsedData.put("response", response);
         parsedData.put("device_info", extractDeviceInfo(data));
 
         logger.info("Processed GT06 login from IMEI: {}", imei);
         return message;
+    }
+
+    private byte[] generateLoginResponse(byte[] requestData) {
+        byte[] response = new byte[LOGIN_RESPONSE_LENGTH];
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        // Length and protocol
+        response[2] = 0x05;
+        response[3] = PROTOCOL_LOGIN;
+        // Serial number (from original packet)
+        response[4] = requestData[requestData.length-4];
+        response[5] = requestData[requestData.length-3];
+        // Success flag
+        response[6] = 0x01;
+        // CRC calculation
+        byte crc = 0;
+        for (int i = 2; i <= 6; i++) {
+            crc ^= response[i];
+        }
+        response[7] = crc;
+        // Terminator
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        return response;
     }
 
     private byte[] createLoginResponse(byte[] loginPacket) {
@@ -257,35 +285,6 @@ public class Gt06Handler implements ProtocolHandler {
         return info;
     }
 
-    public byte[] generateLoginResponse(byte[] requestData) {
-        try {
-            // Standard GT06 login response format:
-            // [0x78, 0x78, 0x05, 0x01, serial1, serial2, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0D, 0x0A]
-            return ByteBuffer.allocate(13)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .put(PROTOCOL_HEADER_1)
-                    .put(PROTOCOL_HEADER_2)
-                    .put((byte) 0x05) // Length
-                    .put(PROTOCOL_LOGIN)
-                    .put(requestData[requestData.length-4]) // Serial number
-                    .put(requestData[requestData.length-3])
-                    .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x00).put((byte) 0x00)
-                    .put((byte) 0x01) // Success
-                    .put((byte) 0x0D).put((byte) 0x0A)
-                    .array();
-        } catch (Exception e) {
-            logger.error("Failed to generate login response", e);
-            return new byte[] {
-                    PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                    0x05, PROTOCOL_LOGIN,
-                    0x00, 0x00, // Default serial
-                    0x00, 0x00, 0x00, 0x00,
-                    0x01, 0x0D, 0x0A
-            };
-        }
-    }
-
     private byte[] generateFallbackResponse(byte protocolType) {
         // Validate protocol type
         byte validProtocol = protocolType;
@@ -330,8 +329,6 @@ public class Gt06Handler implements ProtocolHandler {
 
     private String parseImei(byte[] data) throws ProtocolException {
         try {
-            // IMEI is packed in bytes 4-11 (8 bytes) as BCD digits
-            // Correct extraction for IMEI: 862476051124146
             StringBuilder imei = new StringBuilder(15);
 
             // Byte 4 (0x08) -> low nibble (8)

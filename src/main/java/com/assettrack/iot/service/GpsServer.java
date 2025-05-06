@@ -329,17 +329,20 @@ public class GpsServer {
                     addressToSessionMap.put(remoteAddress, session);
                     message.addParsedData("sessionId", session.getSessionId());
 
-                    if (PROTOCOL_TELTONIKA.equals(message.getProtocol())) {
-                        handleTeltonikaProtocol(clientSocket, message, session, output);
-                    } else if (PROTOCOL_GT06.equals(message.getProtocol())) {
-                        handleGt06Protocol(clientSocket, message, session, output);
+                    // Send response if one exists
+                    byte[] response = (byte[]) message.getParsedData().get("response");
+                    if (response != null && response.length > 0) {
+                        output.write(response);
+                        output.flush();
+                        logger.info("Sent response to {}:{} - {} bytes",
+                                clientAddress, clientPort, response.length);
                     } else {
-                        processResponse(output, message, clientAddress, clientPort);
+                        logger.warn("No response generated for {} protocol", message.getProtocol());
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Handling error", e);
+            logger.error("Connection handling error from {}:{}", clientAddress, clientPort, e);
         } finally {
             cleanupConnection(clientSocket, "normal");
             long duration = System.currentTimeMillis() - connectionStart;
@@ -697,7 +700,7 @@ public class GpsServer {
 
     private DeviceMessage processProtocolMessage(byte[] data) {
         if (data == null || data.length == 0) {
-            logger.error("Null or empty data received for protocol processing");
+            logger.error("Null or empty data received");
             return null;
         }
 
@@ -711,27 +714,30 @@ public class GpsServer {
                     protocol, packetType, version);
 
             if ("UNKNOWN".equals(protocol)) {
-                logger.warn("Unrecognized protocol format. Error: {}", detection.getError());
-                logger.debug("Full packet hex dump:\n{}", formatHexDump(data));
-                return createErrorResponse("UNSUPPORTED_PROTOCOL",
-                        "No protocol detector matched this packet format");
+                logger.warn("Unrecognized protocol format");
+                return createErrorResponse("UNSUPPORTED_PROTOCOL", "Protocol not recognized");
+            }
+
+            // Handle GT06 login packets explicitly
+            if ("GT06".equals(protocol) && "LOGIN".equals(packetType)) {
+                DeviceMessage message = gt06Handler.handle(data);
+                if (message.getParsedData().get("response") == null) {
+                    // Ensure we always have a response for login
+                    message.getParsedData().put("response",
+                            gt06Handler.generateLoginResponse(data));
+                }
+                return message;
             }
 
             // Handle Teltonika IMEI packets
-            if (PROTOCOL_TELTONIKA.equals(protocol) && PACKET_TYPE_IMEI.equals(packetType)) {
+            if ("TELTONIKA".equals(protocol) && "IMEI".equals(packetType)) {
                 return handleTeltonikaImei(data);
             }
 
-            // Handle GT06 login packets
-            if (PROTOCOL_GT06.equals(protocol) && PACKET_TYPE_LOGIN.equals(packetType)) {
-                return handleGt06Login(data);
-            }
-
+            // Default handling
             return handleWithProtocolHandlers(data, protocol, packetType, version);
         } catch (Exception e) {
-            logger.error("Critical error processing protocol message: {}", e.getMessage());
-            logger.debug("Error stack trace:", e);
-            logger.debug("Problematic packet:\n{}", formatHexDump(data));
+            logger.error("Protocol processing error", e);
             return createErrorResponse("PROCESSING_ERROR", e.getMessage());
         }
     }
