@@ -260,7 +260,7 @@ public class Gt06Handler implements ProtocolHandler {
         try {
             // Verify minimum length
             if (data.length < 22) {
-                throw new ProtocolException("Packet too short");
+                throw new ProtocolException("Invalid packet length: " + data.length);
             }
 
             // 1. Log raw packet
@@ -296,7 +296,7 @@ public class Gt06Handler implements ProtocolHandler {
 
             // Calculate and verify checksum
             byte expectedChecksum = data[data.length - 4];
-            byte calculatedChecksum = calculateDeviceChecksum(data);
+            byte calculatedChecksum = calculateChecksum(data);
 
             logger.debug("Checksum verification - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
@@ -308,14 +308,19 @@ public class Gt06Handler implements ProtocolHandler {
                         expectedChecksum, calculatedChecksum));
             }
 
-            // Parse IMEI (bytes 4-18 as BCD)
-            String imei = parseBinaryImei(data, 4, 15);
-            logger.info("Processing login for IMEI: {}", imei);
+            // 3. Extract serial number (last 2 bytes before checksum)
+            short serialNumber = (short)((data[data.length-6] << 8) | (data[data.length-5] & 0xFF));
 
-            // Generate response with correct checksum
-            byte[] response = generateLoginResponse(data);
+            // 4. Generate response
+            byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
 
+            // 5. Parse IMEI (bytes 4-18 as BCD)
+            String imei = parseBinaryImei(data, 4, 15);
+            message.setImei(imei);
+            message.setMessageType("LOGIN");
+
+            logger.info("Login successful for IMEI: {}", imei);
             return message;
 
             /*
@@ -377,25 +382,30 @@ public class Gt06Handler implements ProtocolHandler {
         return result;
     }
 
-    public byte[] generateLoginResponse(byte[] incoming) {
-        byte[] response = new byte[10];
-        response[0] = 0x78;  // Start byte 1
-        response[1] = 0x78;  // Start byte 2
-        response[2] = 0x05;  // Length
-        response[3] = 0x01;  // Login response
-        response[4] = 0x00;  // Reserved
+    public byte[] generateLoginResponse(short serialNumber) {
+        ByteBuffer buffer = ByteBuffer.allocate(10)
+                .order(ByteOrder.BIG_ENDIAN);
 
-        // Copy serial number from incoming packet
-        response[5] = incoming[incoming.length-4];
-        response[6] = incoming[incoming.length-3];
+        // Packet structure
+        buffer.put((byte)0x78)  // Start byte 1
+                .put((byte)0x78)  // Start byte 2
+                .put((byte)0x05)  // Length (bytes after this until checksum)
+                .put((byte)0x01)  // Login response command
+                .put((byte)0x00)  // Reserved
+                .putShort(serialNumber);  // Serial number (2 bytes)
 
-        // Calculate checksum for response
-        response[7] = calculateDeviceChecksum(response);
+        // Calculate checksum (bytes 2-6)
+        byte checksum = 0;
+        for (int i = 2; i < 7; i++) {
+            checksum ^= buffer.get(i);  // Using XOR to match device
+        }
+        buffer.put(checksum);
 
-        response[8] = 0x0D;  // CR
-        response[9] = 0x0A;  // LF
+        // Termination bytes
+        buffer.put((byte)0x0D)  // CR
+                .put((byte)0x0A); // LF
 
-        return response;
+        return buffer.array();
     }
 
     private byte calculateGt06Checksum(byte[] data, int start, int end) {
@@ -416,9 +426,10 @@ public class Gt06Handler implements ProtocolHandler {
         return (byte)((checksum & 0xFF) ^ 0xA5);  // Your device appears to XOR with 0xA5
     }
 
-    private byte calculateDeviceChecksum(byte[] data) {
-        // Calculate XOR checksum of bytes between start marker and checksum
+    private byte calculateChecksum(byte[] data) {
+        // For GT06 protocol, checksum is XOR of bytes between start markers and checksum
         byte checksum = 0;
+        // Calculate from byte 2 (after 0x78 0x78) to byte length-4 (before checksum)
         for (int i = 2; i < data.length - 4; i++) {
             checksum ^= data[i];
         }
