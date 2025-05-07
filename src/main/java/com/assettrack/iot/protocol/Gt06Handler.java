@@ -263,6 +263,10 @@ public class Gt06Handler implements ProtocolHandler {
             message.setImei(imei);
             message.setMessageType("LOGIN");
 
+            if (imei.length() != 15) {
+                throw new ProtocolException("Invalid IMEI length: " + imei);
+            }
+
             // Extract serial number (last 2 bytes before checksum)
             short serialNumber = (short)((data[16] << 8) | (data[17] & 0xFF));
 
@@ -459,15 +463,19 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public static String parseImei(byte[] data, int offset) {
-        StringBuilder imei = new StringBuilder();
+        StringBuilder imei = new StringBuilder(15);
 
         // First 7 bytes contain 14 digits (2 digits per byte in BCD)
         for (int i = offset; i < offset + 7; i++) {
-            imei.append(String.format("%02X", data[i]));
+            // Extract two digits from each byte
+            int byteVal = data[i] & 0xFF;
+            imei.append(byteVal / 16);  // First digit (high nibble)
+            imei.append(byteVal % 16);  // Second digit (low nibble)
         }
 
-        // 8th byte contains last digit (upper nibble) + 0xF in lower nibble
-        imei.append(String.format("%02X", data[offset + 7]).charAt(0));
+        // 8th byte contains last digit (high nibble) + 0 in low nibble
+        int lastByte = data[offset + 7] & 0xFF;
+        imei.append(lastByte / 16);  // Only take the high nibble
 
         return imei.toString();
     }
