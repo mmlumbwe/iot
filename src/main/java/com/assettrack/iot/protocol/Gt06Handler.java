@@ -312,7 +312,13 @@ public class Gt06Handler implements ProtocolHandler {
             String imei = parseBinaryImei(data, 4, 15);
             logger.info("Processing login for IMEI: {}", imei);
 
+            // Generate response with correct checksum
+            byte[] response = generateLoginResponse(data);
+            parsedData.put("response", response);
 
+            return message;
+
+            /*
             // 4. Validate length
             if (imei.length() != 15) {
                 throw new ProtocolException("Invalid IMEI length: " + imei);
@@ -332,7 +338,7 @@ public class Gt06Handler implements ProtocolHandler {
             logger.info("Response packet: {}", bytesToHex(response));
 
             logger.info("Login successful for IMEI: {}", imei);
-            return message;
+            return message;*/
 
         } catch (Exception e) {
             logger.info("Login processing failed. Packet: {}", bytesToHex(data), e);
@@ -371,22 +377,21 @@ public class Gt06Handler implements ProtocolHandler {
         return result;
     }
 
-    public byte[] generateLoginResponse(short serialNumber) {
+    private byte[] generateLoginResponse(byte[] incoming) {
         byte[] response = new byte[10];
-
-        // Packet structure
         response[0] = 0x78;  // Start byte 1
         response[1] = 0x78;  // Start byte 2
-        response[2] = 0x05;  // Packet length (bytes after this until checksum)
-        response[3] = 0x01;  // Login response command
+        response[2] = 0x05;  // Length
+        response[3] = 0x01;  // Login response
         response[4] = 0x00;  // Reserved
-        response[5] = (byte)(serialNumber >> 8);  // Serial number high byte
-        response[6] = (byte)(serialNumber);       // Serial number low byte
 
-        // Calculate checksum (bytes 2-6 inclusive)
-        response[7] = calculateChecksum(response, 2, 7);
+        // Copy serial number from incoming packet
+        response[5] = incoming[incoming.length-4];
+        response[6] = incoming[incoming.length-3];
 
-        // Termination bytes
+        // Calculate checksum for response
+        response[7] = calculateDeviceChecksum(response);
+
         response[8] = 0x0D;  // CR
         response[9] = 0x0A;  // LF
 
@@ -412,14 +417,12 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte calculateDeviceChecksum(byte[] data) {
-        // Standard GT06 checksum calculation
-        int sum = 0;
+        // Calculate XOR checksum of bytes between start marker and checksum
+        byte checksum = 0;
         for (int i = 2; i < data.length - 4; i++) {
-            sum += data[i] & 0xFF;
+            checksum ^= data[i];
         }
-
-        // Device-specific adjustment (subtract 0x15)
-        return (byte)((sum - 0x15) & 0xFF);
+        return checksum;
     }
 
     private byte calculateChecksum(byte[] data, int start, int end) {
