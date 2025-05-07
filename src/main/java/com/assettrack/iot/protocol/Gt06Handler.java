@@ -304,15 +304,17 @@ public class Gt06Handler implements ProtocolHandler {
             logger.info("Converted IMEI: {}", imei);*/
 
             int length = data[2] & 0xFF;
-            int checksumIndex = 2 + length - 1;
-            if (checksumIndex >= data.length - 4) {
-                throw new ProtocolException("Login failed: Packet too short for checksum calculation");
+            int payloadStart = 2;
+            int payloadEnd = payloadStart + length - 1;  // End of payload including checksum byte
+
+            if (payloadEnd + 2 >= data.length) {
+                throw new ProtocolException("Login failed: Incomplete packet for checksum and tail");
             }
 
-            byte calculatedChecksum = calculateDeviceChecksum(data, 2, checksumIndex);
-            byte expectedChecksum = data[checksumIndex + 1];
+            byte calculatedChecksum = calculateDeviceChecksum(data, payloadStart, payloadEnd - 1); // up to byte before checksum
+            byte expectedChecksum = data[payloadEnd];
 
-            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, 2, checksumIndex + 1)));
+            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, payloadEnd)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
 
             if (calculatedChecksum != expectedChecksum) {
@@ -321,15 +323,18 @@ public class Gt06Handler implements ProtocolHandler {
                         String.format("%02X", calculatedChecksum) + ")");
             }
 
+
             // Extract IMEI
             byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
             String imei = bytesToHex(imeiBytes);
             logger.info("Device IMEI: {}", imei);
 
             // Extract serial number (2 bytes before checksum)
-            byte serialHigh = data[checksumIndex - 1];
-            byte serialLow = data[checksumIndex];
-            short serialNumber = (short) (((serialHigh & 0xFF) << 8) | (serialLow & 0xFF));
+
+
+            int serialNumberStart = payloadEnd - 2;
+            short serialNumber = (short) (((data[serialNumberStart] & 0xFF) << 8) | (data[serialNumberStart + 1] & 0xFF));
+            parsedData.put("serialNumber", serialNumber);
 
             // Prepare login response and update parsedData
             byte[] response = generateLoginResponse(serialNumber);
