@@ -212,7 +212,7 @@ public class ProtocolDetector {
     }
 
     static class Gt06Matcher implements ProtocolMatcher {
-        private static final int MIN_GT06_LENGTH = 5;
+        private static final int MIN_GT06_LENGTH = 12;
         private static final byte START_BYTE_1 = 0x78;
         private static final byte START_BYTE_2 = 0x78;
         private static final byte END_BYTE_1 = 0x0D;
@@ -231,15 +231,16 @@ public class ProtocolDetector {
 
         @Override
         public String getPacketType(byte[] data) throws ProtocolDetectionException {
-            if (!matches(data)) {
+            if (!matches(data) || data.length < 4) {
                 throw new ProtocolDetectionException("Not a GT06 packet");
             }
             switch (data[3] & 0xFF) {
                 case 0x01: return "LOGIN";
-                case 0x12: return "LOCATION";
+                case 0x10:
+                case 0x11:
+                case 0x12: return "GPS";
                 case 0x13: return "HEARTBEAT";
                 case 0x16: return "ALARM";
-                case 0x80: return "CONFIGURATION";
                 default: return "DATA";
             }
         }

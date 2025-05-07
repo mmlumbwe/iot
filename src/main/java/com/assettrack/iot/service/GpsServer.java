@@ -814,7 +814,7 @@ public class GpsServer {
     private DeviceMessage processProtocolMessage(byte[] data) {
         if (data == null || data.length == 0) {
             logger.error("Null or empty data received");
-            return null;
+            return createErrorResponse("INVALID_DATA", "Empty packet");
         }
 
         try {
@@ -831,13 +831,12 @@ public class GpsServer {
             if ("GT06".equals(detection.getProtocol())) {
                 message = gt06Handler.handle(data);
 
-                // Ensure login responses exist
-                if ("LOGIN".equals(detection.getPacketType())){
-                    if (message.getParsedData().get("response") == null) {
-                        message.getParsedData().put("response",
-                                gt06Handler.generateLoginResponse(data));
-                        logger.debug("Added missing GT06 login response");
-                    }
+                // For login packets, ensure we have a response
+                if ("LOGIN".equals(detection.getPacketType()) &&
+                        message.getParsedData().get("response") == null) {
+                    short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
+                    message.getParsedData().put("response",
+                            gt06Handler.generateLoginResponse(serialNumber));
                 }
                 return message;
             }
@@ -870,7 +869,8 @@ public class GpsServer {
 
             // Ensure response is generated for login packets
             if (!message.getParsedData().containsKey("response")) {
-                byte[] response = gt06Handler.generateLoginResponse(data);
+                short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
+                byte[] response = gt06Handler.generateLoginResponse(serialNumber);
                 message.getParsedData().put("response", response);
                 logger.debug("Generated GT06 login response for IMEI: {}", message.getImei());
             }

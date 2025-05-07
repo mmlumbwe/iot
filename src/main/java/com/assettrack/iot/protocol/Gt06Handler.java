@@ -1,5 +1,6 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
@@ -168,32 +169,28 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Invalid protocol header");
         }
 
-        // Check declared length matches actual length
-        int declaredLength = data[2] & 0xFF;
-        if (data.length != declaredLength + 5) { // +5 for header(2), length(1), and checksum(2)
-            throw new ProtocolException("Packet length mismatch");
-        }
-
         // Check termination bytes
         if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
             throw new ProtocolException("Invalid packet termination");
         }
 
-        // Verify checksum
+        // Verify checksum (GT06 uses CRC-16/X25)
         if (!verifyChecksum(data)) {
             throw new ProtocolException("Invalid checksum");
         }
     }
 
     private boolean verifyChecksum(byte[] data) {
-        if (data.length < 4) return false;
+        if (data.length < 6) return false; // Minimum packet with checksum
 
-        int calculatedCrc = 0;
-        for (int i = 2; i < data.length - 4; i++) {
-            calculatedCrc ^= (data[i] & 0xFF);
-        }
+        // Calculate CRC-16/X25 for bytes from index 2 to length-4
+        int calculatedCrc = Checksum.crc16(Checksum.CRC16_X25,
+                ByteBuffer.wrap(data, 2, data.length-6).array());
 
-        int receivedCrc = ((data[data.length-4] & 0xFF) << 8) | (data[data.length-3] & 0xFF);
+        // Get received CRC (last 2 bytes before termination)
+        int receivedCrc = ((data[data.length-4] & 0xFF) << 8) |
+                (data[data.length-3] & 0xFF);
+
         return calculatedCrc == receivedCrc;
     }
 
@@ -264,19 +261,25 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        String imei = parseImei(data);
-        message.setImei(imei);
-        message.setMessageType("LOGIN");
+        try {
+            // Extract IMEI from bytes 4-11
+            String imei = extractImei(data);
+            message.setImei(imei);
+            message.setMessageType("LOGIN");
 
-        // Store the session
-        activeSessions.put(imei, String.valueOf(System.currentTimeMillis()));
+            // Extract serial number (last 2 bytes before checksum)
+            short serialNumber = (short)(((data[data.length-4] & 0xFF) << 8) |
+                    (data[data.length-3] & 0xFF));
 
-        // Generate login response
-        byte[] response = generateLoginResponse(data);
-        parsedData.put("response", response);
+            // Generate proper login response
+            byte[] response = generateLoginResponse(serialNumber);
+            parsedData.put("response", response);
 
-        lastValidImei = imei;
-        return message;
+            logger.info("Processed login for IMEI: {}", imei);
+            return message;
+        } catch (Exception e) {
+            throw new ProtocolException("Login processing failed: " + e.getMessage());
+        }
     }
 
     private byte[] generateHeartbeatResponse(byte[] data) {
@@ -338,30 +341,27 @@ public class Gt06Handler implements ProtocolHandler {
         return sequence == 0x0001; // Only respond to first in sequence
     }
 
-    public byte[] generateLoginResponse(byte[] requestData) {
-        byte[] response = new byte[11];
-        // Header
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        // Length and protocol
-        response[2] = 0x05;
-        response[3] = PROTOCOL_LOGIN;
-        // Serial number (from original packet)
-        response[4] = requestData[requestData.length-4];
-        response[5] = requestData[requestData.length-3];
-        // Success flag
-        response[6] = 0x01;
-        // CRC calculation
-        byte crc = 0;
-        for (int i = 2; i <= 6; i++) {
-            crc ^= response[i];
-        }
-        response[7] = crc;
-        // Terminator
-        response[8] = 0x0D;
-        response[9] = 0x0A;
+    public byte[] generateLoginResponse(short serialNumber) {
+        ByteBuffer buf = ByteBuffer.allocate(11)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte) 0x05) // Length
+                .put(PROTOCOL_LOGIN)
+                .putShort(serialNumber)
+                .put((byte) 0x01); // Success
 
-        return response;
+        // Calculate CRC
+        byte crc = 0;
+        for (int i = 2; i < 8; i++) {
+            crc ^= buf.array()[i];
+        }
+        buf.put(crc);
+
+        // Add termination
+        buf.put((byte) 0x0D).put((byte) 0x0A);
+
+        return buf.array();
     }
 
     private byte[] getFallbackLoginResponse() {
@@ -596,42 +596,27 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private String extractImei(byte[] data) throws ProtocolException {
-        try {
-            // Try standard GT06 IMEI position first (bytes 4-18)
-            if (data.length >= IMEI_START_INDEX + IMEI_LENGTH) {
-                byte[] imeiBytes = Arrays.copyOfRange(data, IMEI_START_INDEX, IMEI_START_INDEX + IMEI_LENGTH);
-                String imei = new String(imeiBytes, StandardCharsets.US_ASCII);
-
-                if (imei.matches("^\\d{15}$")) {
-                    return imei;
-                }
-            }
-
-            // Fallback: Try to find IMEI in the packet by scanning for 15 consecutive digits
-            String packetString = new String(data, StandardCharsets.US_ASCII);
-            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d{15}").matcher(packetString);
-            if (matcher.find()) {
-                return matcher.group();
-            }
-
-            // Last resort: Extract bytes that might represent IMEI (even if not perfect)
-            int start = Math.max(4, data.length - 20); // Look in last 20 bytes
-            int end = Math.min(start + 15, data.length);
-            byte[] possibleImei = Arrays.copyOfRange(data, start, end);
-            String possibleImeiStr = new String(possibleImei, StandardCharsets.US_ASCII)
-                    .replaceAll("[^0-9]", ""); // Remove non-digit characters
-
-            if (possibleImeiStr.length() >= 8) { // Accept partial IMEI if necessary
-                logger.warn("Using partial IMEI: {}", possibleImeiStr);
-                return possibleImeiStr;
-            }
-
-            throw new ProtocolException("No valid IMEI found in packet");
-        } catch (Exception e) {
-            logger.error("IMEI extraction error from packet: {}", bytesToHex(data));
-            throw new ProtocolException("IMEI extraction failed: " + e.getMessage());
+        if (data.length < 12) {
+            throw new ProtocolException("Packet too short for IMEI extraction");
         }
+
+        // GT06 IMEI is encoded in bytes 4-11 (8 bytes)
+        byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
+
+        // Convert to 15-digit IMEI
+        StringBuilder imei = new StringBuilder();
+        for (int i = 0; i < 8; i++) {
+            imei.append(String.format("%02X", imeiBytes[i]));
+        }
+        imei.setLength(15); // Trim to 15 digits
+
+        if (!imei.toString().matches("^\\d{15}$")) {
+            throw new ProtocolException("Invalid IMEI format");
+        }
+
+        return imei.toString();
     }
+
 
     /**
      * Converts byte array to hex string for debugging
