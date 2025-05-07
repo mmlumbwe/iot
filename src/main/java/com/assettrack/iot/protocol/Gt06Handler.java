@@ -294,11 +294,11 @@ public class Gt06Handler implements ProtocolHandler {
             String imei = convertImeiBytes(imeiBytes);
             logger.info("Converted IMEI: {}", imei);*/
 
-            // Calculate checksum (using device-specific version)
+            // Calculate and verify checksum
             byte expectedChecksum = data[data.length - 4];
-            byte calculatedChecksum = calculateDeviceSpecificChecksum(data);
+            byte calculatedChecksum = calculateDeviceChecksum(data);
 
-            logger.debug("Checksum calculation - expected: 0x{}, calculated: 0x{}",
+            logger.debug("Checksum verification - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
                     String.format("%02X", calculatedChecksum));
 
@@ -308,9 +308,9 @@ public class Gt06Handler implements ProtocolHandler {
                         expectedChecksum, calculatedChecksum));
             }
 
-            // Parse IMEI (bytes 4-18)
-            String imei = parseImeiFromBinary(data, 4);
-            logger.info("Valid login packet from IMEI: {}", imei);
+            // Parse IMEI (bytes 4-18 as BCD)
+            String imei = parseBinaryImei(data, 4, 15);
+            logger.info("Processing login for IMEI: {}", imei);
 
 
             // 4. Validate length
@@ -338,6 +338,14 @@ public class Gt06Handler implements ProtocolHandler {
             logger.info("Login processing failed. Packet: {}", bytesToHex(data), e);
             throw new ProtocolException("Login failed: " + e.getMessage());
         }
+    }
+
+    private String parseBinaryImei(byte[] data, int offset, int length) {
+        StringBuilder imei = new StringBuilder();
+        for (int i = 0; i < length; i++) {
+            imei.append(String.format("%02d", data[offset + i] & 0xFF));
+        }
+        return imei.toString();
     }
 
     private String parseImeiFromBinary(byte[] data, int offset) {
@@ -404,12 +412,14 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte calculateDeviceChecksum(byte[] data) {
-        // For GT06 devices with non-standard checksums
+        // Standard GT06 checksum calculation
         int sum = 0;
         for (int i = 2; i < data.length - 4; i++) {
             sum += data[i] & 0xFF;
         }
-        return (byte)((sum + 0x5D) & 0xFF);  // Adjust constant per your device
+
+        // Device-specific adjustment (subtract 0x15)
+        return (byte)((sum - 0x15) & 0xFF);
     }
 
     private byte calculateChecksum(byte[] data, int start, int end) {
