@@ -377,7 +377,7 @@ public class Gt06Handler implements ProtocolHandler {
         return result;
     }
 
-    private byte[] generateLoginResponse(byte[] incoming) {
+    public byte[] generateLoginResponse(byte[] incoming) {
         byte[] response = new byte[10];
         response[0] = 0x78;  // Start byte 1
         response[1] = 0x78;  // Start byte 2
