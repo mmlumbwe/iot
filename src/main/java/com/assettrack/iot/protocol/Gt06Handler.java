@@ -256,16 +256,18 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte calculateDeviceChecksum(byte[] data) {
+        int length = data[2] & 0xFF; // length field
         int checksum = 0;
 
-        // Correct range: from byte 2 to byte length-5 (inclusive)
-        for (int i = 2; i < data.length - 4; i++) {
+        // Include 'length' number of bytes starting from data[2]
+        for (int i = 2; i < 2 + length; i++) {
             checksum = (checksum + (data[i] & 0xFF)) & 0xFF;
-            checksum = ((checksum << 1) | (checksum >>> 7)) & 0xFF;  // Rotate left
+            checksum = ((checksum << 1) | (checksum >>> 7)) & 0xFF;  // Rotate left 1 bit
         }
 
         return (byte) checksum;
     }
+
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
@@ -306,12 +308,18 @@ public class Gt06Handler implements ProtocolHandler {
             String imei = convertImeiBytes(imeiBytes);
             logger.info("Converted IMEI: {}", imei);*/
 
-            // Calculate and verify checksum
-            byte expectedChecksum = data[data.length - 4];
+            // Extract length byte to determine checksum range
+            int payloadLength = data[2] & 0xFF;
+            int checksumIndex = 2 + payloadLength;
+            if (checksumIndex >= data.length - 2) {
+                throw new ProtocolException("Malformed packet: checksum index out of range");
+            }
+
+            // Extract expected and calculated checksums
+            byte expectedChecksum = data[checksumIndex];
             byte calculatedChecksum = calculateDeviceChecksum(data);
 
-            logger.info("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
+            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, 2, checksumIndex)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
                     String.format("%02X", calculatedChecksum));
@@ -322,16 +330,23 @@ public class Gt06Handler implements ProtocolHandler {
                         expectedChecksum, calculatedChecksum));
             }
 
-            // IMEI is 8 BCD bytes at offset 4
+            // Parse IMEI from bytes 4 to 11 (8 bytes of BCD = 16 digits, but first digit might be '0')
             String imei = parseBinaryImei(data, 4, 8);
             logger.info("Valid login from IMEI: {}", imei);
 
-            short serialNumber = (short)((data[16] << 8) | (data[17] & 0xFF));
+            // Extract serial number (usually the last two data bytes before checksum)
+            int serialNumberIndex = checksumIndex - 2;
+            short serialNumber = (short) (((data[serialNumberIndex] & 0xFF) << 8) |
+                    (data[serialNumberIndex + 1] & 0xFF));
+
+            // Prepare login response and update parsedData
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
 
+            // Set message details
             message.setImei(imei);
             message.setMessageType("LOGIN");
+
             return message;
 
             /*
@@ -362,13 +377,40 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    private String parseBinaryImei(byte[] data, int offset, int length) {
-        StringBuilder imei = new StringBuilder();
-        for (int i = 0; i < length; i++) {
-            imei.append(String.format("%02d", data[offset + i] & 0xFF));
+    /**
+     * Parses a BCD-encoded IMEI from a byte array.
+     *
+     * @param data  The byte array containing the BCD-encoded IMEI.
+     * @param offset The start index of the IMEI in the data array.
+     * @param length The number of bytes representing the IMEI (typically 8).
+     * @return The decoded IMEI as a string.
+     * @throws IllegalArgumentException if the input is invalid.
+     */
+    public static String parseBinaryImei(byte[] data, int offset, int length) {
+        if (data == null || data.length < offset + length) {
+            throw new IllegalArgumentException("Invalid data or range for IMEI parsing");
         }
-        return imei.toString();
+
+        StringBuilder imeiBuilder = new StringBuilder(length * 2);
+
+        for (int i = 0; i < length; i++) {
+            int b = data[offset + i] & 0xFF;
+            int highNibble = (b >> 4) & 0x0F;
+            int lowNibble = b & 0x0F;
+
+            imeiBuilder.append(highNibble);
+            imeiBuilder.append(lowNibble);
+        }
+
+        // Remove leading zero if present (IMEI is usually 15 digits)
+        String imei = imeiBuilder.toString();
+        if (imei.startsWith("0") && imei.length() == 16) {
+            imei = imei.substring(1);
+        }
+
+        return imei;
     }
+
 
     private String parseImeiFromBinary(byte[] data, int offset) {
         StringBuilder imei = new StringBuilder();
