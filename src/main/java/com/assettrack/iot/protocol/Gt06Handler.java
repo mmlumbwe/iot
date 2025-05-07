@@ -255,17 +255,12 @@ public class Gt06Handler implements ProtocolHandler {
         );
     }
 
-    private byte calculateDeviceChecksum(byte[] data) {
-        int length = data[2] & 0xFF; // length field
-        int checksum = 0;
-
-        // Include 'length' number of bytes starting from data[2]
-        for (int i = 2; i < 2 + length; i++) {
-            checksum = (checksum + (data[i] & 0xFF)) & 0xFF;
-            checksum = ((checksum << 1) | (checksum >>> 7)) & 0xFF;  // Rotate left 1 bit
+    private byte calculateDeviceChecksum(byte[] data, int start, int endInclusive) {
+        byte checksum = 0x00;
+        for (int i = start; i <= endInclusive; i++) {
+            checksum ^= data[i];
         }
-
-        return (byte) checksum;
+        return checksum;
     }
 
 
@@ -308,36 +303,33 @@ public class Gt06Handler implements ProtocolHandler {
             String imei = convertImeiBytes(imeiBytes);
             logger.info("Converted IMEI: {}", imei);*/
 
-            // Extract length byte to determine checksum range
-            int payloadLength = data[2] & 0xFF;
-            int checksumIndex = 2 + payloadLength;
-            if (checksumIndex >= data.length - 2) {
-                throw new ProtocolException("Malformed packet: checksum index out of range");
+            int length = data[2] & 0xFF;
+            int checksumIndex = 2 + length - 1;
+            if (checksumIndex >= data.length - 4) {
+                throw new ProtocolException("Login failed: Packet too short for checksum calculation");
             }
 
-            // Extract expected and calculated checksums
-            byte expectedChecksum = data[checksumIndex];
-            byte calculatedChecksum = calculateDeviceChecksum(data);
+            byte calculatedChecksum = calculateDeviceChecksum(data, 2, checksumIndex);
+            byte expectedChecksum = data[checksumIndex + 1];
 
-            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, 2, checksumIndex)));
-            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
-                    String.format("%02X", expectedChecksum),
-                    String.format("%02X", calculatedChecksum));
+            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, 2, checksumIndex + 1)));
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
 
-            if (expectedChecksum != calculatedChecksum) {
-                throw new ProtocolException(String.format(
-                        "Checksum mismatch (expected 0x%02X, got 0x%02X)",
-                        expectedChecksum, calculatedChecksum));
+            if (calculatedChecksum != expectedChecksum) {
+                throw new ProtocolException("Login failed: Checksum mismatch (expected 0x" +
+                        String.format("%02X", expectedChecksum) + ", got 0x" +
+                        String.format("%02X", calculatedChecksum) + ")");
             }
 
-            // Parse IMEI from bytes 4 to 11 (8 bytes of BCD = 16 digits, but first digit might be '0')
-            String imei = parseBinaryImei(data, 4, 8);
-            logger.info("Valid login from IMEI: {}", imei);
+            // Extract IMEI
+            byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
+            String imei = bytesToHex(imeiBytes);
+            logger.info("Device IMEI: {}", imei);
 
-            // Extract serial number (usually the last two data bytes before checksum)
-            int serialNumberIndex = checksumIndex - 2;
-            short serialNumber = (short) (((data[serialNumberIndex] & 0xFF) << 8) |
-                    (data[serialNumberIndex + 1] & 0xFF));
+            // Extract serial number (2 bytes before checksum)
+            byte serialHigh = data[checksumIndex - 1];
+            byte serialLow = data[checksumIndex];
+            short serialNumber = (short) (((serialHigh & 0xFF) << 8) | (serialLow & 0xFF));
 
             // Prepare login response and update parsedData
             byte[] response = generateLoginResponse(serialNumber);
