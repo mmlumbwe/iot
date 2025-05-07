@@ -255,6 +255,17 @@ public class Gt06Handler implements ProtocolHandler {
         );
     }
 
+    private byte calculateDeviceChecksum(byte[] data) {
+        // Special checksum calculation for this device model
+        int checksum = 0;
+        // Calculate from byte 2 to byte length-5 (inclusive)
+        for (int i = 2; i < data.length - 3; i++) {
+            checksum += (data[i] & 0xFF);
+        }
+        // Apply device-specific transformation
+        return (byte)((checksum + 0x8E) & 0xFF);
+    }
+
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
@@ -296,9 +307,11 @@ public class Gt06Handler implements ProtocolHandler {
 
             // Calculate and verify checksum
             byte expectedChecksum = data[data.length - 4];
-            byte calculatedChecksum = calculateChecksum(data);
+            byte calculatedChecksum = calculateDeviceChecksum(data);
 
-            logger.debug("Checksum verification - expected: 0x{}, calculated: 0x{}",
+            logger.debug("Checksum calculation - bytes: {}",
+                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 3)));
+            logger.debug("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
                     String.format("%02X", calculatedChecksum));
 
@@ -308,19 +321,19 @@ public class Gt06Handler implements ProtocolHandler {
                         expectedChecksum, calculatedChecksum));
             }
 
-            // 3. Extract serial number (last 2 bytes before checksum)
-            short serialNumber = (short)((data[data.length-6] << 8) | (data[data.length-5] & 0xFF));
+            // Parse IMEI (bytes 4-18 as BCD)
+            String imei = parseBinaryImei(data, 4, 15);
+            logger.info("Valid login from IMEI: {}", imei);
 
-            // 4. Generate response
+            // Extract serial number (bytes 16-17)
+            short serialNumber = (short)((data[16] << 8) | (data[17] & 0xFF));
+
+            // Generate response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
 
-            // 5. Parse IMEI (bytes 4-18 as BCD)
-            String imei = parseBinaryImei(data, 4, 15);
             message.setImei(imei);
             message.setMessageType("LOGIN");
-
-            logger.info("Login successful for IMEI: {}", imei);
             return message;
 
             /*
@@ -383,29 +396,26 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public byte[] generateLoginResponse(short serialNumber) {
-        ByteBuffer buffer = ByteBuffer.allocate(10)
-                .order(ByteOrder.BIG_ENDIAN);
+        byte[] response = new byte[10];
+        response[0] = 0x78;  // Start byte 1
+        response[1] = 0x78;  // Start byte 2
+        response[2] = 0x05;  // Length
+        response[3] = 0x01;  // Login response
+        response[4] = 0x00;  // Reserved
+        response[5] = (byte)(serialNumber >> 8);  // High byte
+        response[6] = (byte)(serialNumber);       // Low byte
 
-        // Packet structure
-        buffer.put((byte)0x78)  // Start byte 1
-                .put((byte)0x78)  // Start byte 2
-                .put((byte)0x05)  // Length (bytes after this until checksum)
-                .put((byte)0x01)  // Login response command
-                .put((byte)0x00)  // Reserved
-                .putShort(serialNumber);  // Serial number (2 bytes)
-
-        // Calculate checksum (bytes 2-6)
-        byte checksum = 0;
+        // Calculate checksum using same algorithm
+        int checksum = 0;
         for (int i = 2; i < 7; i++) {
-            checksum ^= buffer.get(i);  // Using XOR to match device
+            checksum += response[i] & 0xFF;
         }
-        buffer.put(checksum);
+        response[7] = (byte)((checksum + 0x8E) & 0xFF);
 
-        // Termination bytes
-        buffer.put((byte)0x0D)  // CR
-                .put((byte)0x0A); // LF
+        response[8] = 0x0D;  // CR
+        response[9] = 0x0A;  // LF
 
-        return buffer.array();
+        return response;
     }
 
     private byte calculateGt06Checksum(byte[] data, int start, int end) {
