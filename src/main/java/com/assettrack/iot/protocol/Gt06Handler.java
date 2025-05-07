@@ -263,15 +263,23 @@ public class Gt06Handler implements ProtocolHandler {
 
             // 2. Extract IMEI bytes (positions 4-18 inclusive)
 
-            byte expectedChecksum = data[data.length-4];
-            byte calculatedChecksum = calculateChecksum(data, 2, data.length-4);
-            logger.info("Checksum verification - expected: 0x{}, calculated: 0x{}",
+            int checksumStart = 2;  // After 0x78 0x78
+            int checksumEnd = data.length - 4;  // Before checksum and CR/LF
+            byte expectedChecksum = data[data.length - 4];
+            byte calculatedChecksum = calculateChecksum(data, checksumStart, checksumEnd);
+
+            logger.info("Checksum calculation range: bytes {} to {} (hex: {})",
+                    checksumStart, checksumEnd-1,
+                    bytesToHex(Arrays.copyOfRange(data, checksumStart, checksumEnd)));
+
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
                     String.format("%02X", calculatedChecksum));
 
             if (expectedChecksum != calculatedChecksum) {
-                logger.error("Checksum mismatch! Packet may be corrupted");
-                throw new ProtocolException("Invalid checksum");
+                throw new ProtocolException(String.format(
+                        "Checksum mismatch (expected 0x%02X, got 0x%02X)",
+                        expectedChecksum, calculatedChecksum));
             }
 
             byte[] imeiBytes = Arrays.copyOfRange(data, 4, 19);
@@ -346,11 +354,12 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte calculateChecksum(byte[] data, int start, int end) {
-        int sum = 0;
+        int checksum = 0;
         for (int i = start; i < end; i++) {
-            sum += data[i] & 0xFF;  // Treat byte as unsigned
+            checksum += data[i] & 0xFF;  // Convert byte to unsigned value
         }
-        return (byte)(sum & 0xFF);  // Return only LSB
+        checksum = checksum & 0xFF;     // Keep only the lowest byte
+        return (byte)checksum;
     }
 
     private byte[] generateHeartbeatResponse(byte[] data) {
