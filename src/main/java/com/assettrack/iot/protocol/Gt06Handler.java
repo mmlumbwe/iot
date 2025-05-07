@@ -257,12 +257,14 @@ public class Gt06Handler implements ProtocolHandler {
 
     private byte calculateDeviceChecksum(byte[] data) {
         int checksum = 0;
-        // Calculate from byte 2 to byte length-5 (inclusive)
-        for (int i = 2; i < data.length - 3; i++) {
-            checksum = (checksum + (data[i] & 0xFF)) & 0xFF;  // ADD
-            checksum = (checksum ^ (data[i] & 0xFF)) & 0xFF;  // XOR
+
+        // Correct range: from byte 2 to byte length-5 (inclusive)
+        for (int i = 2; i < data.length - 4; i++) {
+            checksum = (checksum + (data[i] & 0xFF)) & 0xFF;
+            checksum = ((checksum << 1) | (checksum >>> 7)) & 0xFF;  // Rotate left
         }
-        return (byte)checksum;
+
+        return (byte) checksum;
     }
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
@@ -309,7 +311,7 @@ public class Gt06Handler implements ProtocolHandler {
             byte calculatedChecksum = calculateDeviceChecksum(data);
 
             logger.info("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 3)));
+                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
                     String.format("%02X", calculatedChecksum));
@@ -320,14 +322,11 @@ public class Gt06Handler implements ProtocolHandler {
                         expectedChecksum, calculatedChecksum));
             }
 
-            // Parse IMEI (bytes 4-18 as BCD)
-            String imei = parseBinaryImei(data, 4, 15);
+            // IMEI is 8 BCD bytes at offset 4
+            String imei = parseBinaryImei(data, 4, 8);
             logger.info("Valid login from IMEI: {}", imei);
 
-            // Extract serial number (bytes 16-17)
             short serialNumber = (short)((data[16] << 8) | (data[17] & 0xFF));
-
-            // Generate response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
 
