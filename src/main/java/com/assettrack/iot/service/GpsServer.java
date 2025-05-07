@@ -94,6 +94,21 @@ public class GpsServer {
     private final Map<String, DeviceConnection> activeConnections = new ConcurrentHashMap<>();
     private final Set<String> blacklistedIps = ConcurrentHashMap.newKeySet();
 
+    private final Map<String, ConnectionInfo> connectionInfoMap = new ConcurrentHashMap<>();
+    private static final long CONNECTION_TIMEOUT = 300000; // 5 minutes
+
+    private static class ConnectionInfo {
+        long lastActivity;
+        int connectionCount;
+        SocketAddress remoteAddress;
+
+        ConnectionInfo(SocketAddress remoteAddress) {
+            this.remoteAddress = remoteAddress;
+            this.lastActivity = System.currentTimeMillis();
+            this.connectionCount = 1;
+        }
+    }
+
     class DeviceConnection {
         final String imei;
         final String ip;
@@ -116,13 +131,6 @@ public class GpsServer {
             return connectionCount > SUSPICIOUS_CONNECTION_THRESHOLD &&
                     connectionInterval < SUSPICIOUS_TIME_WINDOW;
         }
-    }
-
-    @Scheduled(fixedRate = 300000) // 5 minutes
-    public void cleanupStaleConnections() {
-        long now = System.currentTimeMillis();
-        activeConnections.entrySet().removeIf(entry ->
-                now - entry.getValue().lastSeen > 3600000); // 1 hour timeout
     }
 
     @Scheduled(fixedRate = 3600000) // 1 hour
@@ -304,10 +312,32 @@ public class GpsServer {
         }
     }
 
+    // Add this scheduled task to clean up stale connections
+    @Scheduled(fixedRate = 60000) // Run every minute
+    public void cleanupStaleConnections() {
+        long now = System.currentTimeMillis();
+        connectionInfoMap.entrySet().removeIf(entry ->
+                (now - entry.getValue().lastActivity) > CONNECTION_TIMEOUT);
+
+        logger.debug("Connection cleanup completed. Current active connections: {}",
+                connectionInfoMap.size());
+    }
+
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
         DeviceSession session = null;
+
+        ConnectionInfo connectionInfo = connectionInfoMap.compute(clientAddress, (k, v) ->
+                v == null ? new ConnectionInfo(clientSocket.getRemoteSocketAddress()) :
+                        new ConnectionInfo(v.remoteAddress) {{
+                            connectionCount = v.connectionCount + 1;
+                        }});
+
+        if (connectionInfo.connectionCount > 10) {
+            logger.warn("Multiple reconnections from {}: {}",
+                    clientAddress, connectionInfo.connectionCount);
+        }
 
         try (InputStream input = clientSocket.getInputStream();
              OutputStream output = clientSocket.getOutputStream()) {
@@ -321,25 +351,34 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Create session on first valid message
+                    // Enhanced message type handling
+                    switch (message.getMessageType()) {
+                        case "LOGIN":
+                            handleLoginMessage(message, clientSocket, output);
+                            break;
+                        case "GPS":
+                        case "LOCATION":
+                            handleGpsMessage(message, clientSocket, output);
+                            break;
+                        case "HEARTBEAT":
+                            handleHeartbeatMessage(message, clientSocket, output);
+                            break;
+                        case "ALARM":
+                            handleAlarmMessage(message, clientSocket, output);
+                            break;
+                        default:
+                            logger.warn("Unknown message type: {}", message.getMessageType());
+                            break;
+                    }
+
+                    // Update session activity
                     if (session == null && message.getImei() != null) {
                         session = sessionManager.getOrCreateSession(
                                 message.getImei(),
                                 message.getProtocol(),
                                 clientSocket.getRemoteSocketAddress());
-                        addressToSessionMap.put(clientSocket.getRemoteSocketAddress(), session);
                     }
 
-                    // Send response if available
-                    byte[] response = (byte[]) message.getParsedData().get("response");
-                    if (response != null) {
-                        output.write(response);
-                        output.flush();
-                        logger.debug("Sent response to {}:{} ({} bytes)",
-                                clientAddress, clientPort, response.length);
-                    }
-
-                    // Update session activity
                     if (session != null) {
                         session.updateLastActive();
                     }
@@ -355,14 +394,70 @@ public class GpsServer {
         }
     }
 
-    private void cleanupConnection(Socket socket, DeviceSession session) {
-        if (socket != null && !socket.isClosed()) {
+    private void handleLoginMessage(DeviceMessage message, Socket socket, OutputStream output)
+            throws IOException {
+        byte[] response = (byte[]) message.getParsedData().get("response");
+        if (response != null) {
+            output.write(response);
+            output.flush();
+            logger.info("Sent login response to {}", message.getImei());
+        }
+    }
+
+    private void handleGpsMessage(DeviceMessage message, Socket socket, OutputStream output)
+            throws IOException {
+        // Send acknowledgment
+        byte[] response = (byte[]) message.getParsedData().get("response");
+        if (response != null) {
+            output.write(response);
+            output.flush();
+        }
+
+        // Process position data
+        Position position = (Position) message.getParsedData().get("position");
+        if (position != null) {
+            positionService.processAndSavePosition(position);
+            logger.info("Processed GPS data for device {}", message.getImei());
+        }
+    }
+
+    private void handleHeartbeatMessage(DeviceMessage message, Socket socket, OutputStream output)
+            throws IOException {
+        byte[] response = (byte[]) message.getParsedData().get("response");
+        if (response != null) {
+            output.write(response);
+            output.flush();
+            logger.debug("Sent heartbeat response to {}", message.getImei());
+        }
+    }
+
+    private void handleAlarmMessage(DeviceMessage message, Socket socket, OutputStream output)
+            throws IOException {
+        byte[] response = (byte[]) message.getParsedData().get("response");
+        if (response != null) {
+            output.write(response);
+            output.flush();
+        }
+
+        Position position = (Position) message.getParsedData().get("position");
+        if (position != null) {
+            positionService.processAndSavePosition(position);
+            logger.warn("Processed ALARM for device {}: {}",
+                    message.getImei(), position.getAlarmType());
+        }
+    }
+
+    private void cleanupConnection(Socket clientSocket, DeviceSession session) {
+        if (clientSocket != null && !clientSocket.isClosed()) {
             try {
-                socket.close();
+                String clientAddress = clientSocket.getInetAddress().getHostAddress();
+                connectionInfoMap.remove(clientAddress);
+
+                clientSocket.close();
                 if (session != null) {
                     sessionManager.closeSession(session.getSessionId());
                 }
-                logger.info("Closed connection for {}", socket.getRemoteSocketAddress());
+                logger.info("Closed connection for {}", clientSocket.getRemoteSocketAddress());
             } catch (IOException e) {
                 logger.warn("Error closing socket", e);
             }

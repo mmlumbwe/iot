@@ -95,7 +95,7 @@ public class PositionService {
             position.setDevice(device);
 
             // 3. Update device last known position
-            updateDevicePosition(position);
+            updateDevicePosition(device, position);
 
             // 4. Save position history
             savePositionHistory(position);
@@ -109,7 +109,7 @@ public class PositionService {
         }
     }
 
-
+/*
     @Transactional
     public Position processAndSavePosition(Position position) {
         try {
@@ -139,14 +139,98 @@ public class PositionService {
             throw e;
         }
     }
+    @Transactional
+    protected void updateDevicePosition(Position position) {
+        try {
+            Device device = position.getDevice();
+            logger.debug("Updating last position for device {}", device.getImei());
 
-    private Device createNewDevice(String imei) {
-        logger.info("Creating new device with IMEI: {}", imei);
-        Device device = new Device();
-        device.setImei(imei);
-        device.setProtocolType("GT06");
-        //device.setCreatedAt(LocalDateTime.now());
-        return deviceRepository.saveAndFlush(device);
+            device.setLastPositionTime(position.getTimestamp());
+            device.setLastLatitude(position.getLatitude());
+            device.setLastLongitude(position.getLongitude());
+            device.setLastSpeed(position.getSpeed());
+            device.setLastUpdate(LocalDateTime.now());
+
+            deviceRepository.saveAndFlush(device);
+            logger.debug("Successfully updated device {} position", device.getImei());
+        } catch (Exception e) {
+            logger.error("Failed to update device position: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
+    private Position createPositionRecord(Device device, Position position) {
+        Position newPosition = new Position();
+        newPosition.setDevice(device);
+        newPosition.setTimestamp(position.getTimestamp());
+        newPosition.setLatitude(position.getLatitude());
+        newPosition.setLongitude(position.getLongitude());
+        newPosition.setSpeed(position.getSpeed());
+        newPosition.setCourse(position.getCourse());
+        newPosition.setValid(position.isValid());
+        // Copy other relevant fields
+        return newPosition;
+    }
+    private boolean isValidPosition(Position position) {
+        if (position == null || position.getDevice() == null) {
+            logger.warn("Position or device is null");
+            return false;
+        }
+
+        if (position.getDevice().getImei() == null) {
+            logger.warn("Device IMEI is null");
+            return false;
+        }
+
+        if (position.getTimestamp() == null) {
+            logger.warn("Position timestamp is null");
+            return false;
+        }
+
+        if (position.getLatitude() == null || position.getLongitude() == null) {
+            logger.warn("Invalid coordinates");
+            return false;
+        }
+
+        return true;
+    }
+*/
+
+
+
+    @Transactional
+    public Position processAndSavePosition(Position position) {
+        try {
+            // 1. Validate position
+            if (!isValidPosition(position)) {
+                throw new IllegalArgumentException("Invalid position data");
+            }
+
+            // 2. Get or create device
+            Device device = deviceRepository.findByImei(position.getDevice().getImei())
+                    .orElseGet(() -> {
+                        logger.info("Creating new device with IMEI: {}", position.getDevice().getImei());
+                        Device newDevice = new Device();
+                        newDevice.setImei(position.getDevice().getImei());
+                        newDevice.setProtocolType(position.getDevice().getProtocolType());
+                        return deviceRepository.save(newDevice);
+                    });
+
+            // 3. Update device last known position
+            updateDevicePosition(device, position);
+
+            // 4. Create and save position record
+            Position newPosition = createPositionRecord(device, position);
+            Position savedPosition = positionRepository.saveAndFlush(newPosition);
+
+            logger.info("Persisted position ID {} for device {}",
+                    savedPosition.getId(), device.getImei());
+
+            return savedPosition;
+        } catch (Exception e) {
+            logger.error("Position persistence failed for device {}: {}",
+                    position.getDevice().getImei(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     private void updateDevicePosition(Device device, Position position) {
@@ -154,9 +238,16 @@ public class PositionService {
         device.setLastLatitude(position.getLatitude());
         device.setLastLongitude(position.getLongitude());
         device.setLastSpeed(position.getSpeed());
+        //device.setLastCourse(position.getCourse());
         device.setLastUpdate(LocalDateTime.now());
+
+        // Update alarm status if present
+        if (position.getAlarmType() != null) {
+            //device.setLastAlarm(position.getAlarmType());
+            //device.setLastAlarmTime(position.getTimestamp());
+        }
+
         deviceRepository.saveAndFlush(device);
-        logger.debug("Updated device {} position", device.getImei());
     }
 
     private Position createPositionRecord(Device device, Position position) {
@@ -168,7 +259,11 @@ public class PositionService {
         newPosition.setSpeed(position.getSpeed());
         newPosition.setCourse(position.getCourse());
         newPosition.setValid(position.isValid());
-        // Copy other relevant fields
+        newPosition.setSatellites(position.getSatellites());
+        newPosition.setBatteryLevel(position.getBatteryLevel());
+        newPosition.setIgnition(position.getIgnition());
+        newPosition.setAlarmType(position.getAlarmType());
+        newPosition.setAttributes(position.getAttributes());
         return newPosition;
     }
 
@@ -196,25 +291,15 @@ public class PositionService {
         return true;
     }
 
-    @Transactional
-    protected void updateDevicePosition(Position position) {
-        try {
-            Device device = position.getDevice();
-            logger.debug("Updating last position for device {}", device.getImei());
-
-            device.setLastPositionTime(position.getTimestamp());
-            device.setLastLatitude(position.getLatitude());
-            device.setLastLongitude(position.getLongitude());
-            device.setLastSpeed(position.getSpeed());
-            device.setLastUpdate(LocalDateTime.now());
-
-            deviceRepository.saveAndFlush(device);
-            logger.debug("Successfully updated device {} position", device.getImei());
-        } catch (Exception e) {
-            logger.error("Failed to update device position: {}", e.getMessage(), e);
-            throw e;
-        }
+    private Device createNewDevice(String imei) {
+        logger.info("Creating new device with IMEI: {}", imei);
+        Device device = new Device();
+        device.setImei(imei);
+        device.setProtocolType("GT06");
+        //device.setCreatedAt(LocalDateTime.now());
+        return deviceRepository.saveAndFlush(device);
     }
+
 
     @Transactional
     protected void savePositionHistory(Position position) {
@@ -244,7 +329,6 @@ public class PositionService {
             throw e;
         }
     }
-
 
     public List<Position> getPositionsByDeviceImei(String imei) {
         return positionRepository.findByDeviceImeiOrderByTimestampDesc(imei);

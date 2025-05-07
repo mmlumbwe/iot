@@ -646,19 +646,45 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleGps(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        if (data.length < 35) { // Minimum GPS packet length
+        if (data.length < 35) {
             throw new ProtocolException("GPS packet too short");
         }
 
         Position position = parseGpsData(data);
         parsedData.put("position", position);
 
-        // Generate proper response
-        parsedData.put("response", generateGpsResponse(data));
+        // Extract additional info
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        buffer.position(20); // Position of additional info
 
+        // Mileage (if available)
+        if (buffer.remaining() >= 4) {
+            //position.setMileage(buffer.getInt());
+        }
+
+        // Battery level (if available)
+        if (buffer.remaining() >= 1) {
+            //position.setBatteryLevel(buffer.get() & 0xFF);
+        }
+
+        parsedData.put("response", generateGpsResponse(data));
         message.setImei(lastValidImei);
         message.setMessageType("GPS");
         return message;
+    }
+
+    // Add this new method for cell tower information
+    private void parseCellTowerInfo(ByteBuffer buffer, Position position) {
+        if (buffer.remaining() >= 7) {
+            //Network network = new Network();
+            int mcc = buffer.getShort() & 0xFFFF;
+            int mnc = buffer.get() & 0xFF;
+            int lac = buffer.getShort() & 0xFFFF;
+            int cellId = buffer.getShort() & 0xFFFF;
+
+            //network.addCellTower(CellTower.from(mcc, mnc, lac, cellId));
+            //position.setNetwork(network);
+        }
     }
     private byte[] generateGpsResponse(byte[] requestData) {
         return ByteBuffer.allocate(11)
