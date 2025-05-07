@@ -17,12 +17,34 @@ public class DeviceSession {
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final String sessionId;
     private volatile short lastSequenceNumber = -1;
+    private volatile boolean active = true;
+
+    private String validateImei(String imei) {
+        if (imei == null || imei.isBlank()) {
+            throw new IllegalArgumentException("IMEI cannot be null or blank");
+        }
+
+        // Remove any leading/trailing whitespace
+        imei = imei.trim();
+
+        // Remove leading zeros if present
+        while (imei.startsWith("0") && imei.length() > 1) {
+            imei = imei.substring(1);
+        }
+
+        // Validate IMEI length (should be 15 digits)
+        if (imei.length() != 15 || !imei.matches("\\d+")) {
+            throw new IllegalArgumentException("Invalid IMEI format. Expected 15 digits, got: " + imei);
+        }
+
+        return imei;
+    }
 
     public DeviceSession(String imei, String protocol, SocketAddress remoteAddress) {
         if (imei == null || imei.isBlank()) {
             throw new IllegalArgumentException("IMEI cannot be null or blank");
         }
-        this.imei = imei;
+        this.imei = validateImei(imei);  // Use validated IMEI
         this.protocol = protocol;
         this.remoteAddress = remoteAddress;
         this.creationTime = Instant.now();
@@ -37,7 +59,7 @@ public class DeviceSession {
         if (sessionId == null || sessionId.isBlank()) {
             throw new IllegalArgumentException("Session ID cannot be null or blank");
         }
-        this.imei = imei;
+        this.imei = validateImei(imei);  // Use validated IMEI
         this.protocol = protocol;
         this.remoteAddress = remoteAddress;
         this.creationTime = Instant.now();
@@ -47,6 +69,19 @@ public class DeviceSession {
 
     private String generateSessionId() {
         return imei + "-" + System.currentTimeMillis() + "-" + Thread.currentThread().getId();
+    }
+
+    public synchronized boolean isActive() {
+        return active;
+    }
+
+    public synchronized void activate() {
+        this.active = true;
+        updateLastActive();
+    }
+
+    public synchronized void deactivate() {
+        this.active = false;
     }
 
     public synchronized void updateLastActive() {

@@ -25,19 +25,22 @@ public class SessionManager {
     private final AtomicLong sessionCounter = new AtomicLong(0);
     private volatile Duration sessionTimeout = DEFAULT_SESSION_TIMEOUT;
 
+    private final Map<String, DeviceSession> sessionsByImei = new ConcurrentHashMap<>();
+
     /**
      * Gets or creates a session for the specified device
      */
     public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
-        validateSessionParameters(imei, protocol, remoteAddress);
-
-        return sessions.compute(imei, (key, existing) -> {
-            if (existing == null) {
-                DeviceSession newSession = createNewSession(imei, protocol, remoteAddress);
-                logger.info("Created new session {} for IMEI {}", newSession.getSessionId(), imei);
-                return newSession;
+        return sessionsByImei.compute(imei, (key, existingSession) -> {
+            if (existingSession != null && existingSession.isActive()) {
+                // Update existing session
+                existingSession.setRemoteAddress(remoteAddress);
+                existingSession.updateLastActive();
+                return existingSession;
+            } else {
+                // Create new session (will validate IMEI)
+                return new DeviceSession(imei, protocol, remoteAddress);
             }
-            return updateExistingSession(existing, protocol, remoteAddress);
         });
     }
 
