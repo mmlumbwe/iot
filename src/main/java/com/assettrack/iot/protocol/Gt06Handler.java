@@ -259,13 +259,13 @@ public class Gt06Handler implements ProtocolHandler {
             throws ProtocolException {
         try {
             // Extract IMEI from bytes 4-11
-            String imei = extractImei(data);
+            String imei = parseImei(data, 4);
             message.setImei(imei);
             message.setMessageType("LOGIN");
 
             // Extract serial number (last 2 bytes before checksum)
-            short serialNumber = (short)(((data[data.length-4] & 0xFF) << 8) |
-                    (data[data.length-3] & 0xFF));
+            short serialNumber = (short)((data[16] << 8) | (data[17] & 0xFF));
+
 
             // Generate proper login response
             byte[] response = generateLoginResponse(serialNumber);
@@ -340,19 +340,19 @@ public class Gt06Handler implements ProtocolHandler {
     public byte[] generateLoginResponse(short serialNumber) {
         ByteBuffer buf = ByteBuffer.allocate(11)
                 .order(ByteOrder.BIG_ENDIAN)
-                .put(PROTOCOL_HEADER_1)
-                .put(PROTOCOL_HEADER_2)
-                .put((byte) 0x05) // Length
-                .put(PROTOCOL_LOGIN)
-                .putShort(serialNumber)
-                .put((byte) 0x01); // Success
+                .put((byte) 0x78)   // Protocol header
+                .put((byte) 0x78)   // Protocol header
+                .put((byte) 0x05)   // Length
+                .put((byte) 0x01)   // Login response ID
+                .putShort(serialNumber) // Echo the device's serial number
+                .put((byte) 0x01);  // Success flag
 
-        // Calculate CRC
-        byte crc = 0;
-        for (int i = 2; i < 8; i++) {
-            crc ^= buf.array()[i];
+        // Calculate XOR checksum (from length to success flag)
+        byte checksum = 0;
+        for (int i = 2; i < 8; i++) { // Skip header, cover length(1)+cmd(1)+serial(2)+status(1)
+            checksum ^= buf.array()[i];
         }
-        buf.put(crc);
+        buf.put(checksum);
 
         // Add termination
         buf.put((byte) 0x0D).put((byte) 0x0A);
@@ -458,51 +458,18 @@ public class Gt06Handler implements ProtocolHandler {
         return response;
     }
 
-    private String parseImei(byte[] data) throws ProtocolException {
-        try {
-            StringBuilder imei = new StringBuilder(15);
+    public static String parseImei(byte[] data, int offset) {
+        StringBuilder imei = new StringBuilder();
 
-            // Byte 4 (0x08) -> low nibble (8)
-            imei.append(data[4] & 0x0F);
-
-            // Byte 5 (0x62) -> high nibble (6), low nibble (2)
-            imei.append((data[5] >> 4) & 0x0F);
-            imei.append(data[5] & 0x0F);
-
-            // Byte 6 (0x47) -> high nibble (4), low nibble (7)
-            imei.append((data[6] >> 4) & 0x0F);
-            imei.append(data[6] & 0x0F);
-
-            // Byte 7 (0x60) -> high nibble (6), low nibble (0)
-            imei.append((data[7] >> 4) & 0x0F);
-            imei.append(data[7] & 0x0F);
-
-            // Byte 8 (0x51) -> high nibble (5), low nibble (1)
-            imei.append((data[8] >> 4) & 0x0F);
-            imei.append(data[8] & 0x0F);
-
-            // Byte 9 (0x12) -> high nibble (1), low nibble (2)
-            imei.append((data[9] >> 4) & 0x0F);
-            imei.append(data[9] & 0x0F);
-
-            // Byte 10 (0x41) -> high nibble (4), low nibble (1)
-            imei.append((data[10] >> 4) & 0x0F);
-            imei.append(data[10] & 0x0F);
-
-            // Byte 11 (0x46) -> high nibble (4), low nibble (6)
-            imei.append((data[11] >> 4) & 0x0F);
-            imei.append(data[11] & 0x0F);
-
-            String imeiStr = imei.toString();
-
-            if (imeiStr.length() != 15 || !imeiStr.matches("\\d+")) {
-                throw new ProtocolException("Invalid IMEI format: " + imeiStr);
-            }
-
-            return imeiStr;
-        } catch (IndexOutOfBoundsException e) {
-            throw new ProtocolException("IMEI extraction failed: insufficient data");
+        // First 7 bytes contain 14 digits (2 digits per byte in BCD)
+        for (int i = offset; i < offset + 7; i++) {
+            imei.append(String.format("%02X", data[i]));
         }
+
+        // 8th byte contains last digit (upper nibble) + 0xF in lower nibble
+        imei.append(String.format("%02X", data[offset + 7]).charAt(0));
+
+        return imei.toString();
     }
 
     /**
