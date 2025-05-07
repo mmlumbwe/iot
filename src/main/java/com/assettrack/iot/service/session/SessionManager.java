@@ -1,4 +1,3 @@
-// SessionManager.java
 package com.assettrack.iot.service.session;
 
 import com.assettrack.iot.model.session.DeviceSession;
@@ -12,82 +11,180 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class SessionManager {
     private static final Logger logger = LoggerFactory.getLogger(SessionManager.class);
-    private static final long SESSION_TIMEOUT = 30;
-    private final Map<String, DeviceSession> sessions = new ConcurrentHashMap<>();
-    private volatile Duration sessionTimeout = Duration.ofHours(1);
+    private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofHours(1);
+    private static final Duration CLEANUP_INTERVAL = Duration.ofMinutes(5);
+    private static final long CLEANUP_INTERVAL_MS = 300000;  // 5 minutes in milliseconds
 
+    private final ConcurrentMap<String, DeviceSession> sessions = new ConcurrentHashMap<>();
+    private final AtomicLong sessionCounter = new AtomicLong(0);
+    private volatile Duration sessionTimeout = DEFAULT_SESSION_TIMEOUT;
+
+    /**
+     * Gets or creates a session for the specified device
+     */
     public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
-        if (imei == null || imei.isBlank()) {
-            throw new IllegalArgumentException("IMEI cannot be null or blank");
-        }
+        validateSessionParameters(imei, protocol, remoteAddress);
 
         return sessions.compute(imei, (key, existing) -> {
             if (existing == null) {
-                DeviceSession newSession = new DeviceSession(imei, protocol, remoteAddress);
-                logger.info("Created new session {} for {}", newSession.getSessionId(), imei);
+                DeviceSession newSession = createNewSession(imei, protocol, remoteAddress);
+                logger.info("Created new session {} for IMEI {}", newSession.getSessionId(), imei);
                 return newSession;
             }
-
-            // Update existing session only if protocol matches
-            if (existing.getProtocol().equals(protocol)) {
-                existing.setRemoteAddress(remoteAddress);
-                existing.updateLastActive();
-                logger.debug("Updated existing session {} for {}", existing.getSessionId(), imei);
-            } else {
-                logger.warn("Protocol mismatch for IMEI {}: existing={}, new={}",
-                        imei, existing.getProtocol(), protocol);
-            }
-            return existing;
+            return updateExistingSession(existing, protocol, remoteAddress);
         });
     }
 
-    public DeviceSession getSession(String imei) {
-        return sessions.get(imei);
+    private void validateSessionParameters(String imei, String protocol, SocketAddress remoteAddress) {
+        if (imei == null || imei.isBlank()) {
+            throw new IllegalArgumentException("IMEI cannot be null or blank");
+        }
+        if (protocol == null || protocol.isBlank()) {
+            throw new IllegalArgumentException("Protocol cannot be null or blank");
+        }
+        if (remoteAddress == null) {
+            throw new IllegalArgumentException("Remote address cannot be null");
+        }
     }
 
+    private DeviceSession createNewSession(String imei, String protocol, SocketAddress remoteAddress) {
+        String sessionId = generateSessionId();
+        return new DeviceSession(sessionId, imei, protocol, remoteAddress);
+    }
+
+    private DeviceSession updateExistingSession(DeviceSession existing, String protocol, SocketAddress remoteAddress) {
+        if (!existing.getProtocol().equals(protocol)) {
+            logger.warn("Protocol mismatch for IMEI {}: existing={}, new={}",
+                    existing.getImei(), existing.getProtocol(), protocol);
+            return existing;
+        }
+
+        existing.setRemoteAddress(remoteAddress);
+        existing.updateLastActive();
+        logger.debug("Updated existing session {} for IMEI {}", existing.getSessionId(), existing.getImei());
+        return existing;
+    }
+
+    private String generateSessionId() {
+        return String.format("%s-%d-%d",
+                System.currentTimeMillis(),
+                sessionCounter.incrementAndGet(),
+                Thread.currentThread().getId());
+    }
+
+    /**
+     * Retrieves a session by IMEI
+     */
+    public Optional<DeviceSession> getSession(String imei) {
+        return Optional.ofNullable(sessions.get(imei));
+    }
+
+    /**
+     * Returns all active sessions
+     */
     public Collection<DeviceSession> getAllSessions() {
         return Collections.unmodifiableCollection(sessions.values());
     }
 
-    @Scheduled(fixedRate = 300000) // 5 minutes
+    /**
+     * Scheduled cleanup of stale sessions
+     */
+    @Scheduled(fixedRate = CLEANUP_INTERVAL_MS)
     public void cleanupStaleSessions() {
-        sessions.entrySet().removeIf(entry -> {
-            if (entry.getValue() == null || entry.getValue().isStale(sessionTimeout)) {
-                logger.info("Removing stale session for IMEI: {}", entry.getKey());
+        int initialSize = sessions.size();
+        sessions.values().removeIf(session -> {
+            if (session == null || session.isStale(sessionTimeout)) {
+                logger.info("Removing stale session {} for IMEI {}",
+                        session != null ? session.getSessionId() : "null",
+                        session != null ? session.getImei() : "null");
+                return true;
+            }
+            return false;
+        });
+
+        if (logger.isDebugEnabled() && sessions.size() != initialSize) {
+            logger.debug("Session cleanup completed. Removed {} stale sessions", initialSize - sessions.size());
+        }
+    }
+
+    /**
+     * Updates an existing session
+     */
+    public void updateSession(DeviceSession session) {
+        if (session == null || session.getImei() == null) {
+            throw new IllegalArgumentException("Session and IMEI cannot be null");
+        }
+
+        sessions.compute(session.getImei(), (k, existing) -> {
+            if (existing == null) {
+                logger.warn("Attempted to update non-existent session for IMEI: {}", session.getImei());
+                return session; // Allow creation if missing?
+            }
+            if (!existing.getSessionId().equals(session.getSessionId())) {
+                logger.warn("Session ID mismatch for IMEI {}: existing={}, new={}",
+                        session.getImei(), existing.getSessionId(), session.getSessionId());
+                return existing;
+            }
+            return session;
+        });
+    }
+
+    /**
+     * Sets the session timeout duration
+     */
+    public void setSessionTimeout(Duration sessionTimeout) {
+        if (sessionTimeout == null || sessionTimeout.isNegative() || sessionTimeout.isZero()) {
+            throw new IllegalArgumentException("Session timeout must be a positive duration");
+        }
+        this.sessionTimeout = sessionTimeout;
+        logger.info("Session timeout set to {}", sessionTimeout);
+    }
+
+    /**
+     * Graceful shutdown handler
+     */
+    public void onShutdown() {
+        logger.info("Shutting down SessionManager with {} active sessions", sessions.size());
+        sessions.clear();
+    }
+
+    /**
+     * Closes a session by session ID
+     */
+    public boolean closeSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+
+        return sessions.values().removeIf(session -> {
+            if (session != null && sessionId.equals(session.getSessionId())) {
+                logger.debug("Closed session {} for IMEI {}", sessionId, session.getImei());
                 return true;
             }
             return false;
         });
     }
 
-    public void updateSession(DeviceSession session) {
-        if (session != null && session.getImei() != null) {
-            sessions.compute(session.getImei(), (k, v) -> {
-                if (v == null || v.getSessionId() == session.getSessionId()) {
-                    return session;
-                }
-                logger.warn("Session update conflict for IMEI: {}", session.getImei());
-                return v; // Keep existing session if IDs don't match
-            });
+    /**
+     * Closes all sessions for a specific IMEI
+     */
+    public boolean closeSessionsForImei(String imei) {
+        if (imei == null || imei.isBlank()) {
+            return false;
         }
+        return sessions.remove(imei) != null;
     }
 
-    public void setSessionTimeout(Duration sessionTimeout) {
-        if (sessionTimeout != null) {
-            this.sessionTimeout = sessionTimeout;
-        }
+    /**
+     * Returns the number of active sessions
+     */
+    public int getActiveSessionCount() {
+        return sessions.size();
     }
-
-    public void onShutdown() {
-    }
-
-    public void closeSession(String sessionId) {
-        sessions.remove(sessionId);
-        logger.debug("Closed session {}", sessionId);
-    }
-
 }

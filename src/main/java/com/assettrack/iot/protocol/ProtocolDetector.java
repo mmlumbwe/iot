@@ -17,12 +17,12 @@ public class ProtocolDetector {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetector.class);
     private static final Map<String, ProtocolMatcher> PROTOCOL_MATCHERS = new ConcurrentHashMap<>();
     private static final int MIN_DATA_LENGTH = 2;
+    private final Map<String, ProtocolDetectionResult> detectionCache = new ConcurrentHashMap<>();
 
     static {
         registerProtocolMatcher("GT06", new Gt06Matcher());
         registerProtocolMatcher("TK103", new Tk103Matcher());
         registerProtocolMatcher("TELTONIKA", new TeltonikaMatcher());
-        registerProtocolMatcher("NEW_PROTOCOL", new NewProtocolMatcher()); // Add new matcher
     }
 
     public static void registerProtocolMatcher(String protocolName, ProtocolMatcher matcher) {
@@ -32,105 +32,48 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
-        if (data == null) {
-            logger.warn("Null data received for protocol detection");
-            return ProtocolDetectionResult.error("UNKNOWN", "INVALID", "Null data");
-        }
-
-        logger.debug("Received packet (hex): {}", bytesToHex(data));
-        logger.debug("Starting protocol detection for packet length: {}", data.length);
-
-        ProtocolDetectionResult teltonikaResult = checkTeltonikaProtocol(data);
-        if (teltonikaResult.isValid()) {
-            return teltonikaResult;
-        }
-
-        if (data.length < MIN_DATA_LENGTH) {
+        if (data == null || data.length < MIN_DATA_LENGTH) {
             return ProtocolDetectionResult.error("UNKNOWN", "INVALID", "Data too short");
         }
 
-        for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
-            try {
-                if (entry.getValue().matches(data)) {
-                    String protocol = entry.getKey();
-                    String packetType = entry.getValue().getPacketType(data);
-                    String version = getProtocolVersion(protocol, packetType, data);
+        String cacheKey = bytesToHex(data);
+        ProtocolDetectionResult cached = detectionCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
 
-                    logger.debug("Detected protocol: {} packet type: {} version: {}",
-                            protocol, packetType, version);
-                    return ProtocolDetectionResult.success(protocol, packetType, version);
+        ProtocolDetectionResult result = performDetection(data);
+        if (result != null) {
+            detectionCache.put(cacheKey, result);
+        }
+        return result;
+    }
+
+    private ProtocolDetectionResult performDetection(byte[] data) {
+        try {
+            for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
+                try {
+                    ProtocolMatcher matcher = entry.getValue();
+                    if (matcher.matches(data)) {
+                        String packetType = matcher.getPacketType(data);
+                        String version = "1.0"; // Default version
+
+                        // Special handling for Teltonika version detection
+                        if ("TELTONIKA".equals(entry.getKey()) && "DATA".equals(packetType)) {
+                            version = detectTeltonikaVersion(data);
+                        }
+
+                        return ProtocolDetectionResult.success(entry.getKey(), packetType, version);
+                    }
+                } catch (ProtocolDetectionException e) {
+                    logger.debug("Protocol detection failed for {}: {}", entry.getKey(), e.getMessage());
                 }
-            } catch (Exception e) {
-                logger.debug("Protocol matcher {} failed: {}", entry.getKey(), e.getMessage());
             }
-        }
-
-        return ProtocolDetectionResult.error("UNKNOWN", "INVALID", "No matching protocol found");
-    }
-
-    private ProtocolDetectionResult checkTeltonikaProtocol(byte[] data) {
-        // Check IMEI packet first
-        if (isTeltonikaImeiPacket(data)) {
-            logger.debug("Detected Teltonika IMEI packet");
-            return ProtocolDetectionResult.success("TELTONIKA", "IMEI", "1.0");
-        }
-
-        // Then check data packet
-        if (isTeltonikaDataPacket(data)) {
-            String version = detectTeltonikaVersion(data);
-            logger.debug("Detected Teltonika data packet with codec: {}", version);
-            return ProtocolDetectionResult.success("TELTONIKA", "DATA", version);
-        }
-
-        return ProtocolDetectionResult.error("TELTONIKA", "INVALID", "Not a Teltonika packet");
-    }
-
-    private boolean isTeltonikaImeiPacket(byte[] data) {
-        if (data == null || data.length < 4) return false;
-
-        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
-        // Require complete packet (length + 2 bytes header)
-        if (data.length != length + 2) {
-            logger.debug("Incomplete IMEI packet (expected={}, actual={})",
-                    length + 2, data.length);
-            return false;
-        }
-
-        if (length < TeltonikaConstants.IMEI_MIN_LENGTH || length > TeltonikaConstants.IMEI_MAX_LENGTH) {
-            return false;
-        }
-
-        try {
-            String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
-            return imei.matches("^\\d{15,17}$");
         } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private boolean isTeltonikaDataPacket(byte[] data) {
-        if (data == null || data.length < 12) return false;
-
-        if (data[0] != 0 || data[1] != 0 || data[2] != 0 || data[3] != 0) {
-            return false;
+            logger.error("Error during protocol detection", e);
         }
 
-        try {
-            int dataLength = ByteBuffer.wrap(data, 4, 4)
-                    .order(ByteOrder.BIG_ENDIAN).getInt();
-
-            if (dataLength <= 0 || dataLength > TeltonikaConstants.MAX_PACKET_SIZE) {
-                return false;
-            }
-
-            if (data.length > 8) {
-                int codecId = data[8] & 0xFF;
-                return TeltonikaConstants.CODECS.containsKey(codecId);
-            }
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "No matching protocol found");
     }
 
     private String detectTeltonikaVersion(byte[] data) {
@@ -141,24 +84,11 @@ public class ProtocolDetector {
         return "UNKNOWN_CODEC";
     }
 
-    private String getProtocolVersion(String protocol, String packetType, byte[] data) {
-        if ("TELTONIKA".equals(protocol) && "DATA".equals(packetType)) {
-            return detectTeltonikaVersion(data);
-        }
-        return "1.0";
-    }
-
-    public static boolean isTeltonikaHeartbeat(byte[] data) {
-        return data != null &&
-                (data.length == 4 && Arrays.equals(data, new byte[4])) || // Empty heartbeat
-                (data.length == 8 && ByteBuffer.wrap(data).getInt() == 0); // Alternative format
-    }
-
     private String bytesToHex(byte[] bytes) {
         if (bytes == null) return "null";
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
-            sb.append(String.format("%02X ", b));
+            sb.append(String.format("%02X", b));
         }
         return sb.toString();
     }
@@ -192,6 +122,7 @@ public class ProtocolDetector {
             return this;
         }
 
+        // Getters
         public String getProtocol() { return protocol; }
         public String getPacketType() { return packetType; }
         public String getVersion() { return version; }
@@ -205,7 +136,7 @@ public class ProtocolDetector {
         String getPacketType(byte[] data) throws ProtocolDetectionException;
     }
 
-    static class ProtocolDetectionException extends Exception {
+    public static class ProtocolDetectionException extends Exception {
         public ProtocolDetectionException(String message) {
             super(message);
         }
@@ -236,11 +167,10 @@ public class ProtocolDetector {
             }
             switch (data[3] & 0xFF) {
                 case 0x01: return "LOGIN";
-                case 0x10:
-                case 0x11:
                 case 0x12: return "GPS";
                 case 0x13: return "HEARTBEAT";
                 case 0x16: return "ALARM";
+                case 0x80: return "CONFIGURATION";
                 default: return "DATA";
             }
         }
@@ -318,15 +248,17 @@ public class ProtocolDetector {
         }
     }
 
-    public String detectProtocol(byte[] data) {
-        return detect(data).getProtocol();
-    }
+    public static class TeltonikaConstants {
+        public static final int IMEI_MIN_LENGTH = 15;
+        public static final int IMEI_MAX_LENGTH = 17;
+        public static final int MAX_PACKET_SIZE = 2048;
 
-    public static boolean isHeartbeatPacket(byte[] data) {
-        return data.length == 4 &&
-                data[0] == 0x00 &&
-                data[1] == 0x00 &&
-                data[2] == 0x00 &&
-                data[3] == 0x00;
+        public static final Map<Integer, String> CODECS = new LinkedHashMap<>();
+        static {
+            CODECS.put(0x08, "CODEC_8");
+            CODECS.put(0x0C, "CODEC_12");
+            CODECS.put(0x0E, "CODEC_13");
+            CODECS.put(0x10, "CODEC_16");
+        }
     }
 }

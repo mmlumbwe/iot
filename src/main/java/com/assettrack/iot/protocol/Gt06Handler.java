@@ -342,26 +342,36 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public byte[] generateLoginResponse(short serialNumber) {
-        ByteBuffer buf = ByteBuffer.allocate(11)
-                .order(ByteOrder.BIG_ENDIAN)
-                .put((byte) 0x78)   // Protocol header
-                .put((byte) 0x78)   // Protocol header
-                .put((byte) 0x05)   // Length
-                .put((byte) 0x01)   // Login response ID
-                .putShort(serialNumber) // Echo the device's serial number
-                .put((byte) 0x01);  // Success flag
+        return generateLoginResponse(serialNumber, false);
+    }
 
-        // Calculate XOR checksum (from length to success flag)
+    public byte[] generateLoginResponse(short serialNumber, boolean isHeartbeat) {
+        ByteBuffer buf = ByteBuffer.allocate(isHeartbeat ? 5 : 11)
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2);
+
+        if (isHeartbeat) {
+            // Minimal heartbeat acknowledgment
+            buf.put((byte) 0x01) // Length
+                    .put((byte) 0x13); // Heartbeat response
+        } else {
+            // Full login response
+            buf.put((byte) 0x05) // Length
+                    .put(PROTOCOL_LOGIN)
+                    .putShort(serialNumber)
+                    .put((byte) 0x01); // Success
+        }
+
+        // Calculate and append checksum
         byte checksum = 0;
-        for (int i = 2; i < 8; i++) { // Skip header, cover length(1)+cmd(1)+serial(2)+status(1)
+        for (int i = 2; i < buf.position(); i++) {
             checksum ^= buf.array()[i];
         }
         buf.put(checksum);
 
         // Add termination
-        buf.put((byte) 0x0D).put((byte) 0x0A);
-
-        return buf.array();
+        return buf.put((byte) 0x0D).put((byte) 0x0A).array();
     }
 
     private byte[] getFallbackLoginResponse() {
@@ -897,6 +907,26 @@ public class Gt06Handler implements ProtocolHandler {
 
     public enum ValidationMode {
         STRICT, LENIENT, RECOVER
+    }
+
+    private boolean validateImei(String imei) {
+        if (imei == null || imei.length() != 15) return false;
+
+        try {
+            // Luhn check for IMEI validation
+            int sum = 0;
+            for (int i = 0; i < 14; i++) {
+                int digit = Character.getNumericValue(imei.charAt(i));
+                if (i % 2 != 0) {
+                    digit *= 2;
+                    if (digit > 9) digit = (digit / 10) + (digit % 10);
+                }
+                sum += digit;
+            }
+            return (sum * 9) % 10 == Character.getNumericValue(imei.charAt(14));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
 }

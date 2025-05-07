@@ -16,7 +16,7 @@ public class DeviceSession {
     private volatile Instant lastActiveTime;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final String sessionId;
-    private volatile short lastSequenceNumber  = -1;
+    private volatile short lastSequenceNumber = -1;
 
     public DeviceSession(String imei, String protocol, SocketAddress remoteAddress) {
         if (imei == null || imei.isBlank()) {
@@ -28,6 +28,21 @@ public class DeviceSession {
         this.creationTime = Instant.now();
         this.lastActiveTime = this.creationTime;
         this.sessionId = generateSessionId();
+    }
+
+    public DeviceSession(String sessionId, String imei, String protocol, SocketAddress remoteAddress) {
+        if (imei == null || imei.isBlank()) {
+            throw new IllegalArgumentException("IMEI cannot be null or blank");
+        }
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalArgumentException("Session ID cannot be null or blank");
+        }
+        this.imei = imei;
+        this.protocol = protocol;
+        this.remoteAddress = remoteAddress;
+        this.creationTime = Instant.now();
+        this.lastActiveTime = this.creationTime;
+        this.sessionId = sessionId; // Use provided sessionId instead of generating
     }
 
     private String generateSessionId() {
@@ -108,9 +123,12 @@ public class DeviceSession {
                 '}';
     }
 
-    public void updateActivity(short sequenceNumber) {
-        this.lastActiveTime = Instant.ofEpochSecond(System.currentTimeMillis());
-        this.lastSequenceNumber = sequenceNumber;
+    public synchronized void updateActivity(short sequenceNumber) {
+        this.lastActiveTime = Instant.now();
+        // Handle sequence number reset
+        if (sequenceNumber == 0 || sequenceNumber > this.lastSequenceNumber) {
+            this.lastSequenceNumber = sequenceNumber;
+        }
     }
 
     public short getLastSequenceNumber() {
@@ -118,8 +136,7 @@ public class DeviceSession {
     }
 
     public boolean isSequenceNewer(short sequenceNumber) {
-        return sequenceNumber > this.lastSequenceNumber ||
-                sequenceNumber == 0; // Handle reset
+        return sequenceNumber > this.lastSequenceNumber;
     }
 
 }

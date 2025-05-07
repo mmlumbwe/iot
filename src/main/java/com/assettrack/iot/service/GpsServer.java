@@ -227,6 +227,8 @@ public class GpsServer {
                         clientSocket.close();
                         continue;
                     }
+                    clientSocket.setKeepAlive(true);
+                    clientSocket.setTcpNoDelay(true);
 
                     clientSocket.setSoTimeout(SOCKET_TIMEOUT);
                     logger.info("New TCP connection from {}:{}",
@@ -328,6 +330,17 @@ public class GpsServer {
         int clientPort = clientSocket.getPort();
         DeviceSession session = null;
 
+        if (shouldThrottleConnection(clientAddress)) {
+            try {
+                clientSocket.close();
+                logger.debug("Throttled and closed connection from {}", clientAddress);
+                return;
+            } catch (IOException e) {
+                logger.warn("Error closing throttled connection from {}: {}", clientAddress, e.getMessage());
+                return;
+            }
+        }
+
         ConnectionInfo connectionInfo = connectionInfoMap.compute(clientAddress, (k, v) ->
                 v == null ? new ConnectionInfo(clientSocket.getRemoteSocketAddress()) :
                         new ConnectionInfo(v.remoteAddress) {{
@@ -427,7 +440,9 @@ public class GpsServer {
         if (response != null) {
             output.write(response);
             output.flush();
-            logger.debug("Sent heartbeat response to {}", message.getImei());
+            if (logger.isTraceEnabled()) {
+                logger.trace("Sent heartbeat response to {}", message.getImei());
+            }
         }
     }
 
@@ -1065,5 +1080,16 @@ public class GpsServer {
         }
 
         return output.toString();
+    }
+    private boolean shouldThrottleConnection(String clientAddress) {
+        ConnectionInfo info = connectionInfoMap.get(clientAddress);
+        if (info == null) return false;
+
+        long now = System.currentTimeMillis();
+        if (now - info.lastActivity < 1000 && info.connectionCount > 5) {
+            logger.warn("Throttling connection from {} - too frequent", clientAddress);
+            return true;
+        }
+        return false;
     }
 }
