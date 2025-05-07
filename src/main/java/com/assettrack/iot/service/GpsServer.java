@@ -850,12 +850,8 @@ public class GpsServer {
                 if ("LOGIN".equals(detection.getPacketType()) &&
                         message.getParsedData().get("response") == null) {
                     short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
-                    byte[] serialBytes = new byte[] {
-                            (byte)((serialNumber >> 8) & 0xFF),  // High byte
-                            (byte)(serialNumber & 0xFF)          // Low byte
-                    };
                     message.getParsedData().put("response",
-                            gt06Handler.generateLoginResponse(serialBytes));
+                            gt06Handler.generateLoginResponse(serialNumber));
                 }
                 return message;
             }
@@ -888,15 +884,8 @@ public class GpsServer {
 
             // Ensure response is generated for login packets
             if (!message.getParsedData().containsKey("response")) {
-                /*short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
-                byte[] response = gt06Handler.generateLoginResponse(serialNumber);*/
-
                 short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
-                byte[] serialBytes = new byte[] {
-                        (byte)((serialNumber >> 8) & 0xFF),  // High byte
-                        (byte)(serialNumber & 0xFF)          // Low byte
-                };
-                byte[] response = gt06Handler.generateLoginResponse(serialBytes);
+                byte[] response = gt06Handler.generateLoginResponse(serialNumber);
                 message.getParsedData().put("response", response);
                 logger.debug("Generated GT06 login response for IMEI: {}", message.getImei());
             }
