@@ -256,14 +256,13 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte calculateDeviceChecksum(byte[] data) {
-        // Special checksum calculation for this device model
         int checksum = 0;
         // Calculate from byte 2 to byte length-5 (inclusive)
         for (int i = 2; i < data.length - 3; i++) {
-            checksum += (data[i] & 0xFF);
+            checksum = (checksum + (data[i] & 0xFF)) & 0xFF;  // ADD
+            checksum = (checksum ^ (data[i] & 0xFF)) & 0xFF;  // XOR
         }
-        // Apply device-specific transformation
-        return (byte)((checksum + 0x8E) & 0xFF);
+        return (byte)checksum;
     }
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
@@ -309,9 +308,9 @@ public class Gt06Handler implements ProtocolHandler {
             byte expectedChecksum = data[data.length - 4];
             byte calculatedChecksum = calculateDeviceChecksum(data);
 
-            logger.debug("Checksum calculation - bytes: {}",
+            logger.info("Checksum calculation - bytes: {}",
                     bytesToHex(Arrays.copyOfRange(data, 2, data.length - 3)));
-            logger.debug("Checksum - expected: 0x{}, calculated: 0x{}",
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%02X", expectedChecksum),
                     String.format("%02X", calculatedChecksum));
 
