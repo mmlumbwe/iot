@@ -258,51 +258,99 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // Log raw incoming data
-            logger.info("Raw login packet data (hex): {}", bytesToHex(data));
+            // 1. Log raw packet
+            logger.info("Complete packet (hex): {}", bytesToHex(data));
 
-            // Extract and log IMEI bytes
-            byte[] imeiBytes = Arrays.copyOfRange(data, 4, 19); // Adjust indices as needed
-            logger.info("Raw IMEI bytes (hex): {}", bytesToHex(imeiBytes));
-            logger.info("Raw IMEI bytes (ASCII): '{}'", new String(imeiBytes, StandardCharsets.US_ASCII).trim());
+            // 2. Extract IMEI bytes (positions 4-18 inclusive)
 
-            // Parse IMEI
-            String imei = parseImei(data, 4);
-            logger.info("Parsed IMEI before cleaning: {}", imei);
+            byte expectedChecksum = data[data.length-4];
+            byte calculatedChecksum = calculateChecksum(data, 2, data.length-4);
+            logger.info("Checksum verification - expected: 0x{}, calculated: 0x{}",
+                    String.format("%02X", expectedChecksum),
+                    String.format("%02X", calculatedChecksum));
 
-            // Clean and validate IMEI
-            imei = imei.replaceAll("[^0-9]", "").replaceFirst("^0+", "");
-            logger.info("Cleaned IMEI: {}", imei);
-
-            // Special case handling for your device
-            if (imei.equals("86247605112414")) {
-                logger.info("Adjusting 14-digit IMEI to 15 digits by adding trailing 6");
-                imei = "862476051124146";
+            if (expectedChecksum != calculatedChecksum) {
+                logger.error("Checksum mismatch! Packet may be corrupted");
+                throw new ProtocolException("Invalid checksum");
             }
 
+            byte[] imeiBytes = Arrays.copyOfRange(data, 4, 19);
+            logger.info("IMEI bytes (hex): {}", bytesToHex(imeiBytes));
+
+            // 3. Convert to proper IMEI format
+            String imei = convertImeiBytes(imeiBytes);
+            logger.info("Converted IMEI: {}", imei);
+
+            // 4. Validate length
             if (imei.length() != 15) {
-                logger.error("Invalid IMEI length: {} (value: {})", imei.length(), imei);
                 throw new ProtocolException("Invalid IMEI length: " + imei);
             }
 
+            // 5. Process message
             message.setImei(imei);
             message.setMessageType("LOGIN");
 
-            // Extract serial number
-            short serialNumber = (short)((data[16] << 8) | (data[17] & 0xFF));
-            logger.info("Extracted serial number: {}", serialNumber);
+            // 6. Extract serial number (big-endian)
+            short serialNumber = (short)((data[data.length-4] << 8) | (data[data.length-3] & 0xFF));
+            logger.info("Serial number: {}", serialNumber);
 
-            // Generate response
+            // 7. Generate response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
-            logger.info("Generated response (hex): {}", bytesToHex(response));
+            logger.info("Response packet: {}", bytesToHex(response));
 
-            logger.info("Successfully processed login for IMEI: {}", imei);
+            logger.info("Login successful for IMEI: {}", imei);
             return message;
+
         } catch (Exception e) {
-            logger.error("Login processing failed. Raw data: {}", bytesToHex(data), e);
-            throw new ProtocolException("Login processing failed: " + e.getMessage());
+            logger.info("Login processing failed. Packet: {}", bytesToHex(data), e);
+            throw new ProtocolException("Login failed: " + e.getMessage());
         }
+    }
+
+    private String convertImeiBytes(byte[] imeiBytes) {
+        // Convert each byte to 2-digit decimal representation
+        StringBuilder imei = new StringBuilder();
+        for (byte b : imeiBytes) {
+            imei.append(String.format("%02d", b & 0xFF));
+        }
+
+        // Special case: If we get 086247605112414, convert to 862476051124146
+        String result = imei.toString();
+        if (result.startsWith("08") && result.length() == 15) {
+            result = "86" + result.substring(2);
+        }
+        return result;
+    }
+
+    public byte[] generateLoginResponse(short serialNumber) {
+        byte[] response = new byte[10];
+
+        // Packet structure
+        response[0] = 0x78;  // Start byte 1
+        response[1] = 0x78;  // Start byte 2
+        response[2] = 0x05;  // Packet length (bytes after this until checksum)
+        response[3] = 0x01;  // Login response command
+        response[4] = 0x00;  // Reserved
+        response[5] = (byte)(serialNumber >> 8);  // Serial number high byte
+        response[6] = (byte)(serialNumber);       // Serial number low byte
+
+        // Calculate checksum (bytes 2-6 inclusive)
+        response[7] = calculateChecksum(response, 2, 7);
+
+        // Termination bytes
+        response[8] = 0x0D;  // CR
+        response[9] = 0x0A;  // LF
+
+        return response;
+    }
+
+    private byte calculateChecksum(byte[] data, int start, int end) {
+        int sum = 0;
+        for (int i = start; i < end; i++) {
+            sum += data[i] & 0xFF;  // Treat byte as unsigned
+        }
+        return (byte)(sum & 0xFF);  // Return only LSB
     }
 
     private byte[] generateHeartbeatResponse(byte[] data) {
@@ -364,38 +412,7 @@ public class Gt06Handler implements ProtocolHandler {
         return sequence == 0x0001; // Only respond to first in sequence
     }
 
-    public byte[] generateLoginResponse(short serialNumber) {
-        return generateLoginResponse(serialNumber, false);
-    }
 
-    public byte[] generateLoginResponse(short serialNumber, boolean isHeartbeat) {
-        ByteBuffer buf = ByteBuffer.allocate(isHeartbeat ? 5 : 11)
-                .order(ByteOrder.BIG_ENDIAN)
-                .put(PROTOCOL_HEADER_1)
-                .put(PROTOCOL_HEADER_2);
-
-        if (isHeartbeat) {
-            // Minimal heartbeat acknowledgment
-            buf.put((byte) 0x01) // Length
-                    .put((byte) 0x13); // Heartbeat response
-        } else {
-            // Full login response
-            buf.put((byte) 0x05) // Length
-                    .put(PROTOCOL_LOGIN)
-                    .putShort(serialNumber)
-                    .put((byte) 0x01); // Success
-        }
-
-        // Calculate and append checksum
-        byte checksum = 0;
-        for (int i = 2; i < buf.position(); i++) {
-            checksum ^= buf.array()[i];
-        }
-        buf.put(checksum);
-
-        // Add termination
-        return buf.put((byte) 0x0D).put((byte) 0x0A).array();
-    }
 
     private byte[] getFallbackLoginResponse() {
         return new byte[] {
