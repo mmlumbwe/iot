@@ -159,25 +159,21 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    private void validatePacket(byte[] data) throws ProtocolException {
-        if (data == null || data.length < 12) {
-            throw new ProtocolException("Packet too short");
-        }
+    public boolean validatePacket(byte[] data) {
+        if (data.length < 6) return false; // Minimum viable packet length
 
-        // Check protocol header
-        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-            throw new ProtocolException("Invalid protocol header");
-        }
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
+        int computedChecksum = calculateGt06Checksum(data);
+        return receivedChecksum == computedChecksum;
+    }
 
-        // Check termination bytes
-        if (data[data.length-2] != 0x0D || data[data.length-1] != 0x0A) {
-            throw new ProtocolException("Invalid packet termination");
+    public static int calculateGt06Checksum(byte[] data) {
+        // GT06 checksum covers all bytes AFTER the header (0x78 0x78) up to BEFORE the checksum
+        int checksum = 0;
+        for (int i = 2; i < data.length - 4; i++) { // Skip header (2 bytes) and checksum+termination (4 bytes)
+            checksum ^= (data[i] & 0xFF); // XOR with unsigned byte
         }
-
-        // Verify checksum (GT06 uses CRC-16/X25)
-        if (!verifyChecksum(data)) {
-            throw new ProtocolException("Invalid checksum");
-        }
+        return checksum;
     }
 
     private boolean verifyChecksum(byte[] data) {
