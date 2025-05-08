@@ -305,14 +305,14 @@ public class Gt06Handler implements ProtocolHandler {
 
             int length = data[2] & 0xFF;
             int payloadStart = 3;
-            int payloadEnd = payloadStart + length - 2;  // End of payload including checksum byte
+            int payloadEnd = payloadStart + length - 3;  // End of payload including checksum byte
 
             if (payloadEnd >= data.length) {
                 throw new ProtocolException("Login failed: Packet too short for checksum calculation");
             }
 
             byte calculatedChecksum = calculateDeviceChecksum(data, payloadStart, payloadEnd ); // up to byte before checksum
-            byte expectedChecksum = data[payloadEnd];
+            byte expectedChecksum = data[payloadEnd + 1];
 
             logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, payloadEnd)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
