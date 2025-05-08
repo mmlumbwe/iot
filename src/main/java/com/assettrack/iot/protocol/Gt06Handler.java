@@ -305,7 +305,7 @@ public class Gt06Handler implements ProtocolHandler {
 
             int length = data[2] & 0xFF;
             int payloadStart = 3;
-            int payloadEnd = payloadStart + length - 5;  // End of payload including checksum byte
+            int payloadEnd = payloadStart + length;  // End of payload including checksum byte
 
             if (payloadEnd >= data.length) {
                 throw new ProtocolException("Login failed: Packet too short for checksum calculation");
