@@ -304,14 +304,14 @@ public class Gt06Handler implements ProtocolHandler {
             logger.info("Converted IMEI: {}", imei);*/
 
             int length = data[2] & 0xFF;
-            int payloadStart = 2;
-            int payloadEnd = payloadStart + length - 1;  // End of payload including checksum byte
+            int payloadStart = 3;
+            int payloadEnd = payloadStart + length - 5;  // End of payload including checksum byte
 
-            if (payloadEnd + 2 >= data.length) {
-                throw new ProtocolException("Login failed: Incomplete packet for checksum and tail");
+            if (payloadEnd >= data.length) {
+                throw new ProtocolException("Login failed: Packet too short for checksum calculation");
             }
 
-            byte calculatedChecksum = calculateDeviceChecksum(data, payloadStart, payloadEnd - 1); // up to byte before checksum
+            byte calculatedChecksum = calculateDeviceChecksum(data, payloadStart, payloadEnd ); // up to byte before checksum
             byte expectedChecksum = data[payloadEnd];
 
             logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, payloadEnd)));
