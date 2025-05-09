@@ -308,7 +308,7 @@ public class Gt06Handler implements ProtocolHandler {
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
             // Calculate checksum (CRC-16/X25) - everything between header and checksum
-            int calculatedChecksum = calculateCrc16(data, 2, data.length - 6);
+            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
 
             logger.info("Checksum calculation - bytes: {}",
                     bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
@@ -406,7 +406,7 @@ public class Gt06Handler implements ProtocolHandler {
         response[5] = (byte)(serialNumber);      // Low byte
 
         // Calculate CRC-16 checksum (for bytes 2-5)
-        int checksum = calculateCrc16(response, 2, 4);
+        int checksum = calculateGt06Checksum(response, 2, 4);
         response[6] = (byte)(checksum >> 8);    // Checksum high byte
         response[7] = (byte)(checksum);         // Checksum low byte
 
@@ -417,12 +417,19 @@ public class Gt06Handler implements ProtocolHandler {
         return response;
     }
 
-    private byte calculateGt06Checksum(byte[] data, int start, int end) {
-        int checksum = 0;
-        for (int i = start; i < end; i++) {
-            checksum += data[i] & 0xFF;  // Convert byte to unsigned
+    private int calculateGt06Checksum(byte[] buffer, int offset, int length) {
+        int crc = 0xFFFF; // Initial value
+        for (int i = offset; i < offset + length; i++) {
+            crc ^= (buffer[i] & 0xFF) << 8;
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x8000) != 0) {
+                    crc = (crc << 1) ^ 0x1021; // X25 polynomial
+                } else {
+                    crc <<= 1;
+                }
+            }
         }
-        return (byte)(checksum & 0xFF);  // Return only low byte
+        return crc & 0xFFFF;
     }
 
     // Alternative version that matches your device's behavior
