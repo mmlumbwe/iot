@@ -286,58 +286,51 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // 1. Basic validation
             if (data.length < 22) {
                 throw new ProtocolException("Invalid packet length: " + data.length);
             }
 
-            // 2. Log full raw packet
             logger.info("Complete packet (hex): {}", bytesToHex(data));
 
-            // 3. Length from byte 2
             int length = data[2] & 0xFF;
-            int protocolStart = 3;
+            int protocolStart = 2 + 1;  // Start of message type
             int checksumIndex = 2 + length;
             int checksumEnd = checksumIndex - 1;
 
-            // 4. Validate packet is long enough for checksum and footer
             if (checksumIndex >= data.length - 2) {
                 throw new ProtocolException("Packet too short for checksum and footer");
             }
 
-            // 5. XOR checksum calculation per GT06 spec
-            byte calculatedChecksum = 0;
-            for (int i = protocolStart; i <= checksumEnd; i++) {
-                calculatedChecksum ^= data[i];
+            // Final XOR checksum logic confirmed from Traccar
+            byte checksum = 0;
+            for (int i = protocolStart; i < checksumIndex; i++) {
+                checksum ^= data[i];
             }
-            byte expectedChecksum = data[checksumIndex];
+            byte expected = data[checksumIndex];
 
-            // 6. Log checksum bytes and result
             logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, protocolStart, checksumIndex)));
-            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
-                    String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expected), String.format("%02X", checksum));
 
-            if (calculatedChecksum != expectedChecksum) {
+            if (checksum != expected) {
                 throw new ProtocolException("Checksum mismatch (expected 0x" +
-                        String.format("%02X", expectedChecksum) + ", got 0x" +
-                        String.format("%02X", calculatedChecksum) + ")");
+                        String.format("%02X", expected) + ", got 0x" +
+                        String.format("%02X", checksum) + ")");
             }
 
-            // 7. Extract IMEI (BCD-coded) from index 4 for 8 bytes
-            byte[] imeiBcd = Arrays.copyOfRange(data, 4, 12);
-            String imei = parseBinaryImei(imeiBcd);
+            // Extract IMEI (8 bytes BCD encoded from index 4)
+            byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
+            String imei = parseBinaryImei(imeiBytes);
             logger.info("Device IMEI: {}", imei);
 
-            // 8. Serial number is 2 bytes before checksum
-            int serialStart = checksumEnd - 1;
+            // Extract serial number (2 bytes before checksum)
+            int serialStart = checksumIndex - 2;
             short serialNumber = (short) (((data[serialStart] & 0xFF) << 8) | (data[serialStart + 1] & 0xFF));
             parsedData.put("serialNumber", serialNumber);
 
-            // 9. Prepare login response
+            // Generate response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
 
-            // 10. Set message fields
             message.setImei(imei);
             message.setMessageType("LOGIN");
 
@@ -348,6 +341,7 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Login failed: " + e.getMessage());
         }
     }
+
 
 
 
