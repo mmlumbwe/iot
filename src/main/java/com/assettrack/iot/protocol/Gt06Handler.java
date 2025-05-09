@@ -263,6 +263,22 @@ public class Gt06Handler implements ProtocolHandler {
         return (byte) (sum & 0xFF);
     }
 
+    public static int calculateCrc16X25(byte[] data, int start, int endInclusive) {
+        int crc = 0xFFFF;
+        for (int i = start; i <= endInclusive; i++) {
+            crc ^= (data[i] & 0xFF);
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x0001) != 0) {
+                    crc = (crc >> 1) ^ 0x8408;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+        return ~crc & 0xFFFF;  // Traccar uses bitwise NOT on the final result
+    }
+
+
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
@@ -286,7 +302,8 @@ public class Gt06Handler implements ProtocolHandler {
 
             // 4. Calculate checksum
             byte expectedChecksum = data[checksumIndex];
-            byte calculatedChecksum = calculateDeviceChecksum(data, payloadStart, checksumEnd);
+            int crc16 = calculateCrc16X25(data, payloadStart, checksumEnd);
+            byte calculatedChecksum = (byte)(crc16 & 0xFF); // GT06 uses only the lower byte
 
             logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumEnd + 1)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
