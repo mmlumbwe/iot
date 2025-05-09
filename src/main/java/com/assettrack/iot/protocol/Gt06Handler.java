@@ -289,8 +289,8 @@ public class Gt06Handler implements ProtocolHandler {
 
             byte expectedChecksum = data[checksumIndex];
             byte calculatedChecksum = calculateDeviceChecksum(data, checksumStart, checksumEnd);
-
-            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumIndex)));
+s
+            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumEnd + 1)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
 
             if (calculatedChecksum != expectedChecksum) {
