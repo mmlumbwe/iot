@@ -264,12 +264,12 @@ public class Gt06Handler implements ProtocolHandler {
         return (byte) (sum & 0xFF);
     }
 
-    private int calculateGt06Checksum(byte[] buffer, int start, int end) {
+    private int calculateGt06Checksum(byte[] buffer, int offset, int length) {
         int checksum = 0;
-        for (int i = start; i < end; i++) {
+        for (int i = offset; i < offset + length; i++) {
             checksum += (buffer[i] & 0xFF);
         }
-        return checksum & 0xFFFF; // Ensure 16-bit value
+        return checksum & 0xFFFF;  // Return as 16-bit value
     }
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
@@ -295,11 +295,11 @@ public class Gt06Handler implements ProtocolHandler {
                         declaredLength, declaredLength + 5, data.length));
             }
 
-            // Extract checksum (2 bytes before terminator)
+            // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
-            // Calculate checksum from length byte to before checksum bytes
-            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 4);
+            // Calculate checksum from length byte to before checksum bytes (bytes 2-19)
+            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
 
             logger.info("Complete packet (hex): {}", bytesToHex(data));
             logger.info("Checksum calculation - bytes ({} to {}): {}",
@@ -445,7 +445,7 @@ public class Gt06Handler implements ProtocolHandler {
         response[5] = (byte)(serialNumber);
 
         // Calculate checksum
-        int checksum = calculateGt06Checksum(response, 2, 6);
+        int checksum = calculateGt06Checksum(response, 2, 4);
         response[6] = (byte)(checksum >> 8);
         response[7] = (byte)(checksum);
 
