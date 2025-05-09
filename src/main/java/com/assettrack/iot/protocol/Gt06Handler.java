@@ -256,14 +256,12 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private byte calculateDeviceChecksum(byte[] data, int start, int endInclusive) {
-        int checksum = 0;
+        int sum = 0;
         for (int i = start; i <= endInclusive; i++) {
-            checksum += data[i] & 0xFF;
+            sum += data[i] & 0xFF;
         }
-        return (byte) (checksum & 0xFF);  // keep it within 1 byte
+        return (byte) (sum & 0xFF);
     }
-
-
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
@@ -286,8 +284,11 @@ public class Gt06Handler implements ProtocolHandler {
             }
 
             // 3. Calculate checksum using Traccar's logic: SUM not XOR
-            byte calculatedChecksum = calculateDeviceChecksum(data, payloadStart, checksumIndex - 1); // before checksum
+            int checksumStart = payloadStart;
+            int checksumEnd = checksumIndex - 1;
+
             byte expectedChecksum = data[checksumIndex];
+            byte calculatedChecksum = calculateDeviceChecksum(data, checksumStart, checksumEnd);
 
             logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumIndex)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
