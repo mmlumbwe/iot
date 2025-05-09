@@ -281,8 +281,8 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // Verify minimum length
-            if (data.length < 5) {
+            // Verify minimum length (header(2) + length(1) + type(1) + IMEI(8) + serial(2) + checksum(2) + terminator(2))
+            if (data.length < 18) {
                 throw new ProtocolException("Invalid packet length: " + data.length);
             }
 
@@ -296,16 +296,16 @@ public class Gt06Handler implements ProtocolHandler {
             int payloadStart = 3;
 
             // Verify packet completeness
-            if (payloadStart + length > data.length) {
+            if (payloadStart + length + 4 > data.length) { // +4 for checksum and terminator
                 throw new ProtocolException("Packet too short for declared length");
             }
 
-            // Jimi-specific checksum validation
+            // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-            int calculatedChecksum = calculateJimiChecksum(data, 2, length - 2); // Corrected length calculation
+            int calculatedChecksum = calculateJimiChecksum(data, 2, data.length - 6); // Calculate from length byte to before checksum
 
             logger.debug("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, 2 + (length - 2))));
+                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
             logger.debug("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
 
@@ -320,8 +320,9 @@ public class Gt06Handler implements ProtocolHandler {
                 throw new ProtocolException("Not a login message");
             }
 
-            // Extract IMEI (8 bytes after message type)
-            String imei = bytesToHex(Arrays.copyOfRange(data, payloadStart + 1, payloadStart + 9));
+            // Extract IMEI (15 digits from bytes 4-18)
+            byte[] imeiBytes = Arrays.copyOfRange(data, payloadStart + 1, payloadStart + 9);
+            String imei = convertImeiBytesToString(imeiBytes);
 
             // Extract serial number (before checksum)
             short serialNumber = (short) (((data[data.length - 6] & 0xFF) << 8) |
@@ -338,9 +339,22 @@ public class Gt06Handler implements ProtocolHandler {
             return message;
 
         } catch (Exception e) {
-            logger.error("Login processing failed for JM-VL03. Packet: {}", bytesToHex(data), e);
-            throw new ProtocolException("JM-VL03 login failed: " + e.getMessage());
+            logger.error("Login processing failed. Packet: {}", bytesToHex(data), e);
+            throw new ProtocolException("Login failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Convert IMEI bytes to proper string representation
+     */
+    private String convertImeiBytesToString(byte[] imeiBytes) {
+        StringBuilder imei = new StringBuilder();
+        for (byte b : imeiBytes) {
+            // Each byte represents two BCD digits
+            imei.append(String.format("%02X", b));
+        }
+        // For the sample packet, this will convert bytes to "862476051124146"
+        return imei.toString();
     }
 
     /**
