@@ -304,12 +304,14 @@ public class Gt06Handler implements ProtocolHandler {
                 throw new ProtocolException("Packet too short for declared length");
             }
 
-            // Calculate checksum (CRC-16/X25)
-            int calculatedChecksum = calculateCrc16(data, 2, messageEnd - 4); // excludes header and checksum
-            int receivedChecksum = ((data[messageEnd - 4] & 0xFF) << 8) | (data[messageEnd - 3] & 0xFF);
+            // The checksum is the last 2 bytes before the termination (0D 0A)
+            int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
+
+            // Calculate checksum (CRC-16/X25) - everything between header and checksum
+            int calculatedChecksum = calculateCrc16(data, 2, data.length - 6);
 
             logger.info("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, messageEnd - 2)));
+                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
 
@@ -332,7 +334,7 @@ public class Gt06Handler implements ProtocolHandler {
             logger.info("Device IMEI: {}", imei);
 
             // Extract serial number (last 2 bytes before checksum)
-            int serialNumberStart = messageEnd - 6;
+            int serialNumberStart = data.length - 6;
             short serialNumber = (short) (((data[serialNumberStart] & 0xFF) << 8) | (data[serialNumberStart + 1] & 0xFF));
             parsedData.put("serialNumber", serialNumber);
 
