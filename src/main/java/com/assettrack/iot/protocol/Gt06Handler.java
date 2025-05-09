@@ -302,7 +302,12 @@ public class Gt06Handler implements ProtocolHandler {
 
             // Jimi-specific checksum validation
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-            int calculatedChecksum = calculateJimiChecksum(data, 2, data.length - 6);
+            int calculatedChecksum = calculateJimiChecksum(data, 2, length - 2); // Corrected length calculation
+
+            logger.debug("Checksum calculation - bytes: {}",
+                    bytesToHex(Arrays.copyOfRange(data, 2, 2 + (length - 2))));
+            logger.debug("Checksum - expected: 0x{}, calculated: 0x{}",
+                    String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
 
             if (calculatedChecksum != receivedChecksum) {
                 throw new ProtocolException(String.format(
@@ -337,8 +342,9 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("JM-VL03 login failed: " + e.getMessage());
         }
     }
+
     /**
-     * Jimi-specific checksum calculation (sum of all bytes)
+     * Correct Jimi checksum calculation (sum of protocol bytes)
      */
     private int calculateJimiChecksum(byte[] buffer, int offset, int length) {
         int checksum = 0;
