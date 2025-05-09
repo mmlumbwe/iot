@@ -286,61 +286,55 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
+            if (data.length < 22) {
+                throw new ProtocolException("Invalid packet length: " + data.length);
+            }
+
             logger.info("Complete packet (hex): {}", bytesToHex(data));
 
-            if (data.length < 22) {
-                throw new ProtocolException("Invalid login packet length");
-            }
-
-            // Header validation (0x78 0x78)
-            if ((data[0] & 0xFF) != 0x78 || (data[1] & 0xFF) != 0x78) {
-                throw new ProtocolException("Invalid packet header");
-            }
-
             int length = data[2] & 0xFF;
-            int payloadStart = 3;
-            int payloadEnd = payloadStart + length - 1; // Checksum is the last byte in the payload
-            int checksumIndex = payloadEnd;
+            int protocolStart = 3; // 0x01 (protocol number)
+            int serialEnd = protocolStart + length - 5; // last byte before checksum
+            int checksumIndex = protocolStart + length - 2;
             int footerStart = checksumIndex + 1;
 
-            // Validate footer (0x0D 0x0A)
-            if ((data[footerStart] & 0xFF) != 0x0D || (data[footerStart + 1] & 0xFF) != 0x0A) {
-                throw new ProtocolException("Invalid packet footer");
+            if (footerStart + 1 >= data.length) {
+                throw new ProtocolException("Packet too short for checksum and footer");
             }
 
-            // Compute checksum (SUM not XOR)
+            // ✅ Traccar-style XOR checksum (protocol number to serial number low byte)
             byte calculatedChecksum = 0;
-            for (int i = payloadStart; i < checksumIndex; i++) {
-                calculatedChecksum += data[i];
+            for (int i = protocolStart; i <= serialEnd; i++) {
+                calculatedChecksum ^= data[i];
             }
-
             byte expectedChecksum = data[checksumIndex];
 
-            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumIndex)));
-            logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
+            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, protocolStart, checksumIndex)));
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
+                    String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
 
             if (calculatedChecksum != expectedChecksum) {
-                throw new ProtocolException("Checksum mismatch (expected 0x"
-                        + String.format("%02X", expectedChecksum) + ", got 0x"
-                        + String.format("%02X", calculatedChecksum) + ")");
+                throw new ProtocolException("Checksum mismatch (expected 0x" +
+                        String.format("%02X", expectedChecksum) + ", got 0x" +
+                        String.format("%02X", calculatedChecksum) + ")");
             }
 
-            // Extract IMEI (8 bytes starting from data[4])
-            byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
-            String imei = parseBinaryImei(imeiBytes);
-
+            // Extract IMEI from BCD (bytes 4–11 inclusive = 8 bytes)
+            byte[] imeiBcd = Arrays.copyOfRange(data, 4, 12);
+            String imei = parseBinaryImei(imeiBcd);
             logger.info("Device IMEI: {}", imei);
-            message.setImei(imei);
-            message.setMessageType("LOGIN");
 
             // Extract serial number (2 bytes before checksum)
-            int serialStart = checksumIndex - 2;
-            short serialNumber = (short) (((data[serialStart] & 0xFF) << 8) | (data[serialStart + 1] & 0xFF));
+            int serialHighIdx = checksumIndex - 2;
+            short serialNumber = (short) (((data[serialHighIdx] & 0xFF) << 8) | (data[serialHighIdx + 1] & 0xFF));
             parsedData.put("serialNumber", serialNumber);
 
-            // Send login response
+            // Generate login response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
+
+            message.setImei(imei);
+            message.setMessageType("LOGIN");
 
             return message;
 
@@ -349,6 +343,7 @@ public class Gt06Handler implements ProtocolHandler {
             throw new ProtocolException("Login failed: " + e.getMessage());
         }
     }
+
 
 
     /**
