@@ -264,12 +264,22 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private int calculateGt06Checksum(byte[] buffer, int offset, int length) {
-        int checksum = 0;
+        // GT06 uses CRC-16-CCITT (polynomial 0x1021) with initial value 0xFFFF
+        int crc = 0xFFFF;  // Initial value
+        final int polynomial = 0x1021;  // CRC-16-CCITT polynomial
+
         for (int i = offset; i < offset + length; i++) {
-            checksum += (buffer[i] & 0xFF);
-            checksum = (checksum & 0xFFFF); // Ensure we stay within 16 bits
+            crc ^= (buffer[i] & 0xFF) << 8;
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x8000) != 0) {
+                    crc = (crc << 1) ^ polynomial;
+                } else {
+                    crc <<= 1;
+                }
+                crc &= 0xFFFF;  // Ensure we stay within 16 bits
+            }
         }
-        return checksum;
+        return crc;
     }
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
@@ -298,7 +308,7 @@ public class Gt06Handler implements ProtocolHandler {
             // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
-            // Calculate checksum from length byte to before checksum bytes (bytes 2-19)
+            // Calculate CRC-16 checksum from length byte to before checksum bytes (bytes 2-19)
             int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
 
             logger.debug("Checksum calculation - bytes: {}",
@@ -445,7 +455,7 @@ public class Gt06Handler implements ProtocolHandler {
         response[4] = (byte)(serialNumber >> 8); // High byte
         response[5] = (byte)(serialNumber);      // Low byte
 
-        // Calculate checksum (simple sum of bytes 2-5)
+        // Calculate CRC-16 checksum for bytes 2-5
         int checksum = calculateGt06Checksum(response, 2, 4);
         response[6] = (byte)(checksum >> 8);    // Checksum high byte
         response[7] = (byte)(checksum);         // Checksum low byte
