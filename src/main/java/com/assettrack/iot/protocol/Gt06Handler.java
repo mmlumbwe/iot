@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
 import java.net.SocketAddress;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
@@ -285,71 +286,70 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // Verify minimum length (header + length + type + IMEI + additional data + serial + checksum + terminator)
+            logger.info("Complete packet (hex): {}", bytesToHex(data));
+
             if (data.length < 22) {
-                throw new ProtocolException("Invalid packet length: " + data.length);
+                throw new ProtocolException("Invalid login packet length");
             }
 
-            // Check for GT06 protocol header
+            // Header validation (0x78 0x78)
             if ((data[0] & 0xFF) != 0x78 || (data[1] & 0xFF) != 0x78) {
-                throw new ProtocolException("Invalid protocol header");
+                throw new ProtocolException("Invalid packet header");
             }
 
-            // Extract message length (byte 2)
-            int declaredLength = data[2] & 0xFF;
+            int length = data[2] & 0xFF;
+            int payloadStart = 3;
+            int payloadEnd = payloadStart + length - 1; // Checksum is the last byte in the payload
+            int checksumIndex = payloadEnd;
+            int footerStart = checksumIndex + 1;
 
-            // Verify packet has enough data
-            if (data.length < declaredLength + 5) { // header(2) + length(1) + payload + checksum(2)
-                throw new ProtocolException(String.format(
-                        "Packet too short (declared length %d requires %d bytes, got %d)",
-                        declaredLength, declaredLength + 5, data.length));
+            // Validate footer (0x0D 0x0A)
+            if ((data[footerStart] & 0xFF) != 0x0D || (data[footerStart + 1] & 0xFF) != 0x0A) {
+                throw new ProtocolException("Invalid packet footer");
             }
 
-            // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
-            int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-
-            // Calculate CRC-16 checksum from length byte to before checksum bytes (bytes 2-19)
-            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
-
-            logger.debug("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
-            logger.debug("Checksum - expected: 0x{}, calculated: 0x{}",
-                    String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
-
-            if (calculatedChecksum != receivedChecksum) {
-                throw new ProtocolException(String.format(
-                        "Checksum mismatch (expected: 0x%04X, calculated: 0x%04X)",
-                        receivedChecksum, calculatedChecksum));
+            // Compute checksum (SUM not XOR)
+            byte calculatedChecksum = 0;
+            for (int i = payloadStart; i < checksumIndex; i++) {
+                calculatedChecksum += data[i];
             }
 
-            // Process login message (type 0x01)
-            if ((data[3] & 0xFF) != 0x01) {
-                throw new ProtocolException("Not a login message");
+            byte expectedChecksum = data[checksumIndex];
+
+            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumIndex)));
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
+
+            if (calculatedChecksum != expectedChecksum) {
+                throw new ProtocolException("Checksum mismatch (expected 0x"
+                        + String.format("%02X", expectedChecksum) + ", got 0x"
+                        + String.format("%02X", calculatedChecksum) + ")");
             }
 
-            // Extract IMEI (8 bytes after message type)
+            // Extract IMEI (8 bytes starting from data[4])
             byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
-            String imei = convertImeiBytesToString(imeiBytes);
+            String imei = parseBinaryImei(imeiBytes);
 
-            // Extract serial number (before checksum)
-            short serialNumber = (short) (((data[data.length - 6] & 0xFF) << 8) |
-                    (data[data.length - 5] & 0xFF));
-
-            // Generate proper response
-            byte[] response = generateLoginResponse(serialNumber);
-
-            // Set response and device info
-            parsedData.put("response", response);
+            logger.info("Device IMEI: {}", imei);
             message.setImei(imei);
             message.setMessageType("LOGIN");
+
+            // Extract serial number (2 bytes before checksum)
+            int serialStart = checksumIndex - 2;
+            short serialNumber = (short) (((data[serialStart] & 0xFF) << 8) | (data[serialStart + 1] & 0xFF));
+            parsedData.put("serialNumber", serialNumber);
+
+            // Send login response
+            byte[] response = generateLoginResponse(serialNumber);
+            parsedData.put("response", response);
 
             return message;
 
         } catch (Exception e) {
-            logger.error("Login processing failed. Packet: {}", bytesToHex(data), e);
+            logger.info("Login processing failed. Packet: {}", bytesToHex(data), e);
             throw new ProtocolException("Login failed: " + e.getMessage());
         }
     }
+
 
     /**
      * Convert IMEI bytes to proper string representation
@@ -438,34 +438,35 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public byte[] generateLoginResponse(short serialNumber) {
-        // Create response buffer (10 bytes total)
-        byte[] response = new byte[10];
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        // Header
-        response[0] = 0x78; // Start byte 1
-        response[1] = 0x78; // Start byte 2
+        buffer.write(0x78);
+        buffer.write(0x78);
+        buffer.write(0x05);       // length
+        buffer.write(0x01);       // login response type
+        buffer.write((serialNumber >> 8) & 0xFF); // high byte of serial
+        buffer.write(serialNumber & 0xFF);        // low byte of serial
 
-        // Length (5 bytes: type + index + checksum)
-        response[2] = 0x05;
+        // Calculate checksum from type and serial number
+        byte[] content = buffer.toByteArray();
+        byte checksum = calculateXorChecksum(content, 2, content.length - 1);
+        buffer.write(checksum);
 
-        // Login response type
-        response[3] = 0x01;
+        buffer.write(0x0D);
+        buffer.write(0x0A);
 
-        // Serial number (same as request)
-        response[4] = (byte)(serialNumber >> 8); // High byte
-        response[5] = (byte)(serialNumber);      // Low byte
-
-        // Calculate CRC-16 checksum for bytes 2-5
-        int checksum = calculateGt06Checksum(response, 2, 4);
-        response[6] = (byte)(checksum >> 8);    // Checksum high byte
-        response[7] = (byte)(checksum);         // Checksum low byte
-
-        // End marker
-        response[8] = 0x0D; // CR
-        response[9] = 0x0A; // LF
-
-        return response;
+        return buffer.toByteArray();
     }
+
+    // XOR checksum used for short packets (as in login response)
+    private byte calculateXorChecksum(byte[] data, int start, int endInclusive) {
+        byte cs = 0;
+        for (int i = start; i <= endInclusive; i++) {
+            cs ^= data[i];
+        }
+        return cs;
+    }
+
 
     // Alternative version that matches your device's behavior
     private byte calculateDeviceSpecificChecksum(byte[] data) {
