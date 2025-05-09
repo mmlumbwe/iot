@@ -281,77 +281,95 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // Verify minimum length (GT06 protocol requires at least 5 bytes for basic messages)
+            // Verify minimum length
             if (data.length < 5) {
                 throw new ProtocolException("Invalid packet length: " + data.length);
             }
 
-            // Log raw packet
-            logger.info("Complete packet (hex): {}", bytesToHex(data));
-
-            // Check for GT06 protocol header (0x7878 for basic)
+            // Check for GT06 protocol header
             if ((data[0] & 0xFF) != 0x78 || (data[1] & 0xFF) != 0x78) {
                 throw new ProtocolException("Invalid protocol header");
             }
 
-            // Extract message length (basic format)
+            // Extract message length
             int length = data[2] & 0xFF;
-            int payloadStart = 3; // starts after length byte
+            int payloadStart = 3;
 
-            // Verify we have enough data for the full message
-            int messageEnd = payloadStart + length;
-            if (messageEnd > data.length) {
+            // Verify packet completeness
+            if (payloadStart + length > data.length) {
                 throw new ProtocolException("Packet too short for declared length");
             }
 
-            // The checksum is the last 2 bytes before the termination (0D 0A)
+            // Jimi-specific checksum validation
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-
-            // Calculate checksum using GT06-specific algorithm
-            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
-
-            logger.info("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
-            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
-                    String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
+            int calculatedChecksum = calculateJimiChecksum(data, 2, data.length - 6);
 
             if (calculatedChecksum != receivedChecksum) {
-                throw new ProtocolException("Checksum mismatch (expected 0x" +
-                        String.format("%04X", receivedChecksum) + ", got 0x" +
-                        String.format("%04X", calculatedChecksum) + ")");
+                throw new ProtocolException(String.format(
+                        "Checksum mismatch (expected: 0x%04X, calculated: 0x%04X)",
+                        receivedChecksum, calculatedChecksum));
             }
 
-            // Verify this is a login message (type 0x01)
-            int messageType = data[payloadStart] & 0xFF;
-            if (messageType != 0x01) {
-                throw new ProtocolException("Not a login message (type=0x" +
-                        String.format("%02X", messageType) + ")");
+            // Process login message (type 0x01)
+            if ((data[payloadStart] & 0xFF) != 0x01) {
+                throw new ProtocolException("Not a login message");
             }
 
-            // Extract IMEI (8 bytes after type byte)
-            byte[] imeiBytes = Arrays.copyOfRange(data, payloadStart + 1, payloadStart + 9);
-            String imei = bytesToHex(imeiBytes);
-            logger.info("Device IMEI: {}", imei);
+            // Extract IMEI (8 bytes after message type)
+            String imei = bytesToHex(Arrays.copyOfRange(data, payloadStart + 1, payloadStart + 9));
 
-            // Extract serial number (last 2 bytes before checksum)
-            int serialNumberStart = data.length - 6;
-            short serialNumber = (short) (((data[serialNumberStart] & 0xFF) << 8) | (data[serialNumberStart + 1] & 0xFF));
-            parsedData.put("serialNumber", serialNumber);
+            // Extract serial number (before checksum)
+            short serialNumber = (short) (((data[data.length - 6] & 0xFF) << 8) |
+                    (data[data.length - 5] & 0xFF));
 
-            // Prepare login response (following GT06 protocol)
-            byte[] response = generateLoginResponse(serialNumber);
+            // Generate proper response
+            byte[] response = generateJimiLoginResponse(serialNumber);
+
+            // Set response and device info
             parsedData.put("response", response);
-
-            // Set message details
             message.setImei(imei);
             message.setMessageType("LOGIN");
 
             return message;
 
         } catch (Exception e) {
-            logger.error("Login processing failed. Packet: {}", bytesToHex(data), e);
-            throw new ProtocolException("Login failed: " + e.getMessage());
+            logger.error("Login processing failed for JM-VL03. Packet: {}", bytesToHex(data), e);
+            throw new ProtocolException("JM-VL03 login failed: " + e.getMessage());
         }
+    }
+    /**
+     * Jimi-specific checksum calculation (sum of all bytes)
+     */
+    private int calculateJimiChecksum(byte[] buffer, int offset, int length) {
+        int checksum = 0;
+        for (int i = offset; i < offset + length; i++) {
+            checksum += buffer[i] & 0xFF;
+        }
+        return checksum & 0xFFFF;  // Return as 16-bit value
+    }
+
+    /**
+     * Generate proper login response for Jimi devices
+     */
+    private byte[] generateJimiLoginResponse(short serialNumber) {
+        byte[] response = new byte[10];
+        response[0] = 0x78;  // Header
+        response[1] = 0x78;  // Header
+        response[2] = 0x05;  // Length
+        response[3] = 0x01;  // Login response
+        response[4] = (byte) (serialNumber >> 8);  // Serial MSB
+        response[5] = (byte) (serialNumber);       // Serial LSB
+
+        // Calculate checksum (sum of bytes 2-5)
+        int checksum = (response[2] & 0xFF) + (response[3] & 0xFF) +
+                (response[4] & 0xFF) + (response[5] & 0xFF);
+
+        response[6] = (byte) (checksum >> 8);    // Checksum MSB
+        response[7] = (byte) (checksum);         // Checksum LSB
+        response[8] = 0x0D;   // CR
+        response[9] = 0x0A;   // LF
+
+        return response;
     }
 
     private String parseBinaryImei(byte[] bcd) {
