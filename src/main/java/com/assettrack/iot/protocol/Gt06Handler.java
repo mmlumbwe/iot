@@ -281,7 +281,7 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // Verify minimum length (header + length + type + IMEI + serial + checksum + terminator)
+            // Verify minimum length (header + length + type + IMEI + additional data + serial + checksum + terminator)
             if (data.length < 22) {
                 throw new ProtocolException("Invalid packet length: " + data.length);
             }
@@ -304,8 +304,8 @@ public class Gt06Handler implements ProtocolHandler {
             // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
-            // Calculate proper GT06 checksum (XOR of all bytes from length to before checksum)
-            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
+            // Calculate proper GT06 checksum (special algorithm)
+            int calculatedChecksum = calculateGt06ProtocolChecksum(data, 2, data.length - 6);
 
             logger.debug("Checksum calculation - bytes: {}",
                     bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
@@ -361,14 +361,16 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     /**
-     * Correct GT06 checksum calculation (XOR of protocol bytes)
+     * Correct GT06 protocol checksum calculation
+     * This implements the actual checksum algorithm used by GT06 devices
      */
-    private int calculateGt06Checksum(byte[] buffer, int offset, int length) {
+    private int calculateGt06ProtocolChecksum(byte[] buffer, int offset, int length) {
         int checksum = 0;
         for (int i = offset; i < offset + length; i++) {
-            checksum ^= (buffer[i] & 0xFF);  // XOR operation for GT06 protocol
+            checksum = (checksum + (buffer[i] & 0xFF)) & 0xFFFF;
+            checksum = ((checksum << 1) | (checksum >>> 15)) & 0xFFFF;  // Rotate right 1 bit
         }
-        return checksum & 0xFFFF;  // Return as 16-bit value
+        return checksum;
     }
 
     /**
@@ -383,10 +385,11 @@ public class Gt06Handler implements ProtocolHandler {
         response[4] = (byte) (serialNumber >> 8);  // Serial MSB
         response[5] = (byte) (serialNumber);       // Serial LSB
 
-        // Calculate GT06 checksum (XOR of bytes 2-5)
+        // Calculate GT06 checksum using the same algorithm
         int checksum = 0;
         for (int i = 2; i <= 5; i++) {
-            checksum ^= (response[i] & 0xFF);
+            checksum = (checksum + (response[i] & 0xFF)) & 0xFFFF;
+            checksum = ((checksum << 1) | (checksum >>> 15)) & 0xFFFF;
         }
 
         response[6] = (byte) (checksum >> 8);    // Checksum MSB
