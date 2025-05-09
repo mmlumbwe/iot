@@ -263,91 +263,94 @@ public class Gt06Handler implements ProtocolHandler {
         return (byte) (sum & 0xFF);
     }
 
-
-
-    public static int calculateCrc16X25(byte[] data, int start, int endInclusive) {
-        int crc = 0xFFFF;
-        for (int i = start; i <= endInclusive; i++) {
-            crc ^= (data[i] & 0xFF);
+    private int calculateCrc16(byte[] buffer, int offset, int length) {
+        int crc = 0xFFFF; // Initial value
+        for (int i = offset; i < offset + length; i++) {
+            crc ^= (buffer[i] & 0xFF) << 8;
             for (int j = 0; j < 8; j++) {
-                if ((crc & 0x0001) != 0) {
-                    crc = (crc >> 1) ^ 0x8408;
+                if ((crc & 0x8000) != 0) {
+                    crc = (crc << 1) ^ 0x1021; // X25 polynomial
                 } else {
-                    crc >>= 1;
+                    crc <<= 1;
                 }
             }
         }
-        return ~crc & 0xFFFF;  // Traccar uses bitwise NOT on the final result
+        return crc & 0xFFFF;
     }
-
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
-            // 1. Log raw packet
-            logger.info("Complete packet (hex): {}", bytesToHex(data));
-
-            // 2. Validate packet length
-            if (data.length < 22) {
+            // Verify minimum length (GT06 protocol requires at least 5 bytes for basic messages)
+            if (data.length < 5) {
                 throw new ProtocolException("Invalid packet length: " + data.length);
             }
 
-            // 3. Parse length field and positions
+            // Log raw packet
+            logger.info("Complete packet (hex): {}", bytesToHex(data));
+
+            // Check for GT06 protocol header (0x7878 for basic)
+            if ((data[0] & 0xFF) != 0x78 || (data[1] & 0xFF) != 0x78) {
+                throw new ProtocolException("Invalid protocol header");
+            }
+
+            // Extract message length (basic format)
             int length = data[2] & 0xFF;
-            int payloadStart = 3;
-            int checksumIndex = payloadStart + length - 1; // checksum byte index
+            int payloadStart = 3; // starts after length byte
 
-            if (checksumIndex >= data.length - 2) {
-                throw new ProtocolException("Login failed: Packet too short for checksum and footer");
+            // Verify we have enough data for the full message
+            int messageEnd = payloadStart + length;
+            if (messageEnd > data.length) {
+                throw new ProtocolException("Packet too short for declared length");
             }
 
-            // 4. Calculate checksum (SUM method used by GT06/Traccar)
-            int checksumStart = payloadStart;
-            int checksumEnd = checksumIndex - 1;
+            // Calculate checksum (CRC-16/X25)
+            int calculatedChecksum = calculateCrc16(data, 2, messageEnd - 4); // excludes header and checksum
+            int receivedChecksum = ((data[messageEnd - 4] & 0xFF) << 8) | (data[messageEnd - 3] & 0xFF);
 
-            byte expectedChecksum = data[checksumIndex];
-            byte calculatedChecksum = calculateDeviceChecksum(data, checksumStart, checksumEnd);
-
-            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, checksumStart, checksumIndex)));
+            logger.info("Checksum calculation - bytes: {}",
+                    bytesToHex(Arrays.copyOfRange(data, 2, messageEnd - 2)));
             logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
-                    String.format("%02X", expectedChecksum),
-                    String.format("%02X", calculatedChecksum));
+                    String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
 
-            if (calculatedChecksum != expectedChecksum) {
-                throw new ProtocolException("Login failed: Checksum mismatch (expected 0x" +
-                        String.format("%02X", expectedChecksum) + ", got 0x" +
-                        String.format("%02X", calculatedChecksum) + ")");
+            if (calculatedChecksum != receivedChecksum) {
+                throw new ProtocolException("Checksum mismatch (expected 0x" +
+                        String.format("%04X", receivedChecksum) + ", got 0x" +
+                        String.format("%04X", calculatedChecksum) + ")");
             }
 
-            // 5. Extract and decode IMEI from BCD (8 bytes starting at index 4)
-            byte[] imeiBcd = Arrays.copyOfRange(data, 4, 12);
-            String imei = parseBinaryImei(imeiBcd);
+            // Verify this is a login message (type 0x01)
+            int messageType = data[payloadStart] & 0xFF;
+            if (messageType != 0x01) {
+                throw new ProtocolException("Not a login message (type=0x" +
+                        String.format("%02X", messageType) + ")");
+            }
+
+            // Extract IMEI (8 bytes after type byte)
+            byte[] imeiBytes = Arrays.copyOfRange(data, payloadStart + 1, payloadStart + 9);
+            String imei = bytesToHex(imeiBytes);
             logger.info("Device IMEI: {}", imei);
 
-            // 6. Extract serial number (2 bytes before checksum)
-            int serialNumberStart = checksumIndex - 2;
+            // Extract serial number (last 2 bytes before checksum)
+            int serialNumberStart = messageEnd - 6;
             short serialNumber = (short) (((data[serialNumberStart] & 0xFF) << 8) | (data[serialNumberStart + 1] & 0xFF));
             parsedData.put("serialNumber", serialNumber);
 
-            // 7. Generate login response
+            // Prepare login response (following GT06 protocol)
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
 
-            // 8. Set message fields
+            // Set message details
             message.setImei(imei);
             message.setMessageType("LOGIN");
 
             return message;
 
         } catch (Exception e) {
-            logger.info("Login processing failed. Packet: {}", bytesToHex(data), e);
+            logger.error("Login processing failed. Packet: {}", bytesToHex(data), e);
             throw new ProtocolException("Login failed: " + e.getMessage());
         }
     }
-
-
-
-
 
     private String parseBinaryImei(byte[] bcd) {
         StringBuilder imei = new StringBuilder();
@@ -358,7 +361,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
         return imei.toString().replaceFirst("^0+", "");
     }
-
 
     private String parseImeiFromBinary(byte[] data, int offset) {
         StringBuilder imei = new StringBuilder();
@@ -384,24 +386,31 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     public byte[] generateLoginResponse(short serialNumber) {
+        // Create response buffer (10 bytes total)
         byte[] response = new byte[10];
-        response[0] = 0x78;  // Start byte 1
-        response[1] = 0x78;  // Start byte 2
-        response[2] = 0x05;  // Length
-        response[3] = 0x01;  // Login response
-        response[4] = 0x00;  // Reserved
-        response[5] = (byte)(serialNumber >> 8);  // High byte
-        response[6] = (byte)(serialNumber);       // Low byte
 
-        // Calculate checksum using same algorithm
-        int checksum = 0;
-        for (int i = 2; i < 7; i++) {
-            checksum += response[i] & 0xFF;
-        }
-        response[7] = (byte)((checksum + 0x8E) & 0xFF);
+        // Header
+        response[0] = 0x78; // Start byte 1
+        response[1] = 0x78; // Start byte 2
 
-        response[8] = 0x0D;  // CR
-        response[9] = 0x0A;  // LF
+        // Length (5 bytes: type + index + checksum)
+        response[2] = 0x05;
+
+        // Login response type
+        response[3] = 0x01;
+
+        // Serial number (same as request)
+        response[4] = (byte)(serialNumber >> 8); // High byte
+        response[5] = (byte)(serialNumber);      // Low byte
+
+        // Calculate CRC-16 checksum (for bytes 2-5)
+        int checksum = calculateCrc16(response, 2, 4);
+        response[6] = (byte)(checksum >> 8);    // Checksum high byte
+        response[7] = (byte)(checksum);         // Checksum low byte
+
+        // End marker
+        response[8] = 0x0D; // CR
+        response[9] = 0x0A; // LF
 
         return response;
     }
