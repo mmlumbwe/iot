@@ -263,19 +263,13 @@ public class Gt06Handler implements ProtocolHandler {
         return (byte) (sum & 0xFF);
     }
 
-    private int calculateCrc16(byte[] buffer, int offset, int length) {
-        int crc = 0xFFFF; // Initial value
+    private int calculateGt06Checksum(byte[] buffer, int offset, int length) {
+        int checksum = 0;
         for (int i = offset; i < offset + length; i++) {
-            crc ^= (buffer[i] & 0xFF) << 8;
-            for (int j = 0; j < 8; j++) {
-                if ((crc & 0x8000) != 0) {
-                    crc = (crc << 1) ^ 0x1021; // X25 polynomial
-                } else {
-                    crc <<= 1;
-                }
-            }
+            checksum += (buffer[i] & 0xFF);
+            checksum = (checksum & 0xFFFF); // Ensure we stay within 16 bits
         }
-        return crc & 0xFFFF;
+        return checksum;
     }
 
     private DeviceMessage handleLogin(byte[] data, DeviceMessage message, Map<String, Object> parsedData)
@@ -304,8 +298,8 @@ public class Gt06Handler implements ProtocolHandler {
             // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
             int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
-            // Calculate proper GT06 checksum (special algorithm)
-            int calculatedChecksum = calculateGt06ProtocolChecksum(data, 2, data.length - 6);
+            // Calculate checksum from length byte to before checksum bytes (bytes 2-19)
+            int calculatedChecksum = calculateGt06Checksum(data, 2, data.length - 6);
 
             logger.debug("Checksum calculation - bytes: {}",
                     bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
@@ -332,7 +326,7 @@ public class Gt06Handler implements ProtocolHandler {
                     (data[data.length - 5] & 0xFF));
 
             // Generate proper response
-            byte[] response = generateGt06LoginResponse(serialNumber);
+            byte[] response = generateLoginResponse(serialNumber);
 
             // Set response and device info
             parsedData.put("response", response);
@@ -451,13 +445,8 @@ public class Gt06Handler implements ProtocolHandler {
         response[4] = (byte)(serialNumber >> 8); // High byte
         response[5] = (byte)(serialNumber);      // Low byte
 
-        // Calculate GT06 protocol checksum (with rotation)
-        int checksum = 0;
-        for (int i = 2; i <= 5; i++) {
-            checksum = (checksum + (response[i] & 0xFF)) & 0xFFFF;
-            checksum = ((checksum << 1) | (checksum >>> 15)) & 0xFFFF; // Rotate right 1 bit
-        }
-
+        // Calculate checksum (simple sum of bytes 2-5)
+        int checksum = calculateGt06Checksum(response, 2, 4);
         response[6] = (byte)(checksum >> 8);    // Checksum high byte
         response[7] = (byte)(checksum);         // Checksum low byte
 
