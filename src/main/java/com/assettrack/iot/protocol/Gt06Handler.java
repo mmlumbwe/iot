@@ -282,7 +282,7 @@ public class Gt06Handler implements ProtocolHandler {
             throws ProtocolException {
         try {
             // Verify absolute minimum length (header + length + type + minimal data)
-            if (data.length < 10) {
+            if (data.length < 18) {  // 78 78 11 01 [8-byte IMEI] [2-byte serial] [2-byte checksum] 0D 0A
                 throw new ProtocolException("Invalid packet length: " + data.length);
             }
 
@@ -294,25 +294,32 @@ public class Gt06Handler implements ProtocolHandler {
             // Extract declared payload length (byte 2)
             int declaredPayloadLength = data[2] & 0xFF;
 
-            // Calculate expected total packet length:
-            // header(2) + length(1) + payload(declared) + checksum(2) + terminator(2)
-            int expectedTotalLength = 2 + 1 + declaredPayloadLength + 2 + 2;
+            // For GT06 login packets, the structure is:
+            // Header(2) + Length(1) + Type(1) + IMEI(8) + Serial(2) + Checksum(2) + Terminator(2)
+            // Total = 2 + 1 + 1 + 8 + 2 + 2 + 2 = 18 bytes
 
-            // Verify we have at least the declared amount of data
-            if (data.length < expectedTotalLength) {
+            // Verify we have exactly the expected length
+            if (data.length != 18) {
                 throw new ProtocolException(String.format(
-                        "Packet too short (expected at least %d bytes, got %d)",
-                        expectedTotalLength, data.length));
+                        "Invalid packet length (expected: 18 bytes, got %d)", data.length));
             }
 
-            // Extract checksum (last 4 bytes before terminator: [checksumHi, checksumLo, 0x0D, 0x0A])
-            int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
+            // Verify declared length matches expected payload length
+            // Payload = Type(1) + IMEI(8) + Serial(2) = 11 bytes (0x0B)
+            if (declaredPayloadLength != 0x11) {
+                throw new ProtocolException(String.format(
+                        "Invalid declared length (expected: 17 (0x11), got %d (0x%02X))",
+                        declaredPayloadLength, declaredPayloadLength));
+            }
 
-            // Calculate checksum from length byte to before checksum bytes
-            int calculatedChecksum = calculateJimiChecksum(data, 2, data.length - 6);
+            // Extract checksum (bytes 16-17 before terminator)
+            int receivedChecksum = ((data[16] & 0xFF) << 8) | (data[17] & 0xFF);
+
+            // Calculate checksum from length byte to before checksum bytes (bytes 2-15)
+            int calculatedChecksum = calculateJimiChecksum(data, 2, 14);
 
             logger.debug("Checksum calculation - bytes: {}",
-                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
+                    bytesToHex(Arrays.copyOfRange(data, 2, 16)));
             logger.debug("Checksum - expected: 0x{}, calculated: 0x{}",
                     String.format("%04X", receivedChecksum), String.format("%04X", calculatedChecksum));
 
@@ -327,13 +334,12 @@ public class Gt06Handler implements ProtocolHandler {
                 throw new ProtocolException("Not a login message");
             }
 
-            // Extract IMEI (8 bytes after message type)
+            // Extract IMEI (bytes 4-11)
             byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
             String imei = convertImeiBytesToString(imeiBytes);
 
-            // Extract serial number (before checksum)
-            short serialNumber = (short) (((data[data.length - 6] & 0xFF) << 8) |
-                    (data[data.length - 5] & 0xFF));
+            // Extract serial number (bytes 14-15)
+            short serialNumber = (short) (((data[14] & 0xFF) << 8) | (data[15] & 0xFF));
 
             // Generate proper response
             byte[] response = generateJimiLoginResponse(serialNumber);
