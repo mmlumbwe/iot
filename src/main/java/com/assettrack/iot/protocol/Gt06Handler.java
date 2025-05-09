@@ -451,8 +451,13 @@ public class Gt06Handler implements ProtocolHandler {
         response[4] = (byte)(serialNumber >> 8); // High byte
         response[5] = (byte)(serialNumber);      // Low byte
 
-        // Calculate checksum (simple sum of bytes 2-5)
-        int checksum = calculateGt06Checksum(response, 2, 4);
+        // Calculate GT06 protocol checksum (with rotation)
+        int checksum = 0;
+        for (int i = 2; i <= 5; i++) {
+            checksum = (checksum + (response[i] & 0xFF)) & 0xFFFF;
+            checksum = ((checksum << 1) | (checksum >>> 15)) & 0xFFFF; // Rotate right 1 bit
+        }
+
         response[6] = (byte)(checksum >> 8);    // Checksum high byte
         response[7] = (byte)(checksum);         // Checksum low byte
 
