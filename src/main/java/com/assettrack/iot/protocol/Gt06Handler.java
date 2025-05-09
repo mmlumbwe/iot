@@ -291,7 +291,7 @@ public class Gt06Handler implements ProtocolHandler {
             byte calculatedChecksum = calculateDeviceChecksum(data, checksumStart, checksumEnd);
 
             logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, payloadStart, checksumEnd + 1)));
-            logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
+            //logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expectedChecksum), String.format("%02X", calculatedChecksum));
 
             if (calculatedChecksum != expectedChecksum) {
                 throw new ProtocolException("Login failed: Checksum mismatch (expected 0x" +
