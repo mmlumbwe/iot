@@ -291,9 +291,10 @@ public class Gt06Handler implements ProtocolHandler {
             }
 
             logger.info("Complete packet (hex): {}", bytesToHex(data));
+            logger.info("Raw packet length: {}", data.length);
 
             int length = data[2] & 0xFF;
-            int protocolStart = 2 + 1;  // Start of message type
+            int protocolStart = 3;
             int checksumIndex = 2 + length;
             int checksumEnd = checksumIndex - 1;
 
@@ -301,15 +302,23 @@ public class Gt06Handler implements ProtocolHandler {
                 throw new ProtocolException("Packet too short for checksum and footer");
             }
 
-            // Final XOR checksum logic confirmed from Traccar
+            // Extract and log protocol message type
+            int messageType = data[3] & 0xFF;
+            logger.info("Protocol message type: 0x{}", String.format("%02X", messageType));
+
+            // Checksum calculation using XOR (Traccar logic)
             byte checksum = 0;
             for (int i = protocolStart; i < checksumIndex; i++) {
                 checksum ^= data[i];
             }
             byte expected = data[checksumIndex];
 
-            logger.info("Checksum calculation - bytes: {}", bytesToHex(Arrays.copyOfRange(data, protocolStart, checksumIndex)));
-            logger.info("Checksum - expected: 0x{}, calculated: 0x{}", String.format("%02X", expected), String.format("%02X", checksum));
+            logger.info("Checksum calculation - bytes ({} to {}): {}",
+                    protocolStart, checksumIndex - 1,
+                    bytesToHex(Arrays.copyOfRange(data, protocolStart, checksumIndex)));
+
+            logger.info("Checksum - expected: 0x{}, calculated: 0x{}",
+                    String.format("%02X", expected), String.format("%02X", checksum));
 
             if (checksum != expected) {
                 throw new ProtocolException("Checksum mismatch (expected 0x" +
@@ -317,19 +326,24 @@ public class Gt06Handler implements ProtocolHandler {
                         String.format("%02X", checksum) + ")");
             }
 
-            // Extract IMEI (8 bytes BCD encoded from index 4)
+            // Extract IMEI from index 4 to 11 (8 bytes BCD-encoded)
             byte[] imeiBytes = Arrays.copyOfRange(data, 4, 12);
             String imei = parseBinaryImei(imeiBytes);
-            logger.info("Device IMEI: {}", imei);
+            logger.info("Device IMEI (decoded): {}", imei);
+            logger.info("IMEI bytes (hex): {}", bytesToHex(imeiBytes));
 
-            // Extract serial number (2 bytes before checksum)
+            // Extract serial number from 2 bytes before checksum
             int serialStart = checksumIndex - 2;
             short serialNumber = (short) (((data[serialStart] & 0xFF) << 8) | (data[serialStart + 1] & 0xFF));
+            logger.info("Serial number: {} (bytes: {})", serialNumber,
+                    bytesToHex(Arrays.copyOfRange(data, serialStart, serialStart + 2)));
+
             parsedData.put("serialNumber", serialNumber);
 
-            // Generate response
+            // Generate login response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
+            logger.info("Login response (hex): {}", bytesToHex(response));
 
             message.setImei(imei);
             message.setMessageType("LOGIN");
@@ -337,13 +351,10 @@ public class Gt06Handler implements ProtocolHandler {
             return message;
 
         } catch (Exception e) {
-            logger.info("Login processing failed. Packet: {}", bytesToHex(data), e);
+            logger.error("Login processing failed. Packet: {}", bytesToHex(data), e);
             throw new ProtocolException("Login failed: " + e.getMessage());
         }
     }
-
-
-
 
 
     /**
