@@ -1,5 +1,6 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
@@ -26,28 +27,12 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_LOGIN = 0x01;
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
-    private static final byte PROTOCOL_STATUS = 0x23;
 
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
-    private static final int GPS_PACKET_MIN_LENGTH = 35;
-    private static final int ALARM_PACKET_MIN_LENGTH = 35;
-    private static final int HEARTBEAT_PACKET_LENGTH = 12;
 
     private String lastValidImei;
 
-    @Override
-    public boolean supports(String protocolType) {
-        return "GT06".equalsIgnoreCase(protocolType);
-    }
-
-
-
-    @Override
-    public boolean canHandle(String protocol, String version) {
-        // Handle GT06 protocol with any version or specific versions if needed
-        return "GT06".equalsIgnoreCase(protocol);
-    }
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
@@ -105,20 +90,17 @@ public class Gt06Handler implements ProtocolHandler {
                     data[0], data[1]));
         }
 
-        // Verify checksum (CRC-16/X25)
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8 | (data[data.length - 3] & 0xFF));
-        int calculatedChecksum = calculateCrc16(data, 2, data.length - 6);
+        // Verify checksum using Traccar's CRC-16/X25 implementation
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
+        int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         logger.debug("Checksum verification - Received: 0x{}, Calculated: 0x{}",
                 Integer.toHexString(receivedChecksum), Integer.toHexString(calculatedChecksum));
 
         if (receivedChecksum != calculatedChecksum) {
-            // Log the problematic portion of the packet
-            int checksumStart = 2;
-            int checksumEnd = data.length - 4;
             logger.warn("Checksum mismatch for packet portion: {}",
-                    bytesToHex(Arrays.copyOfRange(data, checksumStart, checksumEnd)));
-
+                    bytesToHex(Arrays.copyOfRange(data, 2, data.length - 4)));
             throw new ProtocolException(String.format(
                     "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
                     receivedChecksum, calculatedChecksum));
@@ -132,24 +114,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    /**
-     * Calculate CRC-16/X25 checksum for GT06 protocol
-     */
-    private int calculateCrc16(byte[] data, int offset, int length) {
-        int crc = 0xFFFF; // Initial value
-        for (int i = offset; i < offset + length; i++) {
-            crc ^= (data[i] & 0xFF) << 8;
-            for (int j = 0; j < 8; j++) {
-                if ((crc & 0x8000) != 0) {
-                    crc = (crc << 1) ^ 0x1021;
-                } else {
-                    crc <<= 1;
-                }
-            }
-        }
-        return crc & 0xFFFF;
-    }
-
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
@@ -157,7 +121,6 @@ public class Gt06Handler implements ProtocolHandler {
             byte[] imeiBytes = new byte[8];
             buffer.get(imeiBytes);
             String imei = extractImei(imeiBytes);
-            lastValidImei = imei;
 
             logger.info("Login request from IMEI: {}", imei);
             logger.debug("IMEI bytes: {}", bytesToHex(imeiBytes));
@@ -170,6 +133,7 @@ public class Gt06Handler implements ProtocolHandler {
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
             logger.debug("Login response: {}", bytesToHex(response));
+
 
             message.setImei(imei);
             message.setMessageType("LOGIN");
@@ -186,7 +150,6 @@ public class Gt06Handler implements ProtocolHandler {
             int low = b & 0x0F;
             imei.append(high).append(low);
         }
-        // Trim to 15 digits
         String imeiStr = imei.toString().substring(0, 15);
 
         if (!imeiStr.matches("^\\d{15}$")) {
@@ -204,8 +167,9 @@ public class Gt06Handler implements ProtocolHandler {
         response[4] = (byte)(serialNumber >> 8);
         response[5] = (byte)(serialNumber);
 
-        // Calculate checksum (CRC-16/X25)
-        int checksum = calculateCrc16(response, 2, 4);
+        // Calculate checksum using Traccar's CRC-16/X25
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         response[6] = (byte)(checksum >> 8);
         response[7] = (byte)(checksum);
@@ -228,6 +192,19 @@ public class Gt06Handler implements ProtocolHandler {
 
 
 
+
+
+
+    @Override
+    public boolean supports(String protocolType) {
+        return "GT06".equalsIgnoreCase(protocolType);
+    }
+
+    @Override
+    public boolean canHandle(String protocol, String version) {
+        // Handle GT06 protocol with any version or specific versions if needed
+        return "GT06".equalsIgnoreCase(protocol);
+    }
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         if (lastValidImei == null) {
