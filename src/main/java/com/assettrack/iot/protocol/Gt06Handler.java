@@ -7,6 +7,7 @@ import com.assettrack.iot.model.Position;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.nio.ByteBuffer;
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class Gt06Handler implements ProtocolHandler {
@@ -30,8 +32,31 @@ public class Gt06Handler implements ProtocolHandler {
 
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
+    private static final long SESSION_TIMEOUT_MS = 30000; // 30 seconds
 
     private String lastValidImei;
+
+    private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
+
+    private static class DeviceSession {
+        private final String imei;
+        private final short lastSerialNumber;
+        private long lastActivityTime;
+
+        public DeviceSession(String imei, short serialNumber) {
+            this.imei = imei;
+            this.lastSerialNumber = serialNumber;
+            this.lastActivityTime = System.currentTimeMillis();
+        }
+
+        public void updateActivity() {
+            this.lastActivityTime = System.currentTimeMillis();
+        }
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() - lastActivityTime > SESSION_TIMEOUT_MS;
+        }
+    }
 
 
     @Override
@@ -90,7 +115,7 @@ public class Gt06Handler implements ProtocolHandler {
                     data[0], data[1]));
         }
 
-        // Verify checksum using Traccar's CRC-16/X25 implementation
+        // Verify checksum using CRC-16/X25
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
         ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
@@ -129,6 +154,18 @@ public class Gt06Handler implements ProtocolHandler {
             short serialNumber = buffer.getShort();
             logger.debug("Serial number: {}", serialNumber);
 
+            // Check if this is a duplicate login from the same device
+            DeviceSession session = activeSessions.get(imei);
+            if (session != null && !session.isExpired()) {
+                logger.debug("Existing active session found for IMEI: {}", imei);
+                if (session.lastSerialNumber == serialNumber) {
+                    logger.warn("Duplicate login packet with same serial number from IMEI: {}", imei);
+                }
+            }
+
+            // Create or update session
+            activeSessions.put(imei, new DeviceSession(imei, serialNumber));
+
             // Generate response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
@@ -153,8 +190,8 @@ public class Gt06Handler implements ProtocolHandler {
 
         // Special handling for GT06 IMEI format
         String imeiStr = imei.toString();
-        if (imeiStr.length() == 16) {
-            // Remove leading zero if present (converts 086247605112414 to 862476051124146)
+        if (imeiStr.length() == 16 && imeiStr.startsWith("08")) {
+            // Remove leading zero (converts 086247605112414 to 862476051124146)
             imeiStr = imeiStr.substring(1);
         }
 
@@ -174,7 +211,7 @@ public class Gt06Handler implements ProtocolHandler {
         response[4] = (byte)(serialNumber >> 8);
         response[5] = (byte)(serialNumber);
 
-        // Calculate checksum using Traccar's CRC-16/X25
+        // Calculate checksum using CRC-16/X25
         ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
@@ -209,6 +246,18 @@ public class Gt06Handler implements ProtocolHandler {
         }
         return sb.toString().trim();
     }
+
+    @Scheduled(fixedRate = 60000) // Cleanup every minute
+    public void cleanupExpiredSessions() {
+        activeSessions.entrySet().removeIf(entry -> {
+            if (entry.getValue().isExpired()) {
+                logger.debug("Removing expired session for IMEI: {}", entry.getKey());
+                return true;
+            }
+            return false;
+        });
+    }
+
 
 
 
