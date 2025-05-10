@@ -134,7 +134,6 @@ public class Gt06Handler implements ProtocolHandler {
             parsedData.put("response", response);
             logger.debug("Login response: {}", bytesToHex(response));
 
-
             message.setImei(imei);
             message.setMessageType("LOGIN");
             return message;
@@ -144,17 +143,25 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
+        // Convert each byte to 2-digit decimal representation
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
             int high = (b >> 4) & 0x0F;
             int low = b & 0x0F;
             imei.append(high).append(low);
         }
-        String imeiStr = imei.toString().substring(0, 15);
 
-        if (!imeiStr.matches("^\\d{15}$")) {
-            throw new ProtocolException("Invalid IMEI format");
+        // Special handling for GT06 IMEI format
+        String imeiStr = imei.toString();
+        if (imeiStr.length() == 16) {
+            // Remove leading zero if present (converts 086247605112414 to 862476051124146)
+            imeiStr = imeiStr.substring(1);
         }
+
+        if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
+            throw new ProtocolException("Invalid IMEI format. Expected 15 digits, got: " + imeiStr);
+        }
+
         return imeiStr;
     }
 
@@ -177,6 +184,22 @@ public class Gt06Handler implements ProtocolHandler {
         response[9] = 0x0A;
 
         return response;
+    }
+
+    private byte[] generateErrorResponse(Exception error) {
+        return new byte[] {
+                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
+                0x05, (byte)0x7F,
+                0x00, 0x00, getErrorCode(error),
+                0x0D, 0x0A
+        };
+    }
+
+    private byte getErrorCode(Exception error) {
+        String message = error.getMessage();
+        if (message.contains("IMEI")) return 0x01;
+        if (message.contains("checksum")) return 0x02;
+        return (byte)0xFF;
     }
 
     private String bytesToHex(byte[] bytes) {
@@ -331,22 +354,6 @@ public class Gt06Handler implements ProtocolHandler {
         };
     }
 
-    private byte[] generateErrorResponse(Exception error) {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, (byte)0x7F,
-                0x00, 0x00, getErrorCode(error),
-                0x0D, 0x0A
-        };
-    }
-
-    private byte getErrorCode(Exception error) {
-        String message = error.getMessage();
-        if (message.contains("minute")) return 0x02;
-        if (message.contains("hour")) return 0x01;
-        if (message.contains("second")) return 0x03;
-        return (byte)0xFF;
-    }
 
     @Override
     public Position parsePosition(byte[] rawMessage) {
