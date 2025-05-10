@@ -122,25 +122,56 @@ public class Gt06Handler implements ProtocolHandler {
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
         try {
+            // Log raw packet in hex format
+            byte[] packet = buffer.array();
+            logger.debug("Login packet received (hex): {}", bytesToHex(packet));
+
             // Extract IMEI (8 bytes after message type)
             byte[] imeiBytes = new byte[8];
             buffer.get(imeiBytes);
             String imei = extractImei(imeiBytes);
             lastValidImei = imei;
 
+            logger.info("Extracted IMEI: {}", imei);
+            logger.debug("IMEI bytes (hex): {}", bytesToHex(imeiBytes));
+
             // Extract serial number (2 bytes before checksum)
             short serialNumber = buffer.getShort();
+            logger.debug("Serial number: {}", serialNumber);
+
+            // Calculate and verify checksum
+            int receivedChecksum = ((packet[packet.length - 4] & 0xFF) << 8 | (packet[packet.length - 3] & 0xFF));
+            int calculatedChecksum = calculateGt06Checksum(packet);
+            logger.debug("Checksum verification - Received: 0x{}, Calculated: 0x{}",
+                    Integer.toHexString(receivedChecksum), Integer.toHexString(calculatedChecksum));
+
+            if (receivedChecksum != calculatedChecksum) {
+                logger.warn("Checksum mismatch for IMEI: {}", imei);
+            }
 
             // Generate response
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
+            logger.debug("Login response (hex): {}", bytesToHex(response));
 
             message.setImei(imei);
             message.setMessageType("LOGIN");
+
+            logger.info("Successfully processed login for IMEI: {}", imei);
             return message;
         } catch (Exception e) {
+            logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
             throw new ProtocolException("Login processing failed: " + e.getMessage());
         }
+    }
+
+    // Helper method to convert byte array to hex string
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
     }
 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
