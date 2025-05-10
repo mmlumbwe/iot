@@ -55,51 +55,6 @@ public class Gt06Handler implements ProtocolHandler {
         return receivedChecksum == calculatedChecksum;
     }
 
-    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
-            throws ProtocolException {
-        try {
-            // Log raw packet in hex format
-            byte[] packet = buffer.array();
-            logger.debug("Login packet received (hex): {}", bytesToHex(packet));
-
-            // Extract IMEI (8 bytes after message type)
-            byte[] imeiBytes = new byte[8];
-            buffer.get(imeiBytes);
-            String imei = extractImei(imeiBytes);
-            lastValidImei = imei;
-
-            logger.info("Extracted IMEI: {}", imei);
-            logger.debug("IMEI bytes (hex): {}", bytesToHex(imeiBytes));
-
-            // Extract serial number (2 bytes before checksum)
-            short serialNumber = buffer.getShort();
-            logger.debug("Serial number: {}", serialNumber);
-
-            // Calculate and verify checksum
-            int receivedChecksum = ((packet[packet.length - 4] & 0xFF) << 8 | (packet[packet.length - 3] & 0xFF));
-            int calculatedChecksum = calculateGt06Checksum(packet);
-            logger.debug("Checksum verification - Received: 0x{}, Calculated: 0x{}",
-                    Integer.toHexString(receivedChecksum), Integer.toHexString(calculatedChecksum));
-
-            if (receivedChecksum != calculatedChecksum) {
-                logger.warn("Checksum mismatch for IMEI: {}", imei);
-            }
-
-            // Generate response
-            byte[] response = generateLoginResponse(serialNumber);
-            parsedData.put("response", response);
-            logger.debug("Login response (hex): {}", bytesToHex(response));
-
-            message.setImei(imei);
-            message.setMessageType("LOGIN");
-
-            logger.info("Successfully processed login for IMEI: {}", imei);
-            return message;
-        } catch (Exception e) {
-            logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
-            throw new ProtocolException("Login processing failed: " + e.getMessage());
-        }
-    }
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
         DeviceMessage message = new DeviceMessage();
@@ -108,7 +63,6 @@ public class Gt06Handler implements ProtocolHandler {
         message.setParsedData(parsedData);
 
         try {
-            // Enhanced logging for raw input
             logger.debug("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
 
             validatePacket(data);
@@ -157,8 +111,8 @@ public class Gt06Handler implements ProtocolHandler {
                     data[0], data[1]));
         }
 
-        // Enhanced checksum verification with detailed logging
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8 | (data[data.length - 3] & 0xFF));
+        // Correct checksum verification
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
         int calculatedChecksum = calculateGt06Checksum(data);
 
         logger.debug("Checksum verification - Received: 0x{}, Calculated: 0x{}",
@@ -184,21 +138,68 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    // Enhanced checksum calculation with validation logging
+    /**
+     * Correct GT06 checksum calculation (XOR of all bytes between header and checksum)
+     */
     private int calculateGt06Checksum(byte[] data) {
         int checksum = 0;
-        StringBuilder checksumLog = new StringBuilder("Checksum calculation steps:\n");
-
+        // Calculate from byte 2 (after header) to byte length-4 (before checksum)
         for (int i = 2; i < data.length - 4; i++) {
-            int byteValue = data[i] & 0xFF;
-            checksum ^= byteValue;
-            checksumLog.append(String.format("  Byte[%d]: 0x%02X → Checksum: 0x%04X\n",
-                    i, byteValue, checksum));
+            checksum ^= (data[i] & 0xFF);
+        }
+        return checksum;
+    }
+
+    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
+            throws ProtocolException {
+        try {
+            // Extract IMEI (8 bytes after message type)
+            byte[] imeiBytes = new byte[8];
+            buffer.get(imeiBytes);
+            String imei = extractImei(imeiBytes);
+            lastValidImei = imei;
+
+            logger.info("Login request from IMEI: {}", imei);
+            logger.debug("IMEI bytes: {}", bytesToHex(imeiBytes));
+
+            // Extract serial number (2 bytes before checksum)
+            short serialNumber = buffer.getShort();
+            logger.debug("Serial number: {}", serialNumber);
+
+            // Generate response
+            byte[] response = generateLoginResponse(serialNumber);
+            parsedData.put("response", response);
+            logger.debug("Login response: {}", bytesToHex(response));
+
+            message.setImei(imei);
+            message.setMessageType("LOGIN");
+            return message;
+        } catch (Exception e) {
+            throw new ProtocolException("Login processing failed: " + e.getMessage());
+        }
+    }
+
+    public byte[] generateLoginResponse(short serialNumber) {
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05; // Length
+        response[3] = PROTOCOL_LOGIN;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber);
+
+        // Calculate checksum (XOR of bytes 2-5)
+        int checksum = 0;
+        for (int i = 2; i <= 5; i++) {
+            checksum ^= (response[i] & 0xFF);
         }
 
-        logger.trace(checksumLog.toString());
-        logger.debug("Final checksum: 0x{}", Integer.toHexString(checksum));
-        return checksum;
+        response[6] = (byte)(checksum >> 8);
+        response[7] = (byte)(checksum);
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        return response;
     }
 
     // Helper method to convert byte array to hex string
@@ -226,28 +227,7 @@ public class Gt06Handler implements ProtocolHandler {
         return imeiStr;
     }
 
-    public byte[] generateLoginResponse(short serialNumber) {
-        byte[] response = new byte[10];
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05; // Length
-        response[3] = PROTOCOL_LOGIN;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber);
 
-        // Calculate checksum
-        int checksum = 0;
-        for (int i = 2; i <= 5; i++) {
-            checksum ^= response[i];
-        }
-
-        response[6] = (byte)(checksum >> 8);
-        response[7] = (byte)(checksum);
-        response[8] = 0x0D;
-        response[9] = 0x0A;
-
-        return response;
-    }
 
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
