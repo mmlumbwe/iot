@@ -49,12 +49,6 @@ public class Gt06Handler implements ProtocolHandler {
         return "GT06".equalsIgnoreCase(protocol);
     }
 
-    private boolean verifyChecksum(byte[] data) {
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-        int calculatedChecksum = calculateGt06Checksum(data);
-        return receivedChecksum == calculatedChecksum;
-    }
-
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
         DeviceMessage message = new DeviceMessage();
@@ -111,9 +105,9 @@ public class Gt06Handler implements ProtocolHandler {
                     data[0], data[1]));
         }
 
-        // Correct checksum verification
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-        int calculatedChecksum = calculateGt06Checksum(data);
+        // Verify checksum (CRC-16/X25)
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8 | (data[data.length - 3] & 0xFF));
+        int calculatedChecksum = calculateCrc16(data, 2, data.length - 6);
 
         logger.debug("Checksum verification - Received: 0x{}, Calculated: 0x{}",
                 Integer.toHexString(receivedChecksum), Integer.toHexString(calculatedChecksum));
@@ -139,15 +133,21 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     /**
-     * Correct GT06 checksum calculation (XOR of all bytes between header and checksum)
+     * Calculate CRC-16/X25 checksum for GT06 protocol
      */
-    private int calculateGt06Checksum(byte[] data) {
-        int checksum = 0;
-        // Calculate from byte 2 (after header) to byte length-4 (before checksum)
-        for (int i = 2; i < data.length - 4; i++) {
-            checksum ^= (data[i] & 0xFF);
+    private int calculateCrc16(byte[] data, int offset, int length) {
+        int crc = 0xFFFF; // Initial value
+        for (int i = offset; i < offset + length; i++) {
+            crc ^= (data[i] & 0xFF) << 8;
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x8000) != 0) {
+                    crc = (crc << 1) ^ 0x1021;
+                } else {
+                    crc <<= 1;
+                }
+            }
         }
-        return checksum;
+        return crc & 0xFFFF;
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
@@ -179,38 +179,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-    public byte[] generateLoginResponse(short serialNumber) {
-        byte[] response = new byte[10];
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05; // Length
-        response[3] = PROTOCOL_LOGIN;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber);
-
-        // Calculate checksum (XOR of bytes 2-5)
-        int checksum = 0;
-        for (int i = 2; i <= 5; i++) {
-            checksum ^= (response[i] & 0xFF);
-        }
-
-        response[6] = (byte)(checksum >> 8);
-        response[7] = (byte)(checksum);
-        response[8] = 0x0D;
-        response[9] = 0x0A;
-
-        return response;
-    }
-
-    // Helper method to convert byte array to hex string
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X ", b));
-        }
-        return sb.toString().trim();
-    }
-
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
@@ -226,6 +194,37 @@ public class Gt06Handler implements ProtocolHandler {
         }
         return imeiStr;
     }
+
+    public byte[] generateLoginResponse(short serialNumber) {
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05; // Length
+        response[3] = PROTOCOL_LOGIN;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber);
+
+        // Calculate checksum (CRC-16/X25)
+        int checksum = calculateCrc16(response, 2, 4);
+
+        response[6] = (byte)(checksum >> 8);
+        response[7] = (byte)(checksum);
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        return response;
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+
+
+
 
 
 
