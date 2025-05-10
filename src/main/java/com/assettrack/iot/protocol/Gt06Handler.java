@@ -41,42 +41,7 @@ public class Gt06Handler implements ProtocolHandler {
         return "GT06".equalsIgnoreCase(protocolType);
     }
 
-    @Override
-    public DeviceMessage handle(byte[] data) throws ProtocolException {
-        DeviceMessage message = new DeviceMessage();
-        message.setProtocol("GT06");
-        Map<String, Object> parsedData = new HashMap<>();
-        message.setParsedData(parsedData);
 
-        try {
-            validatePacket(data);
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-
-            // Skip header (0x78 0x78)
-            buffer.position(2);
-            int length = buffer.get() & 0xFF;
-            byte protocol = buffer.get();
-
-            switch (protocol) {
-                case PROTOCOL_LOGIN:
-                    return handleLogin(buffer, message, parsedData);
-                case PROTOCOL_GPS:
-                    return handleGps(buffer, message, parsedData);
-                case PROTOCOL_HEARTBEAT:
-                    return handleHeartbeat(buffer, message, parsedData);
-                case PROTOCOL_ALARM:
-                    return handleAlarm(buffer, message, parsedData);
-                default:
-                    throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
-            }
-        } catch (Exception e) {
-            logger.error("GT06 processing error", e);
-            message.setMessageType("ERROR");
-            message.setError(e.getMessage());
-            parsedData.put("response", generateErrorResponse(e));
-            return message;
-        }
-    }
 
     @Override
     public boolean canHandle(String protocol, String version) {
@@ -84,39 +49,10 @@ public class Gt06Handler implements ProtocolHandler {
         return "GT06".equalsIgnoreCase(protocol);
     }
 
-    private void validatePacket(byte[] data) throws ProtocolException {
-        if (data.length < MIN_PACKET_LENGTH) {
-            throw new ProtocolException("Packet too short");
-        }
-
-        // Verify header
-        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-            throw new ProtocolException("Invalid protocol header");
-        }
-
-        // Verify checksum
-        if (!verifyChecksum(data)) {
-            throw new ProtocolException("Checksum verification failed");
-        }
-
-        // Verify termination bytes
-        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-            throw new ProtocolException("Invalid packet termination");
-        }
-    }
-
     private boolean verifyChecksum(byte[] data) {
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
         int calculatedChecksum = calculateGt06Checksum(data);
         return receivedChecksum == calculatedChecksum;
-    }
-
-    private int calculateGt06Checksum(byte[] data) {
-        int checksum = 0;
-        for (int i = 2; i < data.length - 4; i++) {
-            checksum ^= (data[i] & 0xFF);
-        }
-        return checksum;
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
@@ -163,6 +99,106 @@ public class Gt06Handler implements ProtocolHandler {
             logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
             throw new ProtocolException("Login processing failed: " + e.getMessage());
         }
+    }
+    @Override
+    public DeviceMessage handle(byte[] data) throws ProtocolException {
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocol("GT06");
+        Map<String, Object> parsedData = new HashMap<>();
+        message.setParsedData(parsedData);
+
+        try {
+            // Enhanced logging for raw input
+            logger.debug("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
+
+            validatePacket(data);
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+
+            // Skip header (0x78 0x78)
+            buffer.position(2);
+            int length = buffer.get() & 0xFF;
+            byte protocol = buffer.get();
+
+            logger.debug("Processing protocol: 0x{}, length: {}",
+                    String.format("%02X", protocol), length);
+
+            switch (protocol) {
+                case PROTOCOL_LOGIN:
+                    return handleLogin(buffer, message, parsedData);
+                case PROTOCOL_GPS:
+                    return handleGps(buffer, message, parsedData);
+                case PROTOCOL_HEARTBEAT:
+                    return handleHeartbeat(buffer, message, parsedData);
+                case PROTOCOL_ALARM:
+                    return handleAlarm(buffer, message, parsedData);
+                default:
+                    throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
+            }
+        } catch (Exception e) {
+            logger.error("GT06 processing error for packet: {}", bytesToHex(data), e);
+            message.setMessageType("ERROR");
+            message.setError(e.getMessage());
+            parsedData.put("response", generateErrorResponse(e));
+            return message;
+        }
+    }
+
+    private void validatePacket(byte[] data) throws ProtocolException {
+        if (data.length < MIN_PACKET_LENGTH) {
+            throw new ProtocolException(String.format(
+                    "Packet too short (%d bytes), minimum required %d",
+                    data.length, MIN_PACKET_LENGTH));
+        }
+
+        // Verify header
+        if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
+            throw new ProtocolException(String.format(
+                    "Invalid protocol header: 0x%02X 0x%02X (expected 0x78 0x78)",
+                    data[0], data[1]));
+        }
+
+        // Enhanced checksum verification with detailed logging
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8 | (data[data.length - 3] & 0xFF));
+        int calculatedChecksum = calculateGt06Checksum(data);
+
+        logger.debug("Checksum verification - Received: 0x{}, Calculated: 0x{}",
+                Integer.toHexString(receivedChecksum), Integer.toHexString(calculatedChecksum));
+
+        if (receivedChecksum != calculatedChecksum) {
+            // Log the problematic portion of the packet
+            int checksumStart = 2;
+            int checksumEnd = data.length - 4;
+            logger.warn("Checksum mismatch for packet portion: {}",
+                    bytesToHex(Arrays.copyOfRange(data, checksumStart, checksumEnd)));
+
+            throw new ProtocolException(String.format(
+                    "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
+                    receivedChecksum, calculatedChecksum));
+        }
+
+        // Verify termination bytes
+        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+            throw new ProtocolException(String.format(
+                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
+                    data[data.length - 2], data[data.length - 1]));
+        }
+    }
+
+    // Enhanced checksum calculation with validation logging
+    private int calculateGt06Checksum(byte[] data) {
+        int checksum = 0;
+        StringBuilder checksumLog = new StringBuilder("Checksum calculation steps:\n");
+
+        for (int i = 2; i < data.length - 4; i++) {
+            int byteValue = data[i] & 0xFF;
+            checksum ^= byteValue;
+            checksumLog.append(String.format("  Byte[%d]: 0x%02X → Checksum: 0x%04X\n",
+                    i, byteValue, checksum));
+        }
+
+        logger.trace(checksumLog.toString());
+        logger.debug("Final checksum: 0x{}", Integer.toHexString(checksum));
+        return checksum;
     }
 
     // Helper method to convert byte array to hex string
