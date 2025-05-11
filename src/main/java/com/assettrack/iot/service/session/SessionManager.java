@@ -17,9 +17,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service
 public class SessionManager {
     private static final Logger logger = LoggerFactory.getLogger(SessionManager.class);
-    private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofHours(1);
-    private static final Duration CLEANUP_INTERVAL = Duration.ofMinutes(5);
-    private static final long CLEANUP_INTERVAL_MS = 300000;  // 5 minutes in milliseconds
+    private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofMinutes(2);
+    private static final Duration CLEANUP_INTERVAL = Duration.ofMinutes(1);
+    private static final long CLEANUP_INTERVAL_MS = 60000;  // 5 minutes in milliseconds
 
     private final ConcurrentMap<String, DeviceSession> sessions = new ConcurrentHashMap<>();
     private final AtomicLong sessionCounter = new AtomicLong(0);
@@ -27,22 +27,54 @@ public class SessionManager {
 
     private final Map<String, DeviceSession> sessionsByImei = new ConcurrentHashMap<>();
 
+
     /**
      * Gets or creates a session for the specified device
      */
     public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
+        validateSessionParameters(imei, protocol, remoteAddress);
+
         return sessionsByImei.compute(imei, (key, existingSession) -> {
-            if (existingSession != null && existingSession.isActive()) {
+            if (existingSession != null) {
                 // Update existing session
                 existingSession.setRemoteAddress(remoteAddress);
                 existingSession.updateLastActive();
+                existingSession.incrementConnectionCount();
                 return existingSession;
             } else {
-                // Create new session (will validate IMEI)
-                return new DeviceSession(imei, protocol, remoteAddress);
+                // Create new session
+                DeviceSession newSession = new DeviceSession(imei, protocol, remoteAddress);
+                sessions.put(newSession.getSessionId(), newSession);
+                return newSession;
             }
         });
     }
+    /**
+     * Checks if a login request is a duplicate based on IMEI and serial number
+     */
+    public boolean isDuplicateLogin(String imei, short serialNumber) {
+        DeviceSession session = sessionsByImei.get(imei);
+        return session != null && session.isDuplicateSerialNumber(serialNumber) && !session.isStale();
+    }
+
+    /**
+     * Checks if a packet is a duplicate based on sequence/serial numbers
+     */
+    public boolean isDuplicatePacket(String imei, short sequenceNumber, short serialNumber) {
+        DeviceSession session = sessionsByImei.get(imei);
+        return session != null && !session.isNewerPacket(sequenceNumber, serialNumber);
+    }
+
+    /**
+     * Updates a session with new sequence and serial numbers
+     */
+    public void updateSessionNumbers(String imei, short sequenceNumber, short serialNumber) {
+        DeviceSession session = sessionsByImei.get(imei);
+        if (session != null) {
+            session.updateActivity(sequenceNumber, serialNumber);
+        }
+    }
+
 
     private void validateSessionParameters(String imei, String protocol, SocketAddress remoteAddress) {
         if (imei == null || imei.isBlank()) {
@@ -56,10 +88,10 @@ public class SessionManager {
         }
     }
 
-    private DeviceSession createNewSession(String imei, String protocol, SocketAddress remoteAddress) {
+    /*private DeviceSession createNewSession(String imei, String protocol, SocketAddress remoteAddress) {
         String sessionId = generateSessionId();
         return new DeviceSession(sessionId, imei, protocol, remoteAddress);
-    }
+    }*/
 
     private DeviceSession updateExistingSession(DeviceSession existing, String protocol, SocketAddress remoteAddress) {
         if (!existing.getProtocol().equals(protocol)) {
@@ -101,11 +133,11 @@ public class SessionManager {
     @Scheduled(fixedRate = CLEANUP_INTERVAL_MS)
     public void cleanupStaleSessions() {
         int initialSize = sessions.size();
+
         sessions.values().removeIf(session -> {
             if (session == null || session.isStale(sessionTimeout)) {
-                logger.info("Removing stale session {} for IMEI {}",
-                        session != null ? session.getSessionId() : "null",
-                        session != null ? session.getImei() : "null");
+                sessionsByImei.remove(session.getImei(), session);
+                logger.debug("Removed stale session for IMEI {}", session != null ? session.getImei() : "null");
                 return true;
             }
             return false;
@@ -115,6 +147,7 @@ public class SessionManager {
             logger.debug("Session cleanup completed. Removed {} stale sessions", initialSize - sessions.size());
         }
     }
+
 
     /**
      * Updates an existing session

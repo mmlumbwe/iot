@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Component
 public class Gt06Handler implements ProtocolHandler {
@@ -31,28 +32,17 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_LOGIN = 0x01;
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
+    private static final byte PROTOCOL_ERROR = 0x7F;
 
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
-    private static final long SESSION_TIMEOUT_MS = 30000; // 30 seconds
+    private static final long SESSION_TIMEOUT_MS = 120000; // 2 minutes
 
-    private String lastValidImei;
-
+    private final AtomicReference<String> lastValidImei = new AtomicReference<>();
     private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
 
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
-    /*
-
-    private final ConnectionManager connectionManager;
-    private final AcknowledgementHandler acknowledgementHandler;
-
-    public Gt06Handler(ConnectionManager connectionManager, AcknowledgementHandler acknowledgementHandler) {
-        this.connectionManager = connectionManager;
-        this.acknowledgementHandler = acknowledgementHandler;
-    }
-
-     */
 
     private static class DeviceSession {
         private final String imei;
@@ -74,7 +64,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
     }
 
-
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
         DeviceMessage message = new DeviceMessage();
@@ -83,7 +72,7 @@ public class Gt06Handler implements ProtocolHandler {
         message.setParsedData(parsedData);
 
         try {
-            logger.debug("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
+            logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
 
             validatePacket(data);
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
@@ -93,7 +82,7 @@ public class Gt06Handler implements ProtocolHandler {
             int length = buffer.get() & 0xFF;
             byte protocol = buffer.get();
 
-            logger.debug("Processing protocol: 0x{}, length: {}",
+            logger.info("Processing protocol: 0x{}, length: {}",
                     String.format("%02X", protocol), length);
 
             // Notify acknowledgement handler of received packet
@@ -134,6 +123,14 @@ public class Gt06Handler implements ProtocolHandler {
                     data[0], data[1]));
         }
 
+        // Verify length matches actual packet size
+        int declaredLength = data[2] & 0xFF;
+        if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 tail
+            throw new ProtocolException(String.format(
+                    "Packet length mismatch. Declared: %d, actual: %d",
+                    declaredLength, data.length - 5));
+        }
+
         // Verify checksum using CRC-16/X25
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
         ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
@@ -165,29 +162,32 @@ public class Gt06Handler implements ProtocolHandler {
             byte[] imeiBytes = new byte[8];
             buffer.get(imeiBytes);
             String imei = extractImei(imeiBytes);
-            lastValidImei = imei;
+            lastValidImei.set(imei);
 
             logger.info("Login request from IMEI: {}", imei);
-            logger.debug("IMEI bytes: {}", bytesToHex(imeiBytes));
+            logger.info("IMEI bytes: {}", bytesToHex(imeiBytes));
 
             // Extract serial number (2 bytes before checksum)
             short serialNumber = buffer.getShort();
-            logger.debug("Serial number: {}", serialNumber);
+            logger.info("Serial number: {}", serialNumber);
 
-            // Check if this is a duplicate login from the same device
+            // Handle session management
             DeviceSession session = activeSessions.get(imei);
-            if (session != null && !session.isExpired()) {
-                logger.debug("Existing active session found for IMEI: {}", imei);
-                if (session.lastSerialNumber == serialNumber) {
+            if (session != null) {
+                if (!session.isExpired() && session.lastSerialNumber == serialNumber) {
                     logger.warn("Duplicate login packet with same serial number from IMEI: {}", imei);
+                } else {
+                    // Update existing session with new serial number
+                    session = new DeviceSession(imei, serialNumber);
+                    activeSessions.put(imei, session);
                 }
+            } else {
+                // Create new session
+                activeSessions.put(imei, new DeviceSession(imei, serialNumber));
             }
 
-            // Create or update session
-            activeSessions.put(imei, new DeviceSession(imei, serialNumber));
-
             // Generate response
-            byte[] response = generateLoginResponse(serialNumber);
+            byte[] response = generateStandardResponse(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
             parsedData.put("response", response);
             logger.debug("Login response: {}", bytesToHex(response));
 
@@ -203,7 +203,6 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
-        // Convert each byte to 2-digit decimal representation
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
             int high = (b >> 4) & 0x0F;
@@ -211,10 +210,9 @@ public class Gt06Handler implements ProtocolHandler {
             imei.append(high).append(low);
         }
 
-        // Special handling for GT06 IMEI format
         String imeiStr = imei.toString();
-        if (imeiStr.length() == 16 && imeiStr.startsWith("08")) {
-            // Remove leading zero (converts 086247605112414 to 862476051124146)
+        // Remove leading zeros until we get 15 digits
+        while (imeiStr.length() > 15 && imeiStr.startsWith("0")) {
             imeiStr = imeiStr.substring(1);
         }
 
@@ -225,40 +223,38 @@ public class Gt06Handler implements ProtocolHandler {
         return imeiStr;
     }
 
-    public byte[] generateLoginResponse(short serialNumber) {
+    private byte[] generateStandardResponse(byte protocol, short serialNumber, byte status) {
         byte[] response = new byte[10];
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
         response[2] = 0x05; // Length
-        response[3] = PROTOCOL_LOGIN;
+        response[3] = protocol;
         response[4] = (byte)(serialNumber >> 8);
         response[5] = (byte)(serialNumber);
+        response[6] = status;
 
-        // Calculate checksum using CRC-16/X25
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
+        // Calculate checksum
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-        response[6] = (byte)(checksum >> 8);
-        response[7] = (byte)(checksum);
-        response[8] = 0x0D;
+        response[7] = (byte)(checksum >> 8);
+        response[8] = (byte)(checksum);
         response[9] = 0x0A;
 
         return response;
     }
 
     private byte[] generateErrorResponse(Exception error) {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, (byte)0x7F,
-                0x00, 0x00, getErrorCode(error),
-                0x0D, 0x0A
-        };
+        byte errorCode = getErrorCode(error);
+        return generateStandardResponse(PROTOCOL_ERROR, (short)0, errorCode);
     }
 
     private byte getErrorCode(Exception error) {
         String message = error.getMessage();
         if (message.contains("IMEI")) return 0x01;
         if (message.contains("checksum")) return 0x02;
+        if (message.contains("header")) return 0x03;
+        if (message.contains("length")) return 0x04;
         return (byte)0xFF;
     }
 
@@ -281,15 +277,6 @@ public class Gt06Handler implements ProtocolHandler {
         });
     }
 
-
-
-
-
-
-
-
-
-
     @Override
     public boolean supports(String protocolType) {
         return "GT06".equalsIgnoreCase(protocolType);
@@ -297,25 +284,26 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Override
     public boolean canHandle(String protocol, String version) {
-        // Handle GT06 protocol with any version or specific versions if needed
         return "GT06".equalsIgnoreCase(protocol);
     }
+
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws Exception {
-        if (lastValidImei == null) {
+        String imei = lastValidImei.get();
+        if (imei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
         Position position = parseGpsData(buffer);
         parsedData.put("position", position);
 
-        byte[] response = generateGpsResponse();
+        byte[] response = generateStandardResponse(PROTOCOL_GPS, (short)0, (byte)0x01);
         parsedData.put("response", response);
 
         // Notify acknowledgement handler of GPS data
         acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
-        message.setImei(lastValidImei);
+        message.setImei(imei);
         message.setMessageType("GPS");
         return message;
     }
@@ -323,7 +311,7 @@ public class Gt06Handler implements ProtocolHandler {
     private Position parseGpsData(ByteBuffer buffer) throws ProtocolException {
         Position position = new Position();
         Device device = new Device();
-        device.setImei(lastValidImei);
+        device.setImei(lastValidImei.get());
         device.setProtocolType("GT06");
         position.setDevice(device);
 
@@ -357,59 +345,42 @@ public class Gt06Handler implements ProtocolHandler {
         return position;
     }
 
-    private byte[] generateGpsResponse() {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, PROTOCOL_GPS,
-                0x00, 0x00, 0x01, // Serial and success
-                0x0D, 0x0A
-        };
-    }
-
     private DeviceMessage handleHeartbeat(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws Exception {
-        if (lastValidImei == null) {
+        String imei = lastValidImei.get();
+        if (imei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
-        byte[] response = generateHeartbeatResponse();
+        byte[] response = generateStandardResponse(PROTOCOL_HEARTBEAT, (short)0, (byte)0x01);
         parsedData.put("response", response);
 
         // Notify acknowledgement handler of heartbeat
         acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
-        message.setImei(lastValidImei);
+        message.setImei(imei);
         message.setMessageType("HEARTBEAT");
         return message;
     }
 
-
-    private byte[] generateHeartbeatResponse() {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, PROTOCOL_HEARTBEAT,
-                0x00, 0x00, 0x01, // Serial and success
-                0x0D, 0x0A
-        };
-    }
-
     private DeviceMessage handleAlarm(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws Exception {
-        if (lastValidImei == null) {
+        String imei = lastValidImei.get();
+        if (imei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
         Position position = parseGpsData(buffer);
         position.setAlarmType(extractAlarmType(buffer));
 
-        byte[] response = generateAlarmResponse();
+        byte[] response = generateStandardResponse(PROTOCOL_ALARM, (short)0, (byte)0x01);
         parsedData.put("response", response);
         parsedData.put("position", position);
 
         // Notify acknowledgement handler of alarm
         acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
-        message.setImei(lastValidImei);
+        message.setImei(imei);
         message.setMessageType("ALARM");
         return message;
     }
@@ -428,16 +399,6 @@ public class Gt06Handler implements ProtocolHandler {
             default: return "UNKNOWN_ALARM_" + alarmType;
         }
     }
-
-    private byte[] generateAlarmResponse() {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, PROTOCOL_ALARM,
-                0x00, 0x00, 0x01, // Serial and success
-                0x0D, 0x0A
-        };
-    }
-
 
     @Override
     public Position parsePosition(byte[] rawMessage) {
@@ -464,15 +425,6 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Override
     public byte[] generateResponse(Position position) {
-        return generateStandardResponse(PROTOCOL_LOGIN);
-    }
-
-    private byte[] generateStandardResponse(byte protocol) {
-        return new byte[] {
-                PROTOCOL_HEADER_1, PROTOCOL_HEADER_2,
-                0x05, protocol,
-                0x00, 0x00, 0x01,
-                0x0D, 0x0A
-        };
+        return generateStandardResponse(PROTOCOL_LOGIN, (short)0, (byte)0x01);
     }
 }

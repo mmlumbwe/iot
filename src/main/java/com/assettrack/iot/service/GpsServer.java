@@ -1,5 +1,6 @@
 package com.assettrack.iot.service;
 
+import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
@@ -47,6 +48,10 @@ public class GpsServer {
     private static final byte PROTOCOL_HEADER_1 = 0x78;
     private static final byte PROTOCOL_HEADER_2 = 0x78;
     private static final byte PROTOCOL_LOGIN = 0x01;
+    private static final byte PROTOCOL_GPS = 0x12;
+    private static final byte PROTOCOL_HEARTBEAT = 0x13;
+    private static final byte PROTOCOL_ALARM = 0x16;
+    private static final byte PROTOCOL_ERROR = 0x7F;
 
     // Protocol constants
     private static final String PROTOCOL_TELTONIKA = "TELTONIKA";
@@ -56,6 +61,7 @@ public class GpsServer {
     private static final String PACKET_TYPE_DATA = "DATA";
     private static final String PACKET_TYPE_HEARTBEAT = "HEARTBEAT";
     private static final String PACKET_TYPE_ALARM = "ALARM";
+
 
     private final PositionService positionService;
     private final ExecutorService threadPool;
@@ -96,6 +102,7 @@ public class GpsServer {
 
     private final Map<String, ConnectionInfo> connectionInfoMap = new ConcurrentHashMap<>();
     private static final long CONNECTION_TIMEOUT = 300000; // 5 minutes
+
 
     private static class ConnectionInfo {
         long lastActivity;
@@ -328,7 +335,6 @@ public class GpsServer {
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
         int clientPort = clientSocket.getPort();
-        DeviceSession session = null;
 
         if (shouldThrottleConnection(clientAddress)) {
             try {
@@ -341,6 +347,7 @@ public class GpsServer {
             }
         }
 
+        // Track connection info
         ConnectionInfo connectionInfo = connectionInfoMap.compute(clientAddress, (k, v) ->
                 v == null ? new ConnectionInfo(clientSocket.getRemoteSocketAddress()) :
                         new ConnectionInfo(v.remoteAddress) {{
@@ -348,8 +355,7 @@ public class GpsServer {
                         }});
 
         if (connectionInfo.connectionCount > 10) {
-            logger.warn("Multiple reconnections from {}: {}",
-                    clientAddress, connectionInfo.connectionCount);
+            logger.warn("Multiple reconnections from {}: {}", clientAddress, connectionInfo.connectionCount);
         }
 
         try (InputStream input = clientSocket.getInputStream();
@@ -364,7 +370,7 @@ public class GpsServer {
                 DeviceMessage message = processProtocolMessage(receivedData);
 
                 if (message != null) {
-                    // Enhanced message type handling
+                    // Handle message based on type
                     switch (message.getMessageType()) {
                         case "LOGIN":
                             handleLoginMessage(message, clientSocket, output);
@@ -384,41 +390,68 @@ public class GpsServer {
                             break;
                     }
 
-                    // Update session activity
-                    if (session == null && message.getImei() != null) {
-                        session = sessionManager.getOrCreateSession(
-                                message.getImei(),
-                                message.getProtocol(),
-                                clientSocket.getRemoteSocketAddress());
-                    }
-
-                    if (session != null) {
-                        session.updateLastActive();
+                    // Track connection if we have an IMEI
+                    if (message.getImei() != null) {
+                        trackConnection(message, clientAddress);
                     }
                 }
             }
         } catch (SocketTimeoutException e) {
             logger.debug("Connection timeout for {}:{}", clientAddress, clientPort);
         } catch (Exception e) {
-            logger.error("Connection error for {}:{} - {}",
-                    clientAddress, clientPort, e.getMessage());
+            logger.error("Connection error for {}:{} - {}", clientAddress, clientPort, e.getMessage());
         } finally {
-            cleanupConnection(clientSocket, session);
+            cleanupConnection(clientSocket);
         }
     }
 
-    private void handleLoginMessage(DeviceMessage message, Socket socket, OutputStream output)
-            throws IOException {
+    private void handleLoginMessage(DeviceMessage message, Socket socket, OutputStream output) throws IOException {
+        String imei = message.getImei();
+        String protocol = message.getProtocol();
+        SocketAddress remoteAddress = socket.getRemoteSocketAddress();
+
+        // Special handling for GT06 protocol
+        if (PROTOCOL_GT06.equals(protocol)) {
+            short serialNumber = extractSerialNumber(message);
+
+            // Check for duplicate login using SessionManager
+            Optional<DeviceSession> sessionOpt = sessionManager.getSession(imei);
+            if (sessionOpt.isPresent()) {
+                DeviceSession session = sessionOpt.get();
+                if (session.isDuplicateSerialNumber(serialNumber)) {
+                    logger.warn("Duplicate GT06 login from IMEI {} with serial {}", imei, serialNumber);
+                    // Still respond to prevent device retries
+                    byte[] response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                    output.write(response);
+                    output.flush();
+                    return;
+                }
+            }
+        }
+
+        // Get or create session (will update last active time)
+        DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
+
+        // For GT06, update session with serial number
+        if (PROTOCOL_GT06.equals(protocol)) {
+            short serialNumber = extractSerialNumber(message);
+            session.updateSerialNumber(serialNumber);
+        }
+
+        // Send response
         byte[] response = (byte[]) message.getParsedData().get("response");
         if (response != null) {
             output.write(response);
             output.flush();
-            logger.info("Sent login response to {}", message.getImei());
+            logger.info("Sent login response to {}", imei);
+        } else {
+            logger.warn("No login response generated for IMEI {}", imei);
         }
     }
 
-    private void handleGpsMessage(DeviceMessage message, Socket socket, OutputStream output)
-            throws IOException {
+    private void handleGpsMessage(DeviceMessage message, Socket socket, OutputStream output) throws IOException {
+        String imei = message.getImei();
+
         // Send acknowledgment
         byte[] response = (byte[]) message.getParsedData().get("response");
         if (response != null) {
@@ -429,9 +462,37 @@ public class GpsServer {
         // Process position data
         Position position = (Position) message.getParsedData().get("position");
         if (position != null) {
+            // For GT06, check sequence number
+            if (PROTOCOL_GT06.equals(message.getProtocol())) {
+                short sequenceNumber = extractSequenceNumber(message);
+                Optional<DeviceSession> sessionOpt = sessionManager.getSession(imei);
+                if (sessionOpt.isPresent()) {
+                    DeviceSession session = sessionOpt.get();
+                    if (session.isExpired()) {
+                        logger.debug("Session expired for IMEI {}", imei);
+                        return;
+                    }
+                    if (!session.updateSequenceNumber(sequenceNumber)) {
+                        logger.debug("Duplicate GPS packet from IMEI {} - ignoring", imei);
+                        return;
+                    }
+                }
+            }
+
             positionService.processAndSavePosition(position);
-            logger.info("Processed GPS data for device {}", message.getImei());
+            logger.info("Processed GPS data for device {}", imei);
         }
+    }
+
+    private short extractSerialNumber(DeviceMessage message) {
+        // Extract serial number from message or use default
+        Object serialObj = message.getParsedData().get("serialNumber");
+        return serialObj instanceof Short ? (short)serialObj : 0;
+    }
+
+    private short extractSequenceNumber(DeviceMessage message) {
+        Object seqObj = message.getParsedData().get("sequenceNumber");
+        return seqObj instanceof Short ? (short)seqObj : 0;
     }
 
     private void handleHeartbeatMessage(DeviceMessage message, Socket socket, OutputStream output)
@@ -459,6 +520,19 @@ public class GpsServer {
             positionService.processAndSavePosition(position);
             logger.warn("Processed ALARM for device {}: {}",
                     message.getImei(), position.getAlarmType());
+        }
+    }
+
+    private void cleanupConnection(Socket clientSocket) {
+        if (clientSocket != null && !clientSocket.isClosed()) {
+            try {
+                String clientAddress = clientSocket.getInetAddress().getHostAddress();
+                connectionInfoMap.remove(clientAddress);
+                clientSocket.close();
+                logger.info("Closed connection for {}", clientSocket.getRemoteSocketAddress());
+            } catch (IOException e) {
+                logger.warn("Error closing socket", e);
+            }
         }
     }
 
@@ -502,18 +576,20 @@ public class GpsServer {
     private void handleGt06Protocol(Socket clientSocket, DeviceMessage message,
                                     DeviceSession session, OutputStream output) {
         try {
+            // Get or generate response
             byte[] response = (byte[]) message.getParsedData().get("response");
+            if (response == null && "LOGIN".equals(message.getMessageType())) {
+                // Generate login response if missing (matches Gt06Handler behavior)
+                short serialNumber = extractSerialNumber(message);
+                response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                message.getParsedData().put("response", response);
+            }
+
             if (response != null && response.length > 0) {
                 output.write(response);
                 output.flush();
-                logger.info("Sent GT06 response to {}: {}",
+                logger.debug("Sent GT06 response to {}: {}",
                         session.getImei(), bytesToHex(response));
-            } else {
-                logger.warn("No GT06 response generated for {}", session.getImei());
-                // Fallback response if none was generated
-                byte[] fallbackResponse = generateGt06FallbackResponse(message);
-                output.write(fallbackResponse);
-                output.flush();
             }
         } catch (IOException e) {
             logger.error("Failed to send GT06 response to {}", session.getImei(), e);
@@ -839,21 +915,12 @@ public class GpsServer {
             String packetType = detection.getPacketType();
             String version = detection.getVersion();
 
-            logger.debug("Detected protocol: {} (Type: {}, Version: {})",
+            logger.info("Detected protocol: {} (Type: {}, Version: {})",
                     protocol, packetType, version);
 
             // Explicit GT06 handling
-            if ("GT06".equals(detection.getProtocol())) {
-                message = gt06Handler.handle(data);
-
-                // For login packets, ensure we have a response
-                if ("LOGIN".equals(detection.getPacketType()) &&
-                        message.getParsedData().get("response") == null) {
-                    short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
-                    message.getParsedData().put("response",
-                            gt06Handler.generateLoginResponse(serialNumber));
-                }
-                return message;
+            if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+                return handleGt06Message(data);
             }
 
 
@@ -875,7 +942,63 @@ public class GpsServer {
         }
     }
 
-    private DeviceMessage handleGt06Login(byte[] data) {
+    private boolean isGt06Packet(byte[] data) {
+        return data.length >= 2 &&
+                data[0] == PROTOCOL_HEADER_1 &&
+                data[1] == PROTOCOL_HEADER_2;
+    }
+
+    private DeviceMessage handleGt06Message(byte[] data) {
+        try {
+            DeviceMessage message = gt06Handler.handle(data);
+
+            // Special handling for login packets
+            if ("LOGIN".equals(message.getMessageType())) {
+                // Check for duplicate login
+                Optional<DeviceSession> sessionOpt = sessionManager.getSession(message.getImei());
+                short serialNumber = extractSerialNumber(message); // Changed from extractSerialNumberFromData
+
+                if (sessionOpt.isPresent()) {
+                    DeviceSession session = sessionOpt.get();
+                    if (session.isDuplicateSerialNumber(serialNumber)) { // Changed from isDuplicateLogin
+                        logger.warn("Duplicate GT06 login from IMEI: {}", message.getImei());
+                        // Still respond to prevent device retries
+                        byte[] response = generateStandardGt06Response( // Changed from generateLoginResponse
+                                PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                        message.getParsedData().put("response", response);
+                    }
+                }
+            }
+
+            return message;
+        } catch (Exception e) {
+            logger.error("GT06 processing error", e);
+            return createErrorResponse("GT06_ERROR", e.getMessage());
+        }
+    }
+
+    private byte[] generateStandardGt06Response(byte protocol, short serialNumber, byte status) {
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05; // Length
+        response[3] = protocol;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber);
+        response[6] = status;
+
+        // Calculate checksum
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        response[7] = (byte)(checksum >> 8);
+        response[8] = (byte)(checksum);
+        response[9] = 0x0A;
+
+        return response;
+    }
+
+    /*private DeviceMessage handleGt06Login(byte[] data) {
         try {
             DeviceMessage message = gt06Handler.handle(data);
             if (message == null) {
@@ -895,7 +1018,7 @@ public class GpsServer {
             logger.error("GT06 login processing failed", e);
             return createErrorResponse("GT06_LOGIN_ERROR", e.getMessage());
         }
-    }
+    }*/
 
     /*private DeviceMessage handleTeltonikaImei(byte[] data) {
         try {
