@@ -1,5 +1,6 @@
 package com.assettrack.iot;
 
+import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.security.AuthService;
 import com.assettrack.iot.security.PayloadValidator;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -22,5 +23,10 @@ public class TestConfig {
     @Bean
     public PayloadValidator payloadValidator() {
         return new PayloadValidator(); // or mock if appropriate
+    }
+
+    @Bean
+    public AcknowledgementHandler acknowledgementHandler() {
+        return new AcknowledgementHandler();
     }
 }

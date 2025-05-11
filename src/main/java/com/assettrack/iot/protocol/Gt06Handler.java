@@ -1,12 +1,14 @@
 package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.config.Checksum;
+import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -37,6 +39,20 @@ public class Gt06Handler implements ProtocolHandler {
     private String lastValidImei;
 
     private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
+
+    @Autowired
+    private AcknowledgementHandler acknowledgementHandler;
+    /*
+
+    private final ConnectionManager connectionManager;
+    private final AcknowledgementHandler acknowledgementHandler;
+
+    public Gt06Handler(ConnectionManager connectionManager, AcknowledgementHandler acknowledgementHandler) {
+        this.connectionManager = connectionManager;
+        this.acknowledgementHandler = acknowledgementHandler;
+    }
+
+     */
 
     private static class DeviceSession {
         private final String imei;
@@ -79,6 +95,9 @@ public class Gt06Handler implements ProtocolHandler {
 
             logger.debug("Processing protocol: 0x{}, length: {}",
                     String.format("%02X", protocol), length);
+
+            // Notify acknowledgement handler of received packet
+            acknowledgementHandler.write(null, new AcknowledgementHandler.EventReceived(), null);
 
             switch (protocol) {
                 case PROTOCOL_LOGIN:
@@ -146,6 +165,7 @@ public class Gt06Handler implements ProtocolHandler {
             byte[] imeiBytes = new byte[8];
             buffer.get(imeiBytes);
             String imei = extractImei(imeiBytes);
+            lastValidImei = imei;
 
             logger.info("Login request from IMEI: {}", imei);
             logger.debug("IMEI bytes: {}", bytesToHex(imeiBytes));
@@ -170,6 +190,9 @@ public class Gt06Handler implements ProtocolHandler {
             byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
             logger.debug("Login response: {}", bytesToHex(response));
+
+            // Notify acknowledgement handler of successful login
+            acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
             message.setImei(imei);
             message.setMessageType("LOGIN");
@@ -278,14 +301,19 @@ public class Gt06Handler implements ProtocolHandler {
         return "GT06".equalsIgnoreCase(protocol);
     }
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
-            throws ProtocolException {
+            throws Exception {
         if (lastValidImei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
         Position position = parseGpsData(buffer);
         parsedData.put("position", position);
-        parsedData.put("response", generateGpsResponse());
+
+        byte[] response = generateGpsResponse();
+        parsedData.put("response", response);
+
+        // Notify acknowledgement handler of GPS data
+        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
         message.setImei(lastValidImei);
         message.setMessageType("GPS");
@@ -339,7 +367,7 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private DeviceMessage handleHeartbeat(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
-            throws ProtocolException {
+            throws Exception {
         if (lastValidImei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
         }
@@ -347,10 +375,14 @@ public class Gt06Handler implements ProtocolHandler {
         byte[] response = generateHeartbeatResponse();
         parsedData.put("response", response);
 
+        // Notify acknowledgement handler of heartbeat
+        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
+
         message.setImei(lastValidImei);
         message.setMessageType("HEARTBEAT");
         return message;
     }
+
 
     private byte[] generateHeartbeatResponse() {
         return new byte[] {
@@ -362,7 +394,7 @@ public class Gt06Handler implements ProtocolHandler {
     }
 
     private DeviceMessage handleAlarm(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
-            throws ProtocolException {
+            throws Exception {
         if (lastValidImei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
         }
@@ -373,6 +405,9 @@ public class Gt06Handler implements ProtocolHandler {
         byte[] response = generateAlarmResponse();
         parsedData.put("response", response);
         parsedData.put("position", position);
+
+        // Notify acknowledgement handler of alarm
+        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
         message.setImei(lastValidImei);
         message.setMessageType("ALARM");

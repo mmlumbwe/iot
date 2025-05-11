@@ -1,5 +1,6 @@
 package com.assettrack.iot.config;
 
+import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import com.assettrack.iot.repository.PositionRepository;
@@ -74,4 +75,9 @@ public class AppConfig {
                 })
                 .build();
     }
+    @Bean
+    public AcknowledgementHandler acknowledgementHandler() {
+        return new AcknowledgementHandler();
+    }
+
 }
