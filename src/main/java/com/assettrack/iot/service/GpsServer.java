@@ -211,59 +211,47 @@ public class GpsServer {
     @Async
     protected void startTcpServer() {
         logger.info("Starting TCP server on port {}", tcpPort);
-        try {
-            tcpServerSocket = new ServerSocket(tcpPort);
-            tcpServerSocket.setSoTimeout(SOCKET_TIMEOUT);
-            logger.info("TCP server successfully bound to port {}", tcpPort);
+        try (ServerSocket serverSocket = new ServerSocket(tcpPort)) {
+            serverSocket.setReuseAddress(true);
+            serverSocket.setSoTimeout(SOCKET_TIMEOUT);
 
             while (running.get()) {
                 try {
-                    logger.debug("Waiting for TCP connection...");
-                    Socket clientSocket = tcpServerSocket.accept();
+                    Socket clientSocket = serverSocket.accept();
+                    configureClientSocket(clientSocket);
 
-                    if (activeConnections.size() >= maxConnections) {
-                        logger.warn("Max connections reached ({}), rejecting new connection from {}",
-                                maxConnections, clientSocket.getInetAddress().getHostAddress());
+                    if (shouldAcceptConnection(clientSocket)) {
+                        threadPool.execute(() -> handleTcpClient(clientSocket));
+                    } else {
                         clientSocket.close();
-                        continue;
                     }
-
-                    String clientIp = clientSocket.getInetAddress().getHostAddress();
-                    if (blacklistedIps.contains(clientIp)) {
-                        logger.warn("Rejecting connection from blacklisted IP: {}", clientIp);
-                        clientSocket.close();
-                        continue;
-                    }
-                    clientSocket.setKeepAlive(true);
-                    clientSocket.setTcpNoDelay(true);
-
-                    clientSocket.setSoTimeout(SOCKET_TIMEOUT);
-                    logger.info("New TCP connection from {}:{}",
-                            clientIp,
-                            clientSocket.getPort());
-
-                    threadPool.execute(() -> handleTcpClient(clientSocket));
                 } catch (SocketTimeoutException e) {
-                    logger.trace("TCP accept timeout (normal operation)");
+                    // Normal during operation
                 } catch (IOException e) {
-                    logger.error("TCP Server error", e);
-                    if (!running.get()) {
-                        logger.info("TCP server stopping due to shutdown request");
-                        break;
-                    }
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ie) {
-                        logger.warn("TCP server recovery sleep interrupted", ie);
-                        Thread.currentThread().interrupt();
-                    }
+                    logger.error("Accept error", e);
                 }
             }
         } catch (IOException e) {
-            logger.error("Failed to start TCP server on port {}", tcpPort, e);
-        } finally {
-            logger.info("TCP server on port {} has stopped", tcpPort);
+            logger.error("Server failed", e);
         }
+    }
+
+    private void configureClientSocket(Socket socket) throws SocketException {
+        socket.setKeepAlive(true);
+        socket.setTcpNoDelay(true);
+        socket.setSoTimeout(SOCKET_TIMEOUT);
+
+        // For Java 11+
+        try {
+            socket.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
+        } catch (UnsupportedOperationException ignored) {} catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private boolean shouldAcceptConnection(Socket socket) {
+        // Your connection validation logic
+        return true;
     }
 
     @Async
@@ -414,38 +402,37 @@ public class GpsServer {
 
         String protocol = message.getProtocol();
         SocketAddress remoteAddress = socket.getRemoteSocketAddress();
-        byte[] response = (byte[]) message.getParsedData().get("response");
+        //byte[] response = (byte[]) message.getParsedData().get("response");
 
         try {
             // Special handling for GT06 protocol
             if (PROTOCOL_GT06.equals(protocol)) {
                 short serialNumber = extractSerialNumber(message);
+                DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, socket.getRemoteSocketAddress());
 
-                // Get or create session (will update last active time)
-                DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
-
-                // Check for potential duplicate login (same serial number within short timeframe)
-                if (session.isDuplicateSerialNumber(serialNumber) &&
-                        !session.isExpired()) {
-                    logger.warn("Possible duplicate GT06 login from IMEI {} with serial {} - sending response anyway",
-                            imei, serialNumber);
-
-                    // Use provided response or generate standard one
-                    if (response == null) {
-                        response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
-                        logger.debug("Generated standard login response for possible duplicate");
-                    }
-                } else {
-                    // New or valid reconnection - update session
-                    session.updateSerialNumber(serialNumber);
-                    session.setConnected(true);
-
-                    if (response == null) {
-                        response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
-                        logger.debug("Generated new login response");
-                    }
+                // Check if this is a valid reconnection
+                if (!session.shouldReconnect(serialNumber)) {
+                    logger.debug("Duplicate login from IMEI {}, sending keepalive response", imei);
+                    byte[] response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                    output.write(response);
+                    output.flush();
+                    return;
                 }
+
+                // Handle new connection
+                session.updateSerialNumber(serialNumber);
+                session.setConnected(true);
+
+                byte[] response = (byte[]) message.getParsedData().get("response");
+                if (response == null) {
+                    response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                }
+
+                output.write(response);
+                output.flush();
             }
+
+            byte[] response = (byte[]) message.getParsedData().get("response");
 
             // Send response if available (for all protocols)
             if (response != null && response.length > 0) {

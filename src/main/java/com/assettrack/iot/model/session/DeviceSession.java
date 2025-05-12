@@ -268,4 +268,9 @@ public class DeviceSession {
         }
         this.lastActiveTime = Instant.now();
     }
+
+    public synchronized boolean shouldReconnect(short serialNumber) {
+        // Allow reconnect if different serial or expired session
+        return this.lastSerialNumber != serialNumber || isExpired();
+    }
 }

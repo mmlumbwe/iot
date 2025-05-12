@@ -106,14 +106,20 @@ public class Gt06Handler implements ProtocolHandler {
         }
 
         public synchronized boolean isExpired() {
-            return System.currentTimeMillis() > lastActivityTime + SESSION_TIMEOUT_MS;
+            return System.currentTimeMillis() > lastActivityTime +
+                    (connected ? 300000 : 60000); // 5 min if connected, 1 min if not
         }
 
         public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
-            // Only consider it a duplicate if same serial AND recent activity
+            // Only consider duplicate if same serial AND recent (within 5 seconds)
             return this.lastSerialNumber == serialNumber &&
-                    !isExpired() &&
-                    (System.currentTimeMillis() - lastActivityTime < 10000);
+                    (System.currentTimeMillis() - lastActivityTime < 5000);
+        }
+
+        // Add this new method
+        public synchronized boolean shouldReconnect(short serialNumber) {
+            // Allow reconnect if different serial or expired session
+            return this.lastSerialNumber != serialNumber || isExpired();
         }
 
         public synchronized boolean updateSequenceNumber(int newSequence) {
