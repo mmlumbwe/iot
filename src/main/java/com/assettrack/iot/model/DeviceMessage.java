@@ -19,7 +19,7 @@ public class DeviceMessage {
     private String imei;
     private byte[] rawData;
     private String error;
-    private Map<String, Object> parsedData;
+    private Map<String, Object> parsedData = new HashMap<>();;
     private LocalDateTime timestamp;
     private int signalStrength;
     private int batteryLevel;

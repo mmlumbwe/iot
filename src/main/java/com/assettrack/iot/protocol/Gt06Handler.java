@@ -16,8 +16,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -49,28 +47,37 @@ public class Gt06Handler implements ProtocolHandler {
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
 
-    public class DeviceSession {
+    public static class DeviceSession {
         private final String imei;
         private volatile short lastSerialNumber;
-        private volatile Instant lastActivityTime;
-        private static final Duration SESSION_TIMEOUT = Duration.ofMinutes(2);
+        private volatile long lastActivityTime;
+        private volatile int sequenceNumber;
 
         public DeviceSession(String imei, short serialNumber) {
             this.imei = imei;
             this.lastSerialNumber = serialNumber;
-            this.lastActivityTime = Instant.now();
+            this.lastActivityTime = System.currentTimeMillis();
+            this.sequenceNumber = 0;
         }
 
         public synchronized void updateLastActive() {
-            this.lastActivityTime = Instant.now();
+            this.lastActivityTime = System.currentTimeMillis();
         }
 
         public synchronized boolean isExpired() {
-            return Instant.now().isAfter(lastActivityTime.plus(SESSION_TIMEOUT));
+            return System.currentTimeMillis() > lastActivityTime + SESSION_TIMEOUT_MS;
         }
 
         public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
             return this.lastSerialNumber == serialNumber && !isExpired();
+        }
+
+        public synchronized boolean updateSequenceNumber(int newSequence) {
+            if (newSequence > sequenceNumber) {
+                sequenceNumber = newSequence;
+                return true;
+            }
+            return false;
         }
 
         // Getters
@@ -171,7 +178,6 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
-        OutputStream output = null; // Initialize outside try to access in finally
         try {
             // Extract IMEI (8 bytes after message type)
             byte[] imeiBytes = new byte[8];
@@ -205,20 +211,10 @@ public class Gt06Handler implements ProtocolHandler {
                 logger.debug("Initial session created for IMEI {}", imei);
             }
 
-            // Generate standard GT06 login response (78 78 05 01 [serial] [CRC] 0D 0A)
-            byte[] response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x00);
+            // Generate standard GT06 login response
+            byte[] response = generateLoginResponse(serialNumber);
             parsedData.put("response", response);
             logger.debug("Generated login response: {}", bytesToHex(response));
-
-            // Get output stream (assuming message has connection context)
-            if (message.getChannel() != null) {
-                output = message.getChannel().getOutputStream();
-                output.write(response);
-                output.flush();
-                logger.info("Login response sent to {}", imei);
-            } else {
-                logger.error("No output channel available for IMEI {}", imei);
-            }
 
             // Update session activity
             session.updateLastActive();
@@ -232,71 +228,7 @@ public class Gt06Handler implements ProtocolHandler {
         } catch (Exception e) {
             logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
             throw new ProtocolException("Login processing failed: " + e.getMessage());
-        } finally {
-            if (output != null) {
-                try {
-                    output.close();
-                } catch (IOException e) {
-                    logger.warn("Failed to close output stream: {}", e.getMessage());
-                }
-            }
         }
-    }
-
-    public static byte[] generateStandardGt06Response(byte protocol, short serialNumber, byte status) {
-        byte[] response = new byte[10];
-
-        // Header (78 78)
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-
-        // Length (fixed 0x05 for standard responses)
-        response[2] = 0x05;
-
-        // Protocol (command type)
-        response[3] = protocol;
-
-        // Serial number (big-endian)
-        response[4] = (byte) (serialNumber >> 8);
-        response[5] = (byte) serialNumber;
-
-        // Status (if applicable, otherwise ignored in standard GT06)
-        response[6] = status;
-
-        // Calculate CRC-16 (XModem) from bytes [2] to [6]
-        int checksum = calculateCrc16XModem(response, 2, 5);
-
-        // Append checksum (little-endian)
-        response[7] = (byte) (checksum & 0xFF);  // LSB first
-        response[8] = (byte) (checksum >> 8);    // MSB second
-
-        // Footer (0D 0A)
-        response[9] = PROTOCOL_FOOTER;  // Note: GT06 typically ends with 0x0D 0x0A
-
-        return response;
-    }
-
-    /**
-     * Calculates CRC-16 (XModem) checksum for GT06 protocol.
-     *
-     * @param data   The byte array containing the data.
-     * @param offset The starting offset.
-     * @param length The number of bytes to process.
-     * @return The calculated CRC-16 value.
-     */
-    private static int calculateCrc16XModem(byte[] data, int offset, int length) {
-        int crc = 0x0000;  // Initial value for XModem CRC
-        for (int i = offset; i < offset + length; i++) {
-            crc ^= (data[i] & 0xFF) << 8;
-            for (int j = 0; j < 8; j++) {
-                if ((crc & 0x8000) != 0) {
-                    crc = (crc << 1) ^ 0x1021;  // XModem polynomial
-                } else {
-                    crc <<= 1;
-                }
-            }
-        }
-        return crc & 0xFFFF;
     }
 
     private byte[] generateLoginResponse(short serialNumber) {
@@ -339,70 +271,6 @@ public class Gt06Handler implements ProtocolHandler {
         }
 
         return imeiStr;
-    }
-
-    private byte[] generateStandardResponse(byte protocol, short serialNumber, byte status) {
-        byte[] response = new byte[10];
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05; // Length
-        response[3] = protocol;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber);
-        response[6] = status;
-
-        // Calculate checksum
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-        response[7] = (byte)(checksum >> 8);
-        response[8] = (byte)(checksum);
-        response[9] = 0x0A;
-
-        return response;
-    }
-
-    private byte[] generateErrorResponse(Exception error) {
-        byte errorCode = getErrorCode(error);
-        return generateStandardResponse(PROTOCOL_ERROR, (short)0, errorCode);
-    }
-
-    private byte getErrorCode(Exception error) {
-        String message = error.getMessage();
-        if (message.contains("IMEI")) return 0x01;
-        if (message.contains("checksum")) return 0x02;
-        if (message.contains("header")) return 0x03;
-        if (message.contains("length")) return 0x04;
-        return (byte)0xFF;
-    }
-
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X ", b));
-        }
-        return sb.toString().trim();
-    }
-
-    @Scheduled(fixedRate = 60000) // Cleanup every minute
-    public void cleanupExpiredSessions() {
-        activeSessions.entrySet().removeIf(entry -> {
-            if (entry.getValue().isExpired()) {
-                logger.debug("Removing expired session for IMEI: {}", entry.getKey());
-                return true;
-            }
-            return false;
-        });
-    }
-
-    @Override
-    public boolean supports(String protocolType) {
-        return "GT06".equalsIgnoreCase(protocolType);
-    }
-
-    @Override
-    public boolean canHandle(String protocol, String version) {
-        return "GT06".equalsIgnoreCase(protocol);
     }
 
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
@@ -516,6 +384,70 @@ public class Gt06Handler implements ProtocolHandler {
             case 0x10: return "POWER_ON";
             default: return "UNKNOWN_ALARM_" + alarmType;
         }
+    }
+
+    private byte[] generateStandardResponse(byte protocol, short serialNumber, byte status) {
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05; // Length
+        response[3] = protocol;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber);
+        response[6] = status;
+
+        // Calculate checksum
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        response[7] = (byte)(checksum >> 8);
+        response[8] = (byte)(checksum);
+        response[9] = 0x0A;
+
+        return response;
+    }
+
+    private byte[] generateErrorResponse(Exception error) {
+        byte errorCode = getErrorCode(error);
+        return generateStandardResponse(PROTOCOL_ERROR, (short)0, errorCode);
+    }
+
+    private byte getErrorCode(Exception error) {
+        String message = error.getMessage();
+        if (message.contains("IMEI")) return 0x01;
+        if (message.contains("checksum")) return 0x02;
+        if (message.contains("header")) return 0x03;
+        if (message.contains("length")) return 0x04;
+        return (byte)0xFF;
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+
+    @Scheduled(fixedRate = 60000) // Cleanup every minute
+    public void cleanupExpiredSessions() {
+        activeSessions.entrySet().removeIf(entry -> {
+            if (entry.getValue().isExpired()) {
+                logger.debug("Removing expired session for IMEI: {}", entry.getKey());
+                return true;
+            }
+            return false;
+        });
+    }
+
+    @Override
+    public boolean supports(String protocolType) {
+        return "GT06".equalsIgnoreCase(protocolType);
+    }
+
+    @Override
+    public boolean canHandle(String protocol, String version) {
+        return "GT06".equalsIgnoreCase(protocol);
     }
 
     @Override
