@@ -12,8 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
@@ -43,6 +41,27 @@ public class Gt06Handler implements ProtocolHandler {
 
     private final AtomicReference<String> lastValidImei = new AtomicReference<>();
     private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
+
+    // Add VL03-specific constants
+    private static final byte VL03_PROTOCOL_EXTENDED = 0x26; // Example VL03-specific message type
+    private static final byte VL03_ALARM_TYPE = (byte) 0xA2; // VL03-specific alarm code
+
+    // Add variant detection
+    private enum Variant {
+        STANDARD,
+        VL03,
+        UNKNOWN
+    }
+
+    private Variant detectVariant(ByteBuffer buffer) {
+        if (buffer.remaining() > 10) {
+            byte protocol = buffer.get(buffer.position() + 3); // Protocol byte position
+            if (protocol == VL03_PROTOCOL_EXTENDED) {
+                return Variant.VL03;
+            }
+        }
+        return Variant.STANDARD;
+    }
 
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
@@ -109,11 +128,16 @@ public class Gt06Handler implements ProtocolHandler {
             // Notify acknowledgement handler of received packet
             acknowledgementHandler.write(null, new AcknowledgementHandler.EventReceived(), null);
 
+            Variant variant = detectVariant(ByteBuffer.wrap(data));
+            logger.info("Detected device variant: {}", variant);
+
             switch (protocol) {
                 case PROTOCOL_LOGIN:
                     return handleLogin(buffer, message, parsedData);
                 case PROTOCOL_GPS:
                     return handleGps(buffer, message, parsedData);
+                case VL03_PROTOCOL_EXTENDED: // VL03-specific handling
+                    return handleVl03Extended(buffer, message, parsedData);
                 case PROTOCOL_HEARTBEAT:
                     return handleHeartbeat(buffer, message, parsedData);
                 case PROTOCOL_ALARM:
@@ -192,6 +216,18 @@ public class Gt06Handler implements ProtocolHandler {
             short serialNumber = buffer.getShort();
             logger.debug("Serial number: {}", serialNumber);
 
+            Variant variant = detectVariant(buffer.duplicate()); // Safe clone
+
+            // VL03-specific additions
+            byte vl03Extension = 0;
+            if (variant == Variant.VL03) {
+                if (buffer.remaining() >= 1) {
+                    vl03Extension = buffer.get();
+                    parsedData.put("vl03Extension", vl03Extension);
+                    logger.debug("VL03 extension byte: 0x{}", String.format("%02X", vl03Extension));
+                }
+            }
+
             // Handle session management
             DeviceSession existingSession = activeSessions.get(imei);
             DeviceSession session;
@@ -211,8 +247,14 @@ public class Gt06Handler implements ProtocolHandler {
                 logger.debug("Initial session created for IMEI {}", imei);
             }
 
-            // Generate standard GT06 login response
-            byte[] response = generateLoginResponse(serialNumber);
+            // Generate appropriate response based on variant
+            byte[] response;
+            if (variant == Variant.VL03) {
+                response = generateVl03LoginResponse(serialNumber, vl03Extension);
+            } else {
+                response = generateStandardLoginResponse(serialNumber);
+            }
+
             parsedData.put("response", response);
             logger.debug("Generated login response: {}", bytesToHex(response));
 
@@ -224,11 +266,70 @@ public class Gt06Handler implements ProtocolHandler {
 
             message.setImei(imei);
             message.setMessageType("LOGIN");
+            message.getParsedData().put("variant", variant.name());
             return message;
         } catch (Exception e) {
             logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
             throw new ProtocolException("Login processing failed: " + e.getMessage());
         }
+    }
+
+    private byte[] generateVl03LoginResponse(short serialNumber, byte extension) {
+        // VL03 requires a 14-byte login response
+        byte[] response = new byte[14];
+
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+
+        // Length (0x0B = 11 bytes after length)
+        response[2] = 0x0B;
+
+        // Protocol type (login response)
+        response[3] = PROTOCOL_LOGIN;
+
+        // Serial number
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber & 0xFF);
+
+        // VL03-specific fields
+        response[6] = 0x01;  // Login success
+        response[7] = extension;  // Echo back the extension byte
+        response[8] = 0x00;  // Reserved
+        response[9] = 0x00;  // Reserved
+        response[10] = 0x00; // Reserved
+
+        // Calculate checksum (bytes 2-10)
+        int checksum = Checksum.crc16(Checksum.CRC16_X25,
+                ByteBuffer.wrap(response, 2, 9));
+
+        response[11] = (byte)(checksum >> 8);
+        response[12] = (byte)(checksum & 0xFF);
+        response[13] = 0x0D;  // Footer
+        response[14] = 0x0A;
+
+        return response;
+    }
+
+    private byte[] generateStandardLoginResponse(short serialNumber) {
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05; // Length
+        response[3] = PROTOCOL_LOGIN;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber);
+        response[6] = 0x01; // Success status
+
+        // Calculate checksum
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        response[7] = (byte)(checksum >> 8);
+        response[8] = (byte)(checksum);
+        response[9] = 0x0A; // Termination byte
+
+        return response;
     }
 
     private byte[] generateLoginResponse(short serialNumber) {
@@ -371,7 +472,7 @@ public class Gt06Handler implements ProtocolHandler {
         return message;
     }
 
-    private String extractAlarmType(ByteBuffer buffer) {
+    /*private String extractAlarmType(ByteBuffer buffer) {
         int alarmType = buffer.get() & 0xFF;
         switch (alarmType) {
             case 0x01: return "SOS";
@@ -384,7 +485,7 @@ public class Gt06Handler implements ProtocolHandler {
             case 0x10: return "POWER_ON";
             default: return "UNKNOWN_ALARM_" + alarmType;
         }
-    }
+    }*/
 
     private byte[] generateStandardResponse(byte protocol, short serialNumber, byte status) {
         byte[] response = new byte[10];
@@ -476,5 +577,264 @@ public class Gt06Handler implements ProtocolHandler {
     @Override
     public byte[] generateResponse(Position position) {
         return generateStandardResponse(PROTOCOL_LOGIN, (short)0, (byte)0x01);
+    }
+
+    private DeviceMessage handleVl03Extended(ByteBuffer buffer,
+                                             DeviceMessage message,
+                                             Map<String, Object> parsedData) {
+        String imei = lastValidImei.get();
+        if (imei == null) {
+            throw new ProtocolException("No valid IMEI for VL03 extended message");
+        }
+
+        // Parse VL03-specific extended data format
+        int extensionType = buffer.get() & 0xFF;
+        Position position = new Position();
+
+        switch (extensionType) {
+            case 0x01:
+                // VL03 extended location report
+                position = parseVl03GpsData(buffer);
+                break;
+            case 0x02:
+                // VL03 sensor data
+                position = parseVl03SensorData(buffer);
+                break;
+            default:
+                throw new ProtocolException("Unknown VL03 extension type: " + extensionType);
+        }
+
+        byte[] response = generateVl03Response(extensionType);
+        parsedData.put("response", response);
+        parsedData.put("position", position);
+
+        message.setImei(imei);
+        message.setMessageType("VL03_EXTENDED");
+        return message;
+    }
+
+    private Position parseVl03GpsData(ByteBuffer buffer) {
+        Position position = parseGpsData(buffer); // Start with standard parsing
+
+        // VL03-specific additions
+        //position.set("vl03Hdop", buffer.get() & 0xFF); // Example extra field
+        //position.set("vl03Voltage", buffer.getShort() / 1000.0);
+
+        return position;
+    }
+
+    private byte[] generateVl03Response(int extensionType) {
+        ByteBuffer buf = ByteBuffer.allocate(12)
+                .put(PROTOCOL_HEADER_1)
+                .put(PROTOCOL_HEADER_2)
+                .put((byte)0x07) // Length
+                .put(VL03_PROTOCOL_EXTENDED)
+                .put((byte)extensionType)
+                .putShort((short)0x0000); // Placeholder for serial
+
+        // Calculate checksum
+        byte[] data = buf.array();
+        int checksum = Checksum.crc16(Checksum.CRC16_X25,
+                ByteBuffer.wrap(data, 2, 5));
+
+        return ByteBuffer.allocate(12)
+                .put(data, 0, 8)
+                .putShort((short)checksum)
+                .put((byte)0x0D)
+                .put((byte)0x0A)
+                .array();
+    }
+
+    // Modified alarm handler for VL03
+    private DeviceMessage handleAlarm(ByteBuffer buffer, DeviceMessage message,
+                                      Map<String, Object> parsedData, Variant variant) {
+        String imei = lastValidImei.get();
+        if (imei == null) {
+            throw new ProtocolException("No valid IMEI from previous login");
+        }
+
+        Position position = parseGpsData(buffer);
+
+        // VL03-specific alarm handling
+        if (variant == Variant.VL03) {
+            int alarmCode = buffer.get() & 0xFF;
+            position.setAlarmType(translateVl03Alarm(alarmCode));
+
+            // VL03 sends additional alarm info
+            if (alarmCode == VL03_ALARM_TYPE) {
+                //position.set("alarmDetail", buffer.getShort());
+            }
+        } else {
+            position.setAlarmType(extractAlarmType(buffer));
+        }
+
+        byte[] response = variant == Variant.VL03 ?
+                generateVl03AlarmResponse() :
+                generateStandardResponse(PROTOCOL_ALARM, (short)0, (byte)0x01);
+
+        parsedData.put("response", response);
+        parsedData.put("position", position);
+
+        message.setImei(imei);
+        message.setMessageType("ALARM");
+        return message;
+    }
+
+    private String translateVl03Alarm(int code) {
+        // VL03-specific alarm codes
+        switch (code) {
+            case 0xA0: return "VL03_HARD_ACCELERATION";
+            case 0xA1: return "VL03_HARD_BRAKING";
+            case 0xA2: return "VL03_CRASH_DETECTION";
+            case 0xA3: return "VL03_TOW_ALARM";
+            case 0xA4: return "VL03_JAMMING_DETECTION";
+            case 0xA5: return "VL03_FATIGUE_DRIVING";
+            case 0xB0: return "VL03_ENGINE_ALARM";
+            case 0xC0: return "VL03_MAINTENANCE_ALERT";
+        }
+
+        // Standard GT06 alarm codes
+        switch (code) {
+            case 0x01: return "SOS";
+            case 0x02: return "POWER_CUT";
+            case 0x03: return "VIBRATION";
+            case 0x04: return "ENTER_GEOFENCE";
+            case 0x05: return "EXIT_GEOFENCE";
+            case 0x06: return "OVERSPEED";
+            case 0x09: return "LOW_BATTERY";
+            case 0x10: return "POWER_ON";
+            default: return String.format("UNKNOWN_ALARM_%02X", code);
+        }
+    }
+
+    private Position parseVl03SensorData(ByteBuffer buffer) throws ProtocolException {
+        Position position = new Position();
+        Device device = new Device();
+        device.setImei(lastValidImei.get());
+        device.setProtocolType("GT06-VL03");
+        position.setDevice(device);
+
+        // Parse standard timestamp (YY MM DD HH MM SS)
+        position.setTimestamp(LocalDateTime.of(
+                2000 + (buffer.get() & 0xFF), // year
+                buffer.get() & 0xFF,           // month
+                buffer.get() & 0xFF,           // day
+                buffer.get() & 0xFF,           // hour
+                buffer.get() & 0xFF,           // minute
+                buffer.get() & 0xFF            // second
+        ));
+
+        // VL03-specific sensor data format:
+        //position.set(Position.KEY_BATTERY, buffer.getShort() / 1000.0);  // Battery voltage in volts
+        //position.set(Position.KEY_POWER, buffer.getShort() / 1000.0);    // External power voltage
+
+        // Digital inputs (1 byte where each bit represents an input)
+        byte digitalInputs = buffer.get();
+        for (int i = 0; i < 8; i++) {
+            //position.set(Position.PREFIX_IN + (i + 1), BitUtil.check(digitalInputs, i));
+        }
+
+        // Analog inputs (4 channels)
+        for (int i = 0; i < 4; i++) {
+            //position.set(Position.PREFIX_ADC + (i + 1), buffer.getShort() / 100.0);
+        }
+
+        // Temperature sensors (2 channels)
+        //position.set(Position.PREFIX_TEMP + 1, buffer.getShort() / 10.0); // Sensor 1 in °C
+        //position.set(Position.PREFIX_TEMP + 2, buffer.getShort() / 10.0); // Sensor 2 in °C
+
+        // Additional VL03-specific fields
+        //position.set("fuelLevel", buffer.get() & 0xFF);       // 0-100%
+        //position.set("rpm", buffer.getShort() & 0xFFFF);      // Engine RPM
+        //position.set("odo", buffer.getInt() & 0xFFFFFFFFL);   // Odometer in meters
+
+        // Verify we have enough data for checksum
+        if (buffer.remaining() < 4) {
+            throw new ProtocolException("VL03 sensor data packet too short");
+        }
+
+        return position;
+    }
+
+    private byte[] generateVl03AlarmResponse() {
+        // VL03 requires a 14-byte response for alarm acknowledgments
+        byte[] response = new byte[14];
+
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+
+        // Length (0x0B = 11 bytes after length)
+        response[2] = 0x0B;
+
+        // Protocol type (alarm response)
+        response[3] = PROTOCOL_ALARM;
+
+        // VL03-specific fields
+        response[4] = 0x01;  // Acknowledgment code
+        response[5] = 0x00;  // Reserved
+        response[6] = 0x00;  // Reserved
+
+        // Timestamp (current server time)
+        LocalDateTime now = LocalDateTime.now();
+        response[7] = (byte)(now.getYear() - 2000);
+        response[8] = (byte)now.getMonthValue();
+        response[9] = (byte)now.getDayOfMonth();
+        response[10] = (byte)now.getHour();
+        response[11] = (byte)now.getMinute();
+        response[12] = (byte)now.getSecond();
+
+        // Calculate checksum (bytes 2-12)
+        int checksum = Checksum.crc16(Checksum.CRC16_X25,
+                ByteBuffer.wrap(response, 2, 11));
+
+        response[13] = (byte)(checksum >> 8);
+        response[14] = (byte)(checksum & 0xFF);
+        response[15] = 0x0D;  // Footer
+        response[16] = 0x0A;
+
+        return response;
+    }
+
+    private String extractAlarmType(ByteBuffer buffer) {
+        if (buffer.remaining() < 1) {
+            return "UNKNOWN";
+        }
+
+        int alarmType = buffer.get() & 0xFF;
+
+        // Common GT06 alarms
+        switch (alarmType) {
+            case 0x01: return "SOS";
+            case 0x02: return "POWER_CUT";
+            case 0x03: return "VIBRATION";
+            case 0x04: return "ENTER_GEOFENCE";
+            case 0x05: return "EXIT_GEOFENCE";
+            case 0x06: return "OVERSPEED";
+            case 0x09: return "LOW_BATTERY";
+            case 0x10: return "POWER_ON";
+
+            // VL03-specific alarms
+            case 0xA0: return "VL03_HARD_ACCELERATION";
+            case 0xA1: return "VL03_HARD_BRAKING";
+            case 0xA2: return "VL03_CRASH_DETECTION";
+            case 0xA3: return "VL03_TOW_ALARM";
+            case 0xA4: return "VL03_JAMMING_DETECTION";
+            case 0xA5: return "VL03_FATIGUE_DRIVING";
+
+            // Extended alarms with data payload
+            case 0xB0:
+                if (buffer.remaining() >= 2) {
+                    int subCode = buffer.getShort() & 0xFFFF;
+                    return String.format("VL03_ENGINE_ALARM_%04X", subCode);
+                }
+                return "VL03_ENGINE_ALARM";
+
+            case 0xC0:
+                return "VL03_MAINTENANCE_ALERT";
+
+            default:
+                return String.format("UNKNOWN_ALARM_%02X", alarmType);
+        }
     }
 }
