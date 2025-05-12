@@ -1,5 +1,7 @@
 package com.assettrack.iot.model;
 
+import java.net.Socket;
+import java.nio.channels.SocketChannel;
 import java.net.SocketAddress;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -22,6 +24,9 @@ public class DeviceMessage {
     private int signalStrength;
     private int batteryLevel;
     private SocketAddress remoteAddress;
+
+    private SocketChannel channel;  // Using SocketChannel for NIO support
+    private Socket socket;         // Traditional Socket backup
 
     // Standard message types
     public static final String TYPE_LOGIN = "LOGIN";
@@ -196,6 +201,42 @@ public class DeviceMessage {
 
     public SocketAddress getRemoteAddress() {
         return this.remoteAddress;
+    }
+
+    /**
+     * Gets the SocketChannel for NIO communication.
+     * Falls back to traditional Socket if NIO isn't available.
+     */
+    public Socket getChannel() {
+        if (this.channel != null && this.channel.isOpen()) {
+            return this.channel.socket();  // Extract Socket from SocketChannel
+        } else if (this.socket != null && !this.socket.isClosed()) {
+            return this.socket;
+        }
+        return null;
+    }
+
+    /**
+     * Gets the raw SocketChannel (NIO).
+     */
+    public SocketChannel getSocketChannel() {
+        return this.channel;
+    }
+
+    /**
+     * Sets the SocketChannel (NIO preferred).
+     */
+    public void setChannel(SocketChannel channel) {
+        this.channel = channel;
+        this.socket = null;  // Clear legacy socket
+    }
+
+    /**
+     * Sets a traditional Socket (fallback).
+     */
+    public void setSocket(Socket socket) {
+        this.socket = socket;
+        this.channel = null;  // Clear NIO channel
     }
 
     public static class Builder {

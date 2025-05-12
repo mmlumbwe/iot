@@ -12,8 +12,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -33,6 +37,7 @@ public class Gt06Handler implements ProtocolHandler {
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
     private static final byte PROTOCOL_ERROR = 0x7F;
+    private static final byte PROTOCOL_FOOTER = 0x0A;
 
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
@@ -44,24 +49,33 @@ public class Gt06Handler implements ProtocolHandler {
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
 
-    private static class DeviceSession {
+    public class DeviceSession {
         private final String imei;
-        private final short lastSerialNumber;
-        private long lastActivityTime;
+        private volatile short lastSerialNumber;
+        private volatile Instant lastActivityTime;
+        private static final Duration SESSION_TIMEOUT = Duration.ofMinutes(2);
 
         public DeviceSession(String imei, short serialNumber) {
             this.imei = imei;
             this.lastSerialNumber = serialNumber;
-            this.lastActivityTime = System.currentTimeMillis();
+            this.lastActivityTime = Instant.now();
         }
 
-        public void updateActivity() {
-            this.lastActivityTime = System.currentTimeMillis();
+        public synchronized void updateLastActive() {
+            this.lastActivityTime = Instant.now();
         }
 
-        public boolean isExpired() {
-            return System.currentTimeMillis() - lastActivityTime > SESSION_TIMEOUT_MS;
+        public synchronized boolean isExpired() {
+            return Instant.now().isAfter(lastActivityTime.plus(SESSION_TIMEOUT));
         }
+
+        public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
+            return this.lastSerialNumber == serialNumber && !isExpired();
+        }
+
+        // Getters
+        public String getImei() { return imei; }
+        public short getLastSerialNumber() { return lastSerialNumber; }
     }
 
     @Override
@@ -157,6 +171,7 @@ public class Gt06Handler implements ProtocolHandler {
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData)
             throws ProtocolException {
+        OutputStream output = null; // Initialize outside try to access in finally
         try {
             // Extract IMEI (8 bytes after message type)
             byte[] imeiBytes = new byte[8];
@@ -165,41 +180,144 @@ public class Gt06Handler implements ProtocolHandler {
             lastValidImei.set(imei);
 
             logger.info("Login request from IMEI: {}", imei);
-            logger.info("IMEI bytes: {}", bytesToHex(imeiBytes));
+            logger.debug("IMEI bytes: {}", bytesToHex(imeiBytes));
 
             // Extract serial number (2 bytes before checksum)
             short serialNumber = buffer.getShort();
-            logger.info("Serial number: {}", serialNumber);
+            logger.debug("Serial number: {}", serialNumber);
 
             // Handle session management
-            DeviceSession session = activeSessions.get(imei);
-            if (session != null) {
-                if (!session.isExpired() && session.lastSerialNumber == serialNumber) {
+            DeviceSession existingSession = activeSessions.get(imei);
+            DeviceSession session;
+
+            if (existingSession != null) {
+                if (!existingSession.isExpired() && existingSession.isDuplicateSerialNumber(serialNumber)) {
                     logger.warn("Duplicate login packet with same serial number from IMEI: {}", imei);
+                    session = existingSession;
                 } else {
-                    // Update existing session with new serial number
                     session = new DeviceSession(imei, serialNumber);
                     activeSessions.put(imei, session);
+                    logger.debug("Created new session for IMEI {} with serial {}", imei, serialNumber);
                 }
             } else {
-                // Create new session
-                activeSessions.put(imei, new DeviceSession(imei, serialNumber));
+                session = new DeviceSession(imei, serialNumber);
+                activeSessions.put(imei, session);
+                logger.debug("Initial session created for IMEI {}", imei);
             }
 
-            // Generate response
-            byte[] response = generateStandardResponse(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+            // Generate standard GT06 login response (78 78 05 01 [serial] [CRC] 0D 0A)
+            byte[] response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x00);
             parsedData.put("response", response);
-            logger.debug("Login response: {}", bytesToHex(response));
+            logger.debug("Generated login response: {}", bytesToHex(response));
 
-            // Notify acknowledgement handler of successful login
+            // Get output stream (assuming message has connection context)
+            if (message.getChannel() != null) {
+                output = message.getChannel().getOutputStream();
+                output.write(response);
+                output.flush();
+                logger.info("Login response sent to {}", imei);
+            } else {
+                logger.error("No output channel available for IMEI {}", imei);
+            }
+
+            // Update session activity
+            session.updateLastActive();
+
+            // Notify acknowledgement handler
             acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
             message.setImei(imei);
             message.setMessageType("LOGIN");
             return message;
         } catch (Exception e) {
+            logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
             throw new ProtocolException("Login processing failed: " + e.getMessage());
+        } finally {
+            if (output != null) {
+                try {
+                    output.close();
+                } catch (IOException e) {
+                    logger.warn("Failed to close output stream: {}", e.getMessage());
+                }
+            }
         }
+    }
+
+    public static byte[] generateStandardGt06Response(byte protocol, short serialNumber, byte status) {
+        byte[] response = new byte[10];
+
+        // Header (78 78)
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+
+        // Length (fixed 0x05 for standard responses)
+        response[2] = 0x05;
+
+        // Protocol (command type)
+        response[3] = protocol;
+
+        // Serial number (big-endian)
+        response[4] = (byte) (serialNumber >> 8);
+        response[5] = (byte) serialNumber;
+
+        // Status (if applicable, otherwise ignored in standard GT06)
+        response[6] = status;
+
+        // Calculate CRC-16 (XModem) from bytes [2] to [6]
+        int checksum = calculateCrc16XModem(response, 2, 5);
+
+        // Append checksum (little-endian)
+        response[7] = (byte) (checksum & 0xFF);  // LSB first
+        response[8] = (byte) (checksum >> 8);    // MSB second
+
+        // Footer (0D 0A)
+        response[9] = PROTOCOL_FOOTER;  // Note: GT06 typically ends with 0x0D 0x0A
+
+        return response;
+    }
+
+    /**
+     * Calculates CRC-16 (XModem) checksum for GT06 protocol.
+     *
+     * @param data   The byte array containing the data.
+     * @param offset The starting offset.
+     * @param length The number of bytes to process.
+     * @return The calculated CRC-16 value.
+     */
+    private static int calculateCrc16XModem(byte[] data, int offset, int length) {
+        int crc = 0x0000;  // Initial value for XModem CRC
+        for (int i = offset; i < offset + length; i++) {
+            crc ^= (data[i] & 0xFF) << 8;
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x8000) != 0) {
+                    crc = (crc << 1) ^ 0x1021;  // XModem polynomial
+                } else {
+                    crc <<= 1;
+                }
+            }
+        }
+        return crc & 0xFFFF;
+    }
+
+    private byte[] generateLoginResponse(short serialNumber) {
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05; // Length
+        response[3] = PROTOCOL_LOGIN;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber);
+        response[6] = 0x01; // Success status
+
+        // Calculate checksum
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        response[7] = (byte)(checksum >> 8);
+        response[8] = (byte)(checksum);
+        response[9] = 0x0A; // Termination byte
+
+        return response;
     }
 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
