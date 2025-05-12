@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Component
@@ -37,7 +38,7 @@ public class Gt06Handler implements ProtocolHandler {
 
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
-    private static final long SESSION_TIMEOUT_MS = 120000; // 2 minutes
+    private static final long SESSION_TIMEOUT_MS = 300000; // 2 minutes
 
     private final AtomicReference<String> lastValidImei = new AtomicReference<>();
     private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
@@ -68,15 +69,36 @@ public class Gt06Handler implements ProtocolHandler {
 
     public static class DeviceSession {
         private final String imei;
+        private final String sessionId;
         private volatile short lastSerialNumber;
         private volatile long lastActivityTime;
         private volatile int sequenceNumber;
+        private volatile boolean connected;
+        private final AtomicInteger connectionCount = new AtomicInteger(1);
+
+        // Constants
+        private static final long SESSION_TIMEOUT_MS = 300000; // 5 minutes (increased from 2)
+        private static final int MAX_SEQUENCE_NUMBER = Integer.MAX_VALUE;
+        private static final int SEQUENCE_ROLLOVER_THRESHOLD = MAX_SEQUENCE_NUMBER - 1000;
 
         public DeviceSession(String imei, short serialNumber) {
-            this.imei = imei;
+            this.imei = validateImei(imei);
             this.lastSerialNumber = serialNumber;
             this.lastActivityTime = System.currentTimeMillis();
             this.sequenceNumber = 0;
+            this.connected = true;
+            this.sessionId = generateSessionId(imei);
+        }
+
+        private String validateImei(String imei) {
+            if (imei == null || imei.length() != 15 || !imei.matches("\\d+")) {
+                throw new IllegalArgumentException("Invalid IMEI format");
+            }
+            return imei;
+        }
+
+        private String generateSessionId(String imei) {
+            return imei + "-" + System.currentTimeMillis() + "-" + Thread.currentThread().getId();
         }
 
         public synchronized void updateLastActive() {
@@ -88,20 +110,51 @@ public class Gt06Handler implements ProtocolHandler {
         }
 
         public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
-            return this.lastSerialNumber == serialNumber && !isExpired();
+            // Only consider it a duplicate if same serial AND recent activity
+            return this.lastSerialNumber == serialNumber &&
+                    !isExpired() &&
+                    (System.currentTimeMillis() - lastActivityTime < 10000);
         }
 
         public synchronized boolean updateSequenceNumber(int newSequence) {
+            // Handle sequence number rollover
+            if (sequenceNumber > SEQUENCE_ROLLOVER_THRESHOLD && newSequence < 100) {
+                sequenceNumber = newSequence;
+                updateLastActive();
+                return true;
+            }
+
             if (newSequence > sequenceNumber) {
                 sequenceNumber = newSequence;
+                updateLastActive();
                 return true;
             }
             return false;
         }
 
+        public synchronized void updateSerialNumber(short serialNumber) {
+            this.lastSerialNumber = serialNumber;
+            updateLastActive();
+        }
+
+        public void setConnected(boolean connected) {
+            this.connected = connected;
+            if (connected) {
+                updateLastActive();
+                connectionCount.incrementAndGet();
+            }
+        }
+
+        public boolean isConnected() {
+            return connected && !isExpired();
+        }
+
         // Getters
         public String getImei() { return imei; }
         public short getLastSerialNumber() { return lastSerialNumber; }
+        public String getSessionId() { return sessionId; }
+        public int getConnectionCount() { return connectionCount.get(); }
+        public long getLastActivityTime() { return lastActivityTime; }
     }
 
     @Override
@@ -216,62 +269,82 @@ public class Gt06Handler implements ProtocolHandler {
             short serialNumber = buffer.getShort();
             logger.debug("Serial number: {}", serialNumber);
 
-            Variant variant = detectVariant(buffer.duplicate()); // Safe clone
-
-            // VL03-specific additions
-            byte vl03Extension = 0;
-            if (variant == Variant.VL03) {
-                if (buffer.remaining() >= 1) {
-                    vl03Extension = buffer.get();
-                    parsedData.put("vl03Extension", vl03Extension);
-                    logger.debug("VL03 extension byte: 0x{}", String.format("%02X", vl03Extension));
-                }
-            }
+            Variant variant = detectVariant(buffer.duplicate());
+            byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
             // Handle session management
-            DeviceSession existingSession = activeSessions.get(imei);
-            DeviceSession session;
+            DeviceSession session = manageDeviceSession(imei, serialNumber);
 
-            if (existingSession != null) {
-                if (!existingSession.isExpired() && existingSession.isDuplicateSerialNumber(serialNumber)) {
-                    logger.warn("Duplicate login packet with same serial number from IMEI: {}", imei);
-                    session = existingSession;
-                } else {
-                    session = new DeviceSession(imei, serialNumber);
-                    activeSessions.put(imei, session);
-                    logger.debug("Created new session for IMEI {} with serial {}", imei, serialNumber);
-                }
-            } else {
-                session = new DeviceSession(imei, serialNumber);
-                activeSessions.put(imei, session);
-                logger.debug("Initial session created for IMEI {}", imei);
-            }
-
-            // Generate appropriate response based on variant
-            byte[] response;
-            if (variant == Variant.VL03) {
-                response = generateVl03LoginResponse(serialNumber, vl03Extension);
-            } else {
-                response = generateStandardLoginResponse(serialNumber);
-            }
-
+            // Generate appropriate response
+            byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
             parsedData.put("response", response);
             logger.debug("Generated login response: {}", bytesToHex(response));
 
-            // Update session activity
-            session.updateLastActive();
+            // Update message and notify handlers
+            updateMessageAndNotify(message, imei, variant, response, session);
 
-            // Notify acknowledgement handler
-            acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
-
-            message.setImei(imei);
-            message.setMessageType("LOGIN");
-            message.getParsedData().put("variant", variant.name());
             return message;
+        } catch (ProtocolException e) {
+            throw e; // Re-throw protocol-specific exceptions
         } catch (Exception e) {
-            logger.error("Login processing failed for packet: {}", bytesToHex(buffer.array()), e);
+            logger.error("Login processing failed. Buffer: {}", bytesToHex(buffer.array()), e);
             throw new ProtocolException("Login processing failed: " + e.getMessage());
         }
+    }
+
+// Helper methods extracted from main handler:
+
+    private byte handleVl03Extension(ByteBuffer buffer, Variant variant, Map<String, Object> parsedData) {
+        byte vl03Extension = 0;
+        if (variant == Variant.VL03 && buffer.remaining() >= 1) {
+            vl03Extension = buffer.get();
+            parsedData.put("vl03Extension", vl03Extension);
+            logger.debug("VL03 extension byte: 0x{}", String.format("%02X", vl03Extension));
+        }
+        return vl03Extension;
+    }
+
+    private DeviceSession manageDeviceSession(String imei, short serialNumber) {
+        DeviceSession existingSession = activeSessions.get(imei);
+
+        if (existingSession != null) {
+            if (!existingSession.isExpired()) {
+                if (existingSession.isDuplicateSerialNumber(serialNumber)) {
+                    logger.warn("Duplicate login from IMEI: {} (serial: {})", imei, serialNumber);
+                } else {
+                    existingSession.updateSerialNumber(serialNumber);
+                    logger.debug("Updated session for IMEI {} with new serial {}", imei, serialNumber);
+                }
+                return existingSession;
+            }
+            logger.debug("Expired session found for IMEI {}, creating new one", imei);
+        }
+
+        DeviceSession newSession = new DeviceSession(imei, serialNumber);
+        activeSessions.put(imei, newSession);
+        logger.info("Created new session for IMEI {}", imei);
+        return newSession;
+    }
+
+    private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
+        if (variant == Variant.VL03) {
+            return generateVl03LoginResponse(serialNumber, vl03Extension);
+        }
+        return generateStandardLoginResponse(serialNumber);
+    }
+
+    private void updateMessageAndNotify(DeviceMessage message, String imei, Variant variant,
+                                        byte[] response, DeviceSession session) throws Exception {
+        session.updateLastActive();
+
+        // Notify acknowledgement handler
+        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
+
+        // Update message
+        message.setImei(imei);
+        message.setMessageType("LOGIN");
+        message.getParsedData().put("variant", variant.name());
+        message.getParsedData().put("sessionId", session.getSessionId());
     }
 
     private byte[] generateVl03LoginResponse(short serialNumber, byte extension) {

@@ -7,9 +7,19 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class DeviceSession {
+    // Constants
+    private static final int IMEI_LENGTH = 15;
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);  // Increased from 2 to 5 minutes
+    private static final short MAX_SEQUENCE_NUMBER = Short.MAX_VALUE;
+    private static final short SEQUENCE_ROLLOVER_THRESHOLD = (short)(MAX_SEQUENCE_NUMBER - 1000);
+    private static final short INVALID_SERIAL = -1;
+    private static final short INVALID_SEQUENCE = -1;
+
+    // Session state
     private final AtomicReference<String> imei = new AtomicReference<>();
     private final String protocol;
     private final AtomicReference<SocketAddress> remoteAddress = new AtomicReference<>();
@@ -17,17 +27,12 @@ public class DeviceSession {
     private volatile Instant lastActiveTime;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final String sessionId;
-    private volatile short lastSequenceNumber = -1;
-    private final AtomicBoolean active = new AtomicBoolean(true);
-    private volatile short lastSerialNumber = -1;
-    private volatile int connectionCount = 1;
+    private final AtomicInteger connectionCount = new AtomicInteger(1);
+    private final AtomicBoolean connected = new AtomicBoolean(true);
 
-    // Constants
-    private static final int IMEI_LENGTH = 15;
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
-    private static final short MAX_SEQUENCE_NUMBER = Short.MAX_VALUE;
-    private static final short SEQUENCE_ROLLOVER_THRESHOLD = (short)(MAX_SEQUENCE_NUMBER - 1000);
-    private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofMinutes(2); // 2 minutes
+    // Protocol-specific state (GT06)
+    private volatile short lastSequenceNumber = INVALID_SEQUENCE;
+    private volatile short lastSerialNumber = INVALID_SERIAL;
 
     public DeviceSession(String imei, String protocol, SocketAddress remoteAddress) {
         this(imei, protocol, remoteAddress, generateSessionId(imei));
@@ -48,11 +53,10 @@ public class DeviceSession {
             throw new IllegalArgumentException("IMEI cannot be null or blank");
         }
 
-        // Normalize IMEI
         String normalized = imei.trim().replaceAll("[^0-9]", "");
 
-        // Remove leading zeros
-        while (normalized.startsWith("0") && normalized.length() > 1) {
+        // Remove leading zeros but ensure we maintain 15 digits
+        while (normalized.length() > IMEI_LENGTH && normalized.startsWith("0")) {
             normalized = normalized.substring(1);
         }
 
@@ -86,18 +90,16 @@ public class DeviceSession {
                 Thread.currentThread().getId());
     }
 
-    // Session state management
-    public boolean isActive() {
-        return active.get();
+    // Connection state management
+    public boolean isConnected() {
+        return connected.get() && !isExpired();
     }
 
-    public void activate() {
-        active.set(true);
-        updateLastActive();
-    }
-
-    public void deactivate() {
-        active.set(false);
+    public void setConnected(boolean connected) {
+        this.connected.set(connected);
+        if (connected) {
+            updateLastActive();
+        }
     }
 
     public void updateLastActive() {
@@ -105,25 +107,28 @@ public class DeviceSession {
     }
 
     public void incrementConnectionCount() {
-        this.connectionCount++;
+        this.connectionCount.incrementAndGet();
         updateLastActive();
     }
 
     public int getConnectionCount() {
-        return connectionCount;
+        return connectionCount.get();
     }
 
     // Sequence number handling
     public synchronized boolean updateSequenceNumber(short sequenceNumber) {
-        // Handle sequence number rollover
+        if (sequenceNumber == INVALID_SEQUENCE) {
+            return false;
+        }
+
+        // Handle rollover case
         if (lastSequenceNumber > SEQUENCE_ROLLOVER_THRESHOLD && sequenceNumber < 100) {
-            // Sequence number has rolled over
             lastSequenceNumber = sequenceNumber;
             updateLastActive();
             return true;
         }
 
-        // Normal sequence number check
+        // Normal case
         if (sequenceNumber > lastSequenceNumber) {
             lastSequenceNumber = sequenceNumber;
             updateLastActive();
@@ -133,7 +138,7 @@ public class DeviceSession {
         return false;
     }
 
-    // Serial number handling (for GT06 protocol)
+    // Serial number handling (GT06 specific)
     public synchronized void updateSerialNumber(short serialNumber) {
         this.lastSerialNumber = serialNumber;
         updateLastActive();
@@ -143,23 +148,12 @@ public class DeviceSession {
         return this.lastSerialNumber == serialNumber && !isExpired();
     }
 
+    // Session expiration
     public boolean isExpired() {
-        return isExpired(DEFAULT_SESSION_TIMEOUT);
+        return isExpired(DEFAULT_TIMEOUT);
     }
 
     public boolean isExpired(Duration timeout) {
-        return Instant.now().isAfter(lastActiveTime.plus(timeout));
-    }
-
-    // Session timeout handling
-    public boolean isStale() {
-        return isStale(DEFAULT_TIMEOUT);
-    }
-
-    public boolean isStale(Duration timeout) {
-        if (timeout == null) {
-            timeout = DEFAULT_TIMEOUT;
-        }
         return Instant.now().isAfter(lastActiveTime.plus(timeout));
     }
 
@@ -227,6 +221,18 @@ public class DeviceSession {
         return attributes.remove(key);
     }
 
+    // Session timeout handling
+    public boolean isStale() {
+        return isStale(DEFAULT_TIMEOUT);
+    }
+
+    public boolean isStale(Duration timeout) {
+        if (timeout == null) {
+            timeout = DEFAULT_TIMEOUT;
+        }
+        return Instant.now().isAfter(lastActiveTime.plus(timeout));
+    }
+
     @Override
     public String toString() {
         return "DeviceSession{" +
@@ -235,15 +241,17 @@ public class DeviceSession {
                 ", sessionId='" + sessionId + '\'' +
                 ", created=" + creationTime +
                 ", lastActive=" + lastActiveTime +
-                ", active=" + active +
+                ", connected=" + connected +
                 ", connectionCount=" + connectionCount +
+                ", lastSerial=" + lastSerialNumber +
+                ", lastSequence=" + lastSequenceNumber +
                 '}';
     }
 
-    // Additional GT06-specific methods
+    // GT06-specific methods
     public synchronized boolean isNewerPacket(short sequenceNumber, short serialNumber) {
-        // First check serial number (GT06 protocol specific)
-        if (serialNumber != -1 && serialNumber != lastSerialNumber) {
+        // First check if serial number is different
+        if (serialNumber != INVALID_SERIAL && serialNumber != lastSerialNumber) {
             return true;
         }
 
@@ -252,10 +260,10 @@ public class DeviceSession {
     }
 
     public synchronized void updateActivity(short sequenceNumber, short serialNumber) {
-        if (serialNumber != -1) {
+        if (serialNumber != INVALID_SERIAL) {
             this.lastSerialNumber = serialNumber;
         }
-        if (sequenceNumber != -1) {
+        if (sequenceNumber != INVALID_SEQUENCE) {
             this.lastSequenceNumber = sequenceNumber;
         }
         this.lastActiveTime = Instant.now();

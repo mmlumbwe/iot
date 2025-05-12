@@ -407,64 +407,66 @@ public class GpsServer {
 
     private void handleLoginMessage(DeviceMessage message, Socket socket, OutputStream output) throws IOException {
         String imei = message.getImei();
+        if (imei == null || imei.isEmpty()) {
+            logger.error("Invalid login attempt - missing IMEI");
+            throw new IOException("Missing IMEI in login message");
+        }
+
         String protocol = message.getProtocol();
         SocketAddress remoteAddress = socket.getRemoteSocketAddress();
-
-        // Always ensure we have a response, even if empty
         byte[] response = (byte[]) message.getParsedData().get("response");
 
-        // Special handling for GT06 protocol
-        if (PROTOCOL_GT06.equals(protocol)) {
-            short serialNumber = extractSerialNumber(message);
+        try {
+            // Special handling for GT06 protocol
+            if (PROTOCOL_GT06.equals(protocol)) {
+                short serialNumber = extractSerialNumber(message);
 
-            // Get existing session if it exists
-            Optional<DeviceSession> sessionOpt = sessionManager.getSession(imei);
+                // Get or create session (will update last active time)
+                DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
 
-            if (sessionOpt.isPresent()) {
-                DeviceSession session = sessionOpt.get();
+                // Check for potential duplicate login (same serial number within short timeframe)
+                if (session.isDuplicateSerialNumber(serialNumber) &&
+                        !session.isExpired()) {
+                    logger.warn("Possible duplicate GT06 login from IMEI {} with serial {} - sending response anyway",
+                            imei, serialNumber);
 
-                // Check for duplicate login with same serial number
-                if (session.isDuplicateSerialNumber(serialNumber)) {
-                    logger.warn("Duplicate GT06 login from IMEI {} with serial {}", imei, serialNumber);
-
-                    // Generate standard response if none was provided
+                    // Use provided response or generate standard one
                     if (response == null) {
                         response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
-                        logger.debug("Generated fallback login response for duplicate login");
+                        logger.debug("Generated standard login response for possible duplicate");
                     }
+                } else {
+                    // New or valid reconnection - update session
+                    session.updateSerialNumber(serialNumber);
+                    session.setConnected(true);
 
-                    // Send response and return early
-                    output.write(response);
-                    output.flush();
-                    logger.info("Sent login response to {} (duplicate)", imei);
-                    return;
+                    if (response == null) {
+                        response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                        logger.debug("Generated new login response");
+                    }
                 }
             }
 
-            // Get or create session (will update last active time)
-            DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
-            session.updateSerialNumber(serialNumber);
-
-            // Ensure we have a response for new logins
-            if (response == null) {
-                response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
-                logger.debug("Generated new login response");
+            // Send response if available (for all protocols)
+            if (response != null && response.length > 0) {
+                try {
+                    output.write(response);
+                    output.flush();
+                    logger.info("Successfully sent login response to {}", imei);
+                } catch (IOException e) {
+                    logger.error("Failed to send login response to {}: {}", imei, e.getMessage());
+                    // Mark session as disconnected if we couldn't send response
+                    sessionManager.getSession(imei).ifPresent(s -> s.setConnected(false));
+                    throw e;
+                }
+            } else if (PROTOCOL_GT06.equals(protocol)) {
+                // This should theoretically never happen for GT06
+                logger.error("No login response available for GT06 device {}", imei);
+                throw new IOException("Missing login response for GT06 device");
             }
-        }
-
-        // Send response (guaranteed to exist at this point for GT06)
-        if (response != null) {
-            try {
-                output.write(response);
-                output.flush();
-                logger.info("Sent login response to {}", imei);
-            } catch (IOException e) {
-                logger.error("Failed to send login response to {}: {}", imei, e.getMessage());
-                throw e;
-            }
-        } else {
-            // This should never happen for GT06, but handle other protocols
-            logger.error("CRITICAL: No login response available for IMEI {}", imei);
+        } catch (Exception e) {
+            logger.error("Error processing login for IMEI {}: {}", imei, e.getMessage());
+            throw new IOException("Login processing failed", e);
         }
     }
 
