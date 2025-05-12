@@ -328,7 +328,8 @@ public class Gt06Handler implements ProtocolHandler {
         response[7] = (byte)(checksum >> 8);
         response[8] = (byte)(checksum);
         response[9] = 0x0A; // Termination byte
-
+        logger.info("Generated login response for serial {}: {}",
+                serialNumber, bytesToHex(response));
         return response;
     }
 
