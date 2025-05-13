@@ -177,11 +177,11 @@ public class Gt06Handler implements ProtocolHandler {
             lastValidImei.set(imei);
 
             logger.info("Login request from IMEI: {}", imei);
-            logger.debug("IMEI bytes: {}", bytesToHex(imeiBytes));
+            logger.info("IMEI bytes: {}", bytesToHex(imeiBytes));
 
             // Extract serial number (2 bytes before checksum)
             short serialNumber = buffer.getShort();
-            logger.debug("Serial number: {}", serialNumber);
+            logger.info("Serial number: {}", serialNumber);
 
             Variant variant = detectVariant(buffer.duplicate());
             byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
@@ -189,14 +189,14 @@ public class Gt06Handler implements ProtocolHandler {
             // Generate appropriate response
             byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
             parsedData.put("response", response);
-            logger.debug("Generated login response: {}", bytesToHex(response));
+            logger.info("Generated login response: {}", bytesToHex(response));
 
             // Handle session management
             DeviceSession session = manageDeviceSession(imei, serialNumber);
 
-            // Ensure response is set in the message
-            message.setResponseData(response); // Add this if not exists
-            message.setResponseRequired(true); // Add this flag
+            // PROPERLY SET THE RESPONSE IN THE MESSAGE
+            message.setResponseData(response);
+            message.setResponseRequired(true);
 
             // Update message and notify handlers
             updateMessageAndNotify(message, imei, variant, response, session);
@@ -321,27 +321,6 @@ public class Gt06Handler implements ProtocolHandler {
         response[9] = 0x0A; // Termination byte
         logger.info("Generated login response for serial {}: {}",
                 serialNumber, bytesToHex(response));
-        return response;
-    }
-
-    private byte[] generateLoginResponse(short serialNumber) {
-        byte[] response = new byte[10];
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05; // Length
-        response[3] = PROTOCOL_LOGIN;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber);
-        response[6] = 0x01; // Success status
-
-        // Calculate checksum
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-        response[7] = (byte)(checksum >> 8);
-        response[8] = (byte)(checksum);
-        response[9] = 0x0A; // Termination byte
-
         return response;
     }
 

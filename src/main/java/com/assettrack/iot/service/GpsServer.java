@@ -10,6 +10,7 @@ import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import com.assettrack.iot.protocol.TeltonikaHandler;
 import com.assettrack.iot.service.session.SessionManager;
+import io.netty.buffer.Unpooled;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.commons.codec.binary.Hex;
