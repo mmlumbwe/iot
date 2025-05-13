@@ -28,6 +28,9 @@ public class DeviceMessage {
     private SocketChannel channel;  // Using SocketChannel for NIO support
     private Socket socket;         // Traditional Socket backup
 
+    private byte[] responseData;
+    private boolean responseRequired;
+
     // Standard message types
     public static final String TYPE_LOGIN = "LOGIN";
     public static final String TYPE_LOCATION = "LOCATION";
@@ -55,6 +58,23 @@ public class DeviceMessage {
         this.rawData = rawData;
         this.parsedData = parsedData != null ? new HashMap<>(parsedData) : new HashMap<>();
     }
+
+    public byte[] getResponseData() {
+        return responseData;
+    }
+
+    public void setResponseData(byte[] responseData) {
+        this.responseData = responseData;
+    }
+
+    public boolean isResponseRequired() {
+        return responseRequired;
+    }
+
+    public void setResponseRequired(boolean responseRequired) {
+        this.responseRequired = responseRequired;
+    }
+
 
     // Protocol Type Accessors
     public String getProtocolType() {

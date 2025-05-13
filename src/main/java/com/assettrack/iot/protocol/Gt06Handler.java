@@ -110,10 +110,13 @@ public class Gt06Handler implements ProtocolHandler {
                     throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
             }
         } catch (Exception e) {
-            logger.error("GT06 processing error for packet: {}", bytesToHex(data), e);
-            message.setMessageType("ERROR");
+            logger.error("GT06 processing error", e);
             message.setError(e.getMessage());
-            parsedData.put("response", generateErrorResponse(e));
+
+            // Generate error response
+            byte[] errorResponse = generateErrorResponse(e);
+            message.setResponseData(errorResponse);
+            message.setResponseRequired(true);
             return message;
         }
     }
@@ -183,13 +186,17 @@ public class Gt06Handler implements ProtocolHandler {
             Variant variant = detectVariant(buffer.duplicate());
             byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
-            // Handle session management
-            DeviceSession session = manageDeviceSession(imei, serialNumber);
-
             // Generate appropriate response
             byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
             parsedData.put("response", response);
             logger.debug("Generated login response: {}", bytesToHex(response));
+
+            // Handle session management
+            DeviceSession session = manageDeviceSession(imei, serialNumber);
+
+            // Ensure response is set in the message
+            message.setResponseData(response); // Add this if not exists
+            message.setResponseRequired(true); // Add this flag
 
             // Update message and notify handlers
             updateMessageAndNotify(message, imei, variant, response, session);

@@ -1223,4 +1223,17 @@ public class GpsServer {
         }
         return false;
     }
+
+    public void handleDeviceMessage(DeviceMessage message) {
+        if (message.isResponseRequired() && message.getResponseData() == null) {
+            logger.error("No login response available for {} device {}",
+                    message.getProtocol(), message.getImei());
+            throw new IllegalStateException("Missing login response for " + message.getProtocol() + " device");
+        }
+
+        // Send response if available
+        if (message.getResponseData() != null) {
+            //channel.writeAndFlush(Unpooled.copiedBuffer(message.getResponseData()));
+        }
+    }
 }
