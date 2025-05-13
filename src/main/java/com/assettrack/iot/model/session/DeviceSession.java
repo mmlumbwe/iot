@@ -18,6 +18,7 @@ public class DeviceSession {
     private static final short SEQUENCE_ROLLOVER_THRESHOLD = (short)(MAX_SEQUENCE_NUMBER - 1000);
     private static final short INVALID_SERIAL = -1;
     private static final short INVALID_SEQUENCE = -1;
+    private static final long RECENT_DUPLICATE_THRESHOLD_MS = 5000; // 5 seconds for duplicate check
 
     // Session state
     private final AtomicReference<String> imei = new AtomicReference<>();
@@ -34,6 +35,7 @@ public class DeviceSession {
     private volatile short lastSequenceNumber = INVALID_SEQUENCE;
     private volatile short lastSerialNumber = INVALID_SERIAL;
 
+    // Constructors
     public DeviceSession(String imei, String protocol, SocketAddress remoteAddress) {
         this(imei, protocol, remoteAddress, generateSessionId(imei));
     }
@@ -45,6 +47,12 @@ public class DeviceSession {
         this.creationTime = Instant.now();
         this.lastActiveTime = this.creationTime;
         this.sessionId = validateSessionId(sessionId);
+    }
+
+    // GT06-specific constructor (for backward compatibility)
+    public DeviceSession(String imei, short serialNumber) {
+        this(imei, "GT06", null);
+        this.lastSerialNumber = serialNumber;
     }
 
     // Validation methods
@@ -99,6 +107,7 @@ public class DeviceSession {
         this.connected.set(connected);
         if (connected) {
             updateLastActive();
+            connectionCount.incrementAndGet();
         }
     }
 
@@ -138,6 +147,25 @@ public class DeviceSession {
         return false;
     }
 
+    // Extended sequence number handling (for int values)
+    public synchronized boolean updateSequenceNumber(int sequenceNumber) {
+        // Handle rollover case
+        if (lastSequenceNumber > SEQUENCE_ROLLOVER_THRESHOLD && sequenceNumber < 100) {
+            lastSequenceNumber = (short) sequenceNumber;
+            updateLastActive();
+            return true;
+        }
+
+        // Normal case
+        if (sequenceNumber > lastSequenceNumber) {
+            lastSequenceNumber = (short) sequenceNumber;
+            updateLastActive();
+            return true;
+        }
+
+        return false;
+    }
+
     // Serial number handling (GT06 specific)
     public synchronized void updateSerialNumber(short serialNumber) {
         this.lastSerialNumber = serialNumber;
@@ -145,7 +173,8 @@ public class DeviceSession {
     }
 
     public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
-        return this.lastSerialNumber == serialNumber && !isExpired();
+        return this.lastSerialNumber == serialNumber &&
+                (Duration.between(lastActiveTime, Instant.now()).toMillis() < RECENT_DUPLICATE_THRESHOLD_MS);
     }
 
     // Session expiration
@@ -233,21 +262,6 @@ public class DeviceSession {
         return Instant.now().isAfter(lastActiveTime.plus(timeout));
     }
 
-    @Override
-    public String toString() {
-        return "DeviceSession{" +
-                "imei='" + imei.get() + '\'' +
-                ", protocol='" + protocol + '\'' +
-                ", sessionId='" + sessionId + '\'' +
-                ", created=" + creationTime +
-                ", lastActive=" + lastActiveTime +
-                ", connected=" + connected +
-                ", connectionCount=" + connectionCount +
-                ", lastSerial=" + lastSerialNumber +
-                ", lastSequence=" + lastSequenceNumber +
-                '}';
-    }
-
     // GT06-specific methods
     public synchronized boolean isNewerPacket(short sequenceNumber, short serialNumber) {
         // First check if serial number is different
@@ -272,5 +286,20 @@ public class DeviceSession {
     public synchronized boolean shouldReconnect(short serialNumber) {
         // Allow reconnect if different serial or expired session
         return this.lastSerialNumber != serialNumber || isExpired();
+    }
+
+    @Override
+    public String toString() {
+        return "DeviceSession{" +
+                "imei='" + imei.get() + '\'' +
+                ", protocol='" + protocol + '\'' +
+                ", sessionId='" + sessionId + '\'' +
+                ", created=" + creationTime +
+                ", lastActive=" + lastActiveTime +
+                ", connected=" + connected +
+                ", connectionCount=" + connectionCount +
+                ", lastSerial=" + lastSerialNumber +
+                ", lastSequence=" + lastSequenceNumber +
+                '}';
     }
 }

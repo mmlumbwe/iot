@@ -2,6 +2,7 @@ package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.handler.network.AcknowledgementHandler;
+import com.assettrack.iot.model.session.DeviceSession;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
@@ -66,102 +67,6 @@ public class Gt06Handler implements ProtocolHandler {
 
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
-
-    public static class DeviceSession {
-        private final String imei;
-        private final String sessionId;
-        private volatile short lastSerialNumber;
-        private volatile long lastActivityTime;
-        private volatile int sequenceNumber;
-        private volatile boolean connected;
-        private final AtomicInteger connectionCount = new AtomicInteger(1);
-
-        // Constants
-        private static final long SESSION_TIMEOUT_MS = 300000; // 5 minutes (increased from 2)
-        private static final int MAX_SEQUENCE_NUMBER = Integer.MAX_VALUE;
-        private static final int SEQUENCE_ROLLOVER_THRESHOLD = MAX_SEQUENCE_NUMBER - 1000;
-
-        public DeviceSession(String imei, short serialNumber) {
-            this.imei = validateImei(imei);
-            this.lastSerialNumber = serialNumber;
-            this.lastActivityTime = System.currentTimeMillis();
-            this.sequenceNumber = 0;
-            this.connected = true;
-            this.sessionId = generateSessionId(imei);
-        }
-
-        private String validateImei(String imei) {
-            if (imei == null || imei.length() != 15 || !imei.matches("\\d+")) {
-                throw new IllegalArgumentException("Invalid IMEI format");
-            }
-            return imei;
-        }
-
-        private String generateSessionId(String imei) {
-            return imei + "-" + System.currentTimeMillis() + "-" + Thread.currentThread().getId();
-        }
-
-        public synchronized void updateLastActive() {
-            this.lastActivityTime = System.currentTimeMillis();
-        }
-
-        public synchronized boolean isExpired() {
-            return System.currentTimeMillis() > lastActivityTime +
-                    (connected ? 300000 : 60000); // 5 min if connected, 1 min if not
-        }
-
-        public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
-            // Only consider duplicate if same serial AND recent (within 5 seconds)
-            return this.lastSerialNumber == serialNumber &&
-                    (System.currentTimeMillis() - lastActivityTime < 5000);
-        }
-
-        // Add this new method
-        public synchronized boolean shouldReconnect(short serialNumber) {
-            // Allow reconnect if different serial or expired session
-            return this.lastSerialNumber != serialNumber || isExpired();
-        }
-
-        public synchronized boolean updateSequenceNumber(int newSequence) {
-            // Handle sequence number rollover
-            if (sequenceNumber > SEQUENCE_ROLLOVER_THRESHOLD && newSequence < 100) {
-                sequenceNumber = newSequence;
-                updateLastActive();
-                return true;
-            }
-
-            if (newSequence > sequenceNumber) {
-                sequenceNumber = newSequence;
-                updateLastActive();
-                return true;
-            }
-            return false;
-        }
-
-        public synchronized void updateSerialNumber(short serialNumber) {
-            this.lastSerialNumber = serialNumber;
-            updateLastActive();
-        }
-
-        public void setConnected(boolean connected) {
-            this.connected = connected;
-            if (connected) {
-                updateLastActive();
-                connectionCount.incrementAndGet();
-            }
-        }
-
-        public boolean isConnected() {
-            return connected && !isExpired();
-        }
-
-        // Getters
-        public String getImei() { return imei; }
-        public short getLastSerialNumber() { return lastSerialNumber; }
-        public String getSessionId() { return sessionId; }
-        public int getConnectionCount() { return connectionCount.get(); }
-        public long getLastActivityTime() { return lastActivityTime; }
-    }
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
