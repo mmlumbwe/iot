@@ -197,6 +197,10 @@ public class Gt06Handler implements ProtocolHandler {
             // PROPERLY SET THE RESPONSE IN THE MESSAGE
             message.setResponseData(response);
             message.setResponseRequired(true);
+            message.setImei(imei);
+            message.setMessageType("LOGIN");
+
+            logger.info("Successfully processed login for IMEI: {}", imei);
 
             // Update message and notify handlers
             updateMessageAndNotify(message, imei, variant, response, session);
