@@ -9,7 +9,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @EnableAsync
 @ComponentScan(basePackages = {
 		"com.assettrack.iot.protocol",
-		"com.assettrack.iot.service"
+		"com.assettrack.iot.service",
+		"com.assettrack.iot.session"
 })
 public class IotApplication {
 

@@ -1,6 +1,7 @@
-package com.assettrack.iot.service.session;
+package com.assettrack.iot.session;
 
 import com.assettrack.iot.service.PositionService;
+import com.assettrack.iot.session.SessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -10,9 +11,9 @@ import java.time.Duration;
 
 @Service
 public class ConnectionStateManager {
-    private static final Logger logger = LoggerFactory.getLogger(ConnectionStateManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(com.assettrack.iot.session.ConnectionStateManager.class);
 
-    private final SessionManager sessionManager;
+    private final com.assettrack.iot.session.SessionManager sessionManager;
     private final PositionService positionService;
     private final Duration staleTimeout = Duration.ofMinutes(5);
 

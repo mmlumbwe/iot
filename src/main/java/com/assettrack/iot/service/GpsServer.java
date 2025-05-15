@@ -9,7 +9,7 @@ import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import com.assettrack.iot.protocol.TeltonikaHandler;
-import com.assettrack.iot.service.session.SessionManager;
+import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.Unpooled;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -951,12 +951,6 @@ public class GpsServer {
         }
     }
 
-    private boolean isGt06Packet(byte[] data) {
-        return data.length >= 2 &&
-                data[0] == PROTOCOL_HEADER_1 &&
-                data[1] == PROTOCOL_HEADER_2;
-    }
-
     private DeviceMessage handleGt06Message(byte[] data) {
         try {
             DeviceMessage message = gt06Handler.handle(data);
@@ -1123,28 +1117,6 @@ public class GpsServer {
         return errorMsg;
     }
 
-    private void logHexDump(byte[] data) {
-        if (!logger.isDebugEnabled()) return;
-
-        StringBuilder hexDump = new StringBuilder();
-        StringBuilder asciiDump = new StringBuilder();
-
-        for (int i = 0; i < data.length; i++) {
-            hexDump.append(String.format("%02X ", data[i]));
-            char c = (data[i] >= 32 && data[i] < 127) ? (char) data[i] : '.';
-            asciiDump.append(c);
-
-            if ((i + 1) % 16 == 0 || i == data.length - 1) {
-                logger.debug("{}{} |{}|",
-                        String.format("%04X: ", i - 15),
-                        hexDump.toString(),
-                        asciiDump.toString());
-                hexDump.setLength(0);
-                asciiDump.setLength(0);
-            }
-        }
-    }
-
     private void logUdpPacket(String address, int port, byte[] data) {
         if (logger.isDebugEnabled()) {
             logger.debug("UDP packet from {}:{} ({} bytes):\n{}",
@@ -1225,16 +1197,4 @@ public class GpsServer {
         return false;
     }
 
-    public void handleDeviceMessage(DeviceMessage message) {
-        if (message.isResponseRequired() && message.getResponseData() == null) {
-            logger.error("No login response available for {} device {}",
-                    message.getProtocol(), message.getImei());
-            throw new IllegalStateException("Missing login response for " + message.getProtocol() + " device");
-        }
-
-        // Send response if available
-        if (message.getResponseData() != null) {
-            //channel.writeAndFlush(Unpooled.copiedBuffer(message.getResponseData()));
-        }
-    }
 }

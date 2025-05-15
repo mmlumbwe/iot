@@ -1,4 +1,4 @@
-package com.assettrack.iot.service.session;
+package com.assettrack.iot.session;
 
 import com.assettrack.iot.model.session.DeviceSession;
 import org.slf4j.Logger;
@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class SessionManager {
-    private static final Logger logger = LoggerFactory.getLogger(SessionManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(com.assettrack.iot.session.SessionManager.class);
     private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration CLEANUP_INTERVAL = Duration.ofMinutes(1);
     private static final long CLEANUP_INTERVAL_MS = 60000;  // 5 minutes in milliseconds

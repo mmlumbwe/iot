@@ -49,7 +49,7 @@ public class DeviceStatusService {
             // Update mutable fields
             dbDevice.setName(device.getName());
             dbDevice.setModel(device.getModel());
-            dbDevice.setPhoneNumber(device.getPhoneNumber());
+            //dbDevice.setPhoneNumber(device.getPhoneNumber());
             dbDevice.setDescription(device.getDescription());
             dbDevice.setVehiclePlate(device.getVehiclePlate());
             dbDevice.setCurrentDriver(device.getCurrentDriver());
@@ -59,7 +59,7 @@ public class DeviceStatusService {
             device = dbDevice;
         } else {
             // Set initial status for new devices
-            device.setStatus(Device.Status.ONLINE);
+            //device.setStatus(Device.Status.ONLINE);
             device.setRegistrationDate(new Date());
             device = deviceRepository.save(device);
             logger.info("Registered new device: IMEI {}", device.getImei());
@@ -70,7 +70,7 @@ public class DeviceStatusService {
         deviceRepository.save(device);
 
         // Update status cache
-        deviceStatusCache.put(device.getImei(), device.getStatus());
+        //deviceStatusCache.put(device.getImei(), device.getStatus());
     }
 
     /*@Transactional
