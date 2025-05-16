@@ -143,8 +143,8 @@ public class GpsServer {
         logger.info("Configuration - TCP Port: {}, UDP Port: {}, Max Threads: {}, Max Connections: {}",
                 tcpPort, udpPort, maxThreads, maxConnections);
 
-        startNettyTcpServer();
-        //startLegacyTcpServer();
+        //startNettyTcpServer();
+        startLegacyTcpServer();
         startUdpServer();
 
         logger.info("GPS Server successfully started (TCP:{}, UDP:{})", tcpPort, udpPort);
