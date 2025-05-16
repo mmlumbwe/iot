@@ -11,6 +11,7 @@ import com.assettrack.iot.security.PayloadValidator;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -21,23 +22,29 @@ import java.util.Map;
 public class ProtocolService {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolService.class);
 
-    //private final ProtocolHandlerFactory handlerFactory;
     private final AuthService authService;
     private final PayloadValidator validator;
     private final DeviceStatusService deviceStatusService;
     private final PositionService positionService;
+    private final Gt06Handler gt06Handler;
+    private final Tk103Handler tk103Handler;
+    private final TeltonikaHandler teltonikaHandler;
 
-    //@Autowired
-    public ProtocolService(//ProtocolHandlerFactory handlerFactory,
-                           AuthService authService,
+    @Autowired
+    public ProtocolService(AuthService authService,
                            PayloadValidator validator,
                            DeviceStatusService deviceStatusService,
-                           PositionService positionService) {
-        //this.handlerFactory = handlerFactory;
+                           PositionService positionService,
+                           Gt06Handler gt06Handler,
+                           Tk103Handler tk103Handler,
+                           TeltonikaHandler teltonikaHandler) {
         this.authService = authService;
         this.validator = validator;
         this.deviceStatusService = deviceStatusService;
         this.positionService = positionService;
+        this.gt06Handler = gt06Handler;
+        this.tk103Handler = tk103Handler;
+        this.teltonikaHandler = teltonikaHandler;
     }
 
     // If you need to maintain compatibility with DeviceMessage in ProtocolService:
@@ -219,11 +226,11 @@ public class ProtocolService {
     private ProtocolHandler getHandlerForProtocol(String protocolType) throws ProtocolException {
         switch (protocolType.toUpperCase()) {
             case "GT06":
-                return new Gt06Handler();
+                return gt06Handler;
             case "TK103":
-                return new Tk103Handler();
+                return tk103Handler;
             case "TELTONIKA":
-                return new TeltonikaHandler();
+                return teltonikaHandler;
             default:
                 throw new ProtocolException("Unsupported protocol type: " + protocolType);
         }

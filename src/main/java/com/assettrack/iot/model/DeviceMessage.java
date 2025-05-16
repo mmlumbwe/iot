@@ -259,6 +259,24 @@ public class DeviceMessage {
         this.channel = null;  // Clear NIO channel
     }
 
+    public Long getDeviceId() {
+        if (parsedData != null && parsedData.containsKey("deviceId")) {
+            Object deviceIdObj = parsedData.get("deviceId");
+            if (deviceIdObj instanceof Long) {
+                return (Long) deviceIdObj;
+            } else if (deviceIdObj instanceof Integer) {
+                return ((Integer) deviceIdObj).longValue();
+            } else if (deviceIdObj instanceof String) {
+                try {
+                    return Long.parseLong((String) deviceIdObj);
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
     public static class Builder {
         private String protocolType;
         private String protocolVersion;

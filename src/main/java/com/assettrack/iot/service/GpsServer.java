@@ -4,13 +4,16 @@ import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
-import com.assettrack.iot.model.session.DeviceSession;
+import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import com.assettrack.iot.protocol.TeltonikaHandler;
-import com.assettrack.iot.service.session.SessionManager;
+import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.commons.codec.binary.Hex;
@@ -34,18 +37,33 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.assettrack.iot.network.TrackerPipelineFactory;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+
 import static com.assettrack.iot.protocol.Gt06Handler.*;
 
 @Component
 public class GpsServer {
     private static final Logger logger = LoggerFactory.getLogger(GpsServer.class);
+    private static final Logger trafficLogger = LoggerFactory.getLogger("TRAFFIC");
+
+    // Network configuration
     private static final int SOCKET_TIMEOUT = 30000; // 30 seconds
     private static final int MAX_PACKET_SIZE = 2048;
     private static final int MAX_CONNECTION_AGE = 300000; // 5 minutes
     private static final int MAX_RECONNECTIONS_BEFORE_ALERT = 5;
     private static final int SUSPICIOUS_CONNECTION_THRESHOLD = 10;
     private static final long SUSPICIOUS_TIME_WINDOW = 60000; // 1 minute
+    private static final long CONNECTION_TIMEOUT = 300000; // 5 minutes
 
+    // Protocol constants
     private static final byte PROTOCOL_HEADER_1 = 0x78;
     private static final byte PROTOCOL_HEADER_2 = 0x78;
     private static final byte PROTOCOL_LOGIN = 0x01;
@@ -54,7 +72,6 @@ public class GpsServer {
     private static final byte PROTOCOL_ALARM = 0x16;
     private static final byte PROTOCOL_ERROR = 0x7F;
 
-    // Protocol constants
     private static final String PROTOCOL_TELTONIKA = "TELTONIKA";
     private static final String PROTOCOL_GT06 = "GT06";
     private static final String PACKET_TYPE_IMEI = "IMEI";
@@ -63,13 +80,7 @@ public class GpsServer {
     private static final String PACKET_TYPE_HEARTBEAT = "HEARTBEAT";
     private static final String PACKET_TYPE_ALARM = "ALARM";
 
-
-    private final PositionService positionService;
-    private final ExecutorService threadPool;
-    private final AtomicBoolean running = new AtomicBoolean(false);
-    private DatagramSocket udpSocket;
-    private ServerSocket tcpServerSocket;
-
+    // Configuration properties
     @Value("${gps.server.tcp.port:5023}")
     private int tcpPort;
 
@@ -82,70 +93,37 @@ public class GpsServer {
     @Value("${gps.server.max.connections:100}")
     private int maxConnections;
 
-    @Autowired
-    private ProtocolDetector protocolDetector;
+    @Value("${gps.server.worker.threads:0}") // 0 = auto-detect
+    private int workerThreads;
 
-    @Autowired
-    private Gt06Handler gt06Handler;
+    @Value("${gps.server.so.backlog:128}")
+    private int soBacklog;
 
-    @Autowired
-    private TeltonikaHandler teltonikaHandler;
+    @Value("${gps.server.shutdown.timeout:5000}")
+    private long shutdownTimeout;
 
-    @Autowired
-    private List<ProtocolHandler> protocolHandlers;
+    // Dependencies
+    private final PositionService positionService;
+    private final ExecutorService threadPool;
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private DatagramSocket udpSocket;
+    private ServerSocket tcpServerSocket;
+    private EventLoopGroup bossGroup;
+    private EventLoopGroup workerGroup;
+    private Channel serverChannel;
 
-    @Autowired
-    private SessionManager sessionManager;
+    @Autowired private ProtocolDetector protocolDetector;
+    @Autowired private Gt06Handler gt06Handler;
+    @Autowired private TeltonikaHandler teltonikaHandler;
+    @Autowired private List<ProtocolHandler> protocolHandlers;
+    @Autowired private SessionManager sessionManager;
+    @Autowired private TrackerPipelineFactory pipelineFactory;
 
+    // Connection tracking
     private final Map<SocketAddress, DeviceSession> addressToSessionMap = new ConcurrentHashMap<>();
     private final Map<String, DeviceConnection> activeConnections = new ConcurrentHashMap<>();
     private final Set<String> blacklistedIps = ConcurrentHashMap.newKeySet();
-
     private final Map<String, ConnectionInfo> connectionInfoMap = new ConcurrentHashMap<>();
-    private static final long CONNECTION_TIMEOUT = 300000; // 5 minutes
-
-
-    private static class ConnectionInfo {
-        long lastActivity;
-        int connectionCount;
-        SocketAddress remoteAddress;
-
-        ConnectionInfo(SocketAddress remoteAddress) {
-            this.remoteAddress = remoteAddress;
-            this.lastActivity = System.currentTimeMillis();
-            this.connectionCount = 1;
-        }
-    }
-
-    class DeviceConnection {
-        final String imei;
-        final String ip;
-        long lastSeen;
-        int connectionCount;
-        long firstSeen;
-        boolean flagged;
-
-        public DeviceConnection(String imei, String ip, long lastSeen, int connectionCount) {
-            this.imei = imei;
-            this.ip = ip;
-            this.lastSeen = lastSeen;
-            this.connectionCount = connectionCount;
-            this.firstSeen = System.currentTimeMillis();
-            this.flagged = false;
-        }
-
-        public boolean isSuspicious() {
-            long connectionInterval = lastSeen - firstSeen;
-            return connectionCount > SUSPICIOUS_CONNECTION_THRESHOLD &&
-                    connectionInterval < SUSPICIOUS_TIME_WINDOW;
-        }
-    }
-
-    @Scheduled(fixedRate = 3600000) // 1 hour
-    public void cleanupBlacklist() {
-        logger.info("Current blacklist size: {}", blacklistedIps.size());
-        // Implement logic to expire old blacklist entries if needed
-    }
 
     public GpsServer(PositionService positionService,
                      @Value("${gps.server.threads:10}") int maxThreads) {
@@ -165,48 +143,180 @@ public class GpsServer {
         logger.info("Configuration - TCP Port: {}, UDP Port: {}, Max Threads: {}, Max Connections: {}",
                 tcpPort, udpPort, maxThreads, maxConnections);
 
-        startTcpServer();
+        startNettyTcpServer();
+        //startLegacyTcpServer();
         startUdpServer();
 
         logger.info("GPS Server successfully started (TCP:{}, UDP:{})", tcpPort, udpPort);
+        trafficLogger.info("SERVER_STARTED ports={},{}", tcpPort, udpPort);
     }
 
     @PreDestroy
     public void stop() {
         logger.info("Shutting down GPS Server...");
+        trafficLogger.info("SERVER_SHUTDOWN_INITIATED");
         running.set(false);
         gracefulShutdown();
         logger.info("GPS Server shutdown complete");
+        trafficLogger.info("SERVER_SHUTDOWN_COMPLETED");
+    }
+
+    private void startNettyTcpServer() {
+        logger.info("Starting Netty TCP server on port {}", tcpPort);
+        int actualWorkerThreads = workerThreads > 0 ? workerThreads : Runtime.getRuntime().availableProcessors() * 2;
+        bossGroup = new NioEventLoopGroup(1);
+        workerGroup = new NioEventLoopGroup(actualWorkerThreads);
+
+        try {
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .handler(new LoggingHandler(LogLevel.INFO))
+                    .childHandler(pipelineFactory)
+                    .option(ChannelOption.SO_BACKLOG, soBacklog)
+                    .childOption(ChannelOption.SO_KEEPALIVE, true)
+                    .childOption(ChannelOption.TCP_NODELAY, true);
+
+            ChannelFuture f = b.bind(tcpPort).sync();
+            serverChannel = f.channel();
+            logger.info("Netty TCP server started successfully on port {}", tcpPort);
+        } catch (InterruptedException e) {
+            logger.error("Netty server startup interrupted", e);
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.error("Failed to start Netty TCP server", e);
+        }
+    }
+
+    @Async
+    protected void startLegacyTcpServer() {
+        logger.info("Starting legacy TCP server on port {}", tcpPort);
+        try (ServerSocket serverSocket = new ServerSocket(tcpPort)) {
+            serverSocket.setReuseAddress(true);
+            serverSocket.setSoTimeout(SOCKET_TIMEOUT);
+
+            while (running.get()) {
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    configureClientSocket(clientSocket);
+
+                    if (shouldAcceptConnection(clientSocket)) {
+                        threadPool.execute(() -> handleTcpClient(clientSocket));
+                    } else {
+                        clientSocket.close();
+                    }
+                } catch (SocketTimeoutException e) {
+                    // Normal during operation
+                } catch (IOException e) {
+                    logger.error("Accept error", e);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Legacy TCP server failed", e);
+        }
+    }
+
+    @Async
+    protected void startUdpServer() {
+        logger.info("Starting UDP server on port {}", udpPort);
+        try {
+            udpSocket = new DatagramSocket(udpPort);
+            udpSocket.setSoTimeout(SOCKET_TIMEOUT);
+            logger.info("UDP server successfully bound to port {}", udpPort);
+
+            byte[] buffer = new byte[MAX_PACKET_SIZE];
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+
+            while (running.get()) {
+                try {
+                    logger.trace("Waiting for UDP datagram...");
+                    udpSocket.receive(packet);
+
+                    String clientIp = packet.getAddress().getHostAddress();
+                    if (blacklistedIps.contains(clientIp)) {
+                        logger.debug("Ignoring UDP packet from blacklisted IP: {}", clientIp);
+                        continue;
+                    }
+
+                    trafficLogger.debug("UDP_RECEIVED from={}:{}, bytes={}",
+                            clientIp, packet.getPort(), packet.getLength());
+
+                    threadPool.execute(() -> handleUdpPacket(packet));
+                    packet.setLength(buffer.length);
+                } catch (SocketTimeoutException e) {
+                    logger.trace("UDP receive timeout (normal operation)");
+                } catch (IOException e) {
+                    if (!running.get()) break; // Shutdown requested
+                    logger.error("UDP Server error", e);
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Failed to start UDP server", e);
+        } finally {
+            if (udpSocket != null) {
+                udpSocket.close();
+            }
+            logger.info("UDP server stopped");
+        }
     }
 
     private void gracefulShutdown() {
-        logger.debug("Initiating graceful shutdown of thread pool");
+        logger.debug("Initiating graceful shutdown");
+
+        // Shutdown Netty server
+        if (serverChannel != null) {
+            try {
+                serverChannel.close().sync();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        // Shutdown thread pools
         threadPool.shutdown();
         try {
             if (!threadPool.awaitTermination(10, TimeUnit.SECONDS)) {
-                logger.warn("Forcing shutdown of remaining threads");
                 threadPool.shutdownNow();
-                if (!threadPool.awaitTermination(5, TimeUnit.SECONDS)) {
-                    logger.error("Thread pool failed to terminate");
-                }
             }
         } catch (InterruptedException e) {
-            logger.warn("Thread pool shutdown interrupted", e);
             threadPool.shutdownNow();
             Thread.currentThread().interrupt();
         }
 
-        if (udpSocket != null && !udpSocket.isClosed()) {
-            udpSocket.close();
+        // Shutdown Netty event loops
+        if (workerGroup != null) {
+            workerGroup.shutdownGracefully().syncUninterruptibly();
+        }
+        if (bossGroup != null) {
+            bossGroup.shutdownGracefully().syncUninterruptibly();
         }
 
-        if (tcpServerSocket != null && !tcpServerSocket.isClosed()) {
+        // Close sockets
+        if (udpSocket != null) {
+            udpSocket.close();
+        }
+        if (tcpServerSocket != null) {
             try {
                 tcpServerSocket.close();
             } catch (IOException e) {
-                logger.warn("Error closing TCP server socket", e);
+                logger.warn("Error closing TCP socket", e);
             }
         }
+    }
+
+
+
+    //---------------------------------
+
+    @Scheduled(fixedRate = 3600000) // 1 hour
+    public void cleanupBlacklist() {
+        logger.info("Current blacklist size: {}", blacklistedIps.size());
+        // Implement logic to expire old blacklist entries if needed
     }
 
     @Async
@@ -255,71 +365,8 @@ public class GpsServer {
         return true;
     }
 
-    @Async
-    protected void startUdpServer() {
-        logger.info("Starting UDP server on port {}", udpPort);
-        try {
-            udpSocket = new DatagramSocket(udpPort);
-            udpSocket.setSoTimeout(SOCKET_TIMEOUT);
-            logger.info("UDP server successfully bound to port {}", udpPort);
-
-            byte[] buffer = new byte[MAX_PACKET_SIZE];
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-
-            while (running.get()) {
-                try {
-                    logger.trace("Waiting for UDP datagram...");
-                    udpSocket.receive(packet);
-
-                    String clientIp = packet.getAddress().getHostAddress();
-                    if (blacklistedIps.contains(clientIp)) {
-                        logger.debug("Ignoring UDP packet from blacklisted IP: {}", clientIp);
-                        continue;
-                    }
-
-                    logger.info("Received UDP packet from {}:{} ({} bytes)",
-                            clientIp,
-                            packet.getPort(),
-                            packet.getLength());
-
-                    threadPool.execute(() -> handleUdpPacket(packet));
-                    packet.setLength(buffer.length);
-                } catch (SocketTimeoutException e) {
-                    logger.trace("UDP receive timeout (normal operation)");
-                } catch (IOException e) {
-                    logger.error("UDP Server error", e);
-                    if (!running.get()) {
-                        logger.info("UDP server stopping due to shutdown request");
-                        break;
-                    }
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ie) {
-                        logger.warn("UDP server recovery sleep interrupted", ie);
-                        Thread.currentThread().interrupt();
-                    }
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Failed to start UDP server on port {}", udpPort, e);
-        } finally {
-            logger.info("UDP server on port {} has stopped", udpPort);
-            if (udpSocket != null) {
-                udpSocket.close();
-            }
-        }
-    }
-
     // Add this scheduled task to clean up stale connections
     @Scheduled(fixedRate = 60000) // Run every minute
-    public void cleanupStaleConnections() {
-        long now = System.currentTimeMillis();
-        connectionInfoMap.entrySet().removeIf(entry ->
-                (now - entry.getValue().lastActivity) > CONNECTION_TIMEOUT);
-
-        logger.debug("Connection cleanup completed. Current active connections: {}",
-                connectionInfoMap.size());
-    }
 
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();
@@ -403,15 +450,16 @@ public class GpsServer {
 
         String protocol = message.getProtocol();
         SocketAddress remoteAddress = socket.getRemoteSocketAddress();
-        //byte[] response = (byte[]) message.getParsedData().get("response");
 
         try {
-            // Special handling for GT06 protocol
+            // Get or create session for all protocols
+            DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
+
+            // Protocol-specific handling
             if (PROTOCOL_GT06.equals(protocol)) {
                 short serialNumber = extractSerialNumber(message);
-                DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, socket.getRemoteSocketAddress());
 
-                // Check if this is a valid reconnection
+                // Check for duplicate login
                 if (!session.shouldReconnect(serialNumber)) {
                     logger.debug("Duplicate login from IMEI {}, sending keepalive response", imei);
                     byte[] response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
@@ -420,38 +468,31 @@ public class GpsServer {
                     return;
                 }
 
-                // Handle new connection
+                // Update session with new serial number
                 session.updateSerialNumber(serialNumber);
-                session.setConnected(true);
-
-                byte[] response = (byte[]) message.getParsedData().get("response");
-                if (response == null) {
-                    response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
-                }
-
-                output.write(response);
-                output.flush();
             }
 
+            // Get response from message or generate default for protocol
             byte[] response = (byte[]) message.getParsedData().get("response");
+            if (response == null && PROTOCOL_GT06.equals(protocol)) {
+                short serialNumber = extractSerialNumber(message);
+                response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+            }
 
-            // Send response if available (for all protocols)
+            // Send response if available
             if (response != null && response.length > 0) {
-                try {
-                    output.write(response);
-                    output.flush();
-                    logger.info("Successfully sent login response to {}", imei);
-                } catch (IOException e) {
-                    logger.error("Failed to send login response to {}: {}", imei, e.getMessage());
-                    // Mark session as disconnected if we couldn't send response
-                    sessionManager.getSession(imei).ifPresent(s -> s.setConnected(false));
-                    throw e;
-                }
+                output.write(response);
+                output.flush();
+                logger.info("Successfully sent login response to {}", imei);
+                session.setConnected(true); // Mark session as connected after successful response
             } else if (PROTOCOL_GT06.equals(protocol)) {
-                // This should theoretically never happen for GT06
                 logger.error("No login response available for GT06 device {}", imei);
                 throw new IOException("Missing login response for GT06 device");
             }
+        } catch (IOException e) {
+            logger.error("Failed to send login response to {}: {}", imei, e.getMessage());
+            sessionManager.getSession(imei).ifPresent(s -> s.setConnected(false));
+            throw e;
         } catch (Exception e) {
             logger.error("Error processing login for IMEI {}: {}", imei, e.getMessage());
             throw new IOException("Login processing failed", e);
@@ -460,8 +501,30 @@ public class GpsServer {
 
     private void handleGpsMessage(DeviceMessage message, Socket socket, OutputStream output) throws IOException {
         String imei = message.getImei();
+        if (imei == null) {
+            logger.error("Received GPS message without IMEI");
+            return;
+        }
 
-        // Send acknowledgment
+        // Check session validity for all protocols
+        Optional<DeviceSession> sessionOpt = sessionManager.getSession(imei);
+        if (!sessionOpt.isPresent()) {
+            logger.warn("No active session for IMEI {}, ignoring GPS message", imei);
+            return;
+        }
+
+        DeviceSession session = sessionOpt.get();
+
+        // Protocol-specific sequence validation
+        if (PROTOCOL_GT06.equals(message.getProtocol())) {
+            short sequenceNumber = extractSequenceNumber(message);
+            if (!session.updateSequenceNumber(sequenceNumber)) {
+                logger.debug("Duplicate GPS packet from IMEI {} - ignoring", imei);
+                return;
+            }
+        }
+
+        // Send acknowledgment if response exists
         byte[] response = (byte[]) message.getParsedData().get("response");
         if (response != null) {
             output.write(response);
@@ -471,28 +534,21 @@ public class GpsServer {
         // Process position data
         Position position = (Position) message.getParsedData().get("position");
         if (position != null) {
-            // For GT06, check sequence number
-            if (PROTOCOL_GT06.equals(message.getProtocol())) {
-                short sequenceNumber = extractSequenceNumber(message);
-                Optional<DeviceSession> sessionOpt = sessionManager.getSession(imei);
-                if (sessionOpt.isPresent()) {
-                    DeviceSession session = sessionOpt.get();
-                    if (session.isExpired()) {
-                        logger.debug("Session expired for IMEI {}", imei);
-                        return;
-                    }
-                    if (!session.updateSequenceNumber(sequenceNumber)) {
-                        logger.debug("Duplicate GPS packet from IMEI {} - ignoring", imei);
-                        return;
-                    }
-                }
+            // Update session activity timestamp
+            session.updateLastActivity();
+
+            // Ensure position has device reference
+            if (position.getDevice() == null) {
+                Device device = new Device();
+                device.setImei(imei);
+                device.setProtocolType(message.getProtocol());
+                position.setDevice(device);
             }
 
             positionService.processAndSavePosition(position);
             logger.info("Processed GPS data for device {}", imei);
         }
     }
-
     private short extractSerialNumber(DeviceMessage message) {
         // Extract serial number from message or use default
         Object serialObj = message.getParsedData().get("serialNumber");
@@ -1007,41 +1063,6 @@ public class GpsServer {
         return response;
     }
 
-    /*private DeviceMessage handleGt06Login(byte[] data) {
-        try {
-            DeviceMessage message = gt06Handler.handle(data);
-            if (message == null) {
-                throw new ProtocolException("GT06 handler returned null message");
-            }
-
-            // Ensure response is generated for login packets
-            if (!message.getParsedData().containsKey("response")) {
-                short serialNumber = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getShort();
-                byte[] response = gt06Handler.generateLoginResponse(serialNumber);
-                message.getParsedData().put("response", response);
-                logger.debug("Generated GT06 login response for IMEI: {}", message.getImei());
-            }
-
-            return message;
-        } catch (Exception e) {
-            logger.error("GT06 login processing failed", e);
-            return createErrorResponse("GT06_LOGIN_ERROR", e.getMessage());
-        }
-    }*/
-
-    /*private DeviceMessage handleTeltonikaImei(byte[] data) {
-        try {
-            DeviceMessage message = teltonikaHandler.handleImeiPacket(data);
-            if (message == null) {
-                throw new ProtocolException("Teltonika IMEI handler returned null message");
-            }
-            return message;
-        } catch (Exception e) {
-            logger.error("Teltonika IMEI processing failed", e);
-            return createErrorResponse("TELTONIKA_IMEI_ERROR", e.getMessage());
-        }
-    }*/
-
     private DeviceMessage handleTeltonikaImei(byte[] data) {
         if (data.length < 4) {
             logger.error("Invalid Teltonika IMEI packet: too short ({} bytes)", data.length);
@@ -1114,7 +1135,6 @@ public class GpsServer {
         return createErrorResponse("NO_HANDLER",
                 "No available handler could process this message");
     }
-
     private DeviceMessage createErrorResponse(String errorCode, String errorMessage) {
         DeviceMessage errorMsg = new DeviceMessage();
         errorMsg.setMessageType("ERROR");
@@ -1224,7 +1244,6 @@ public class GpsServer {
         }
         return false;
     }
-
     public void handleDeviceMessage(DeviceMessage message) {
         if (message.isResponseRequired() && message.getResponseData() == null) {
             logger.error("No login response available for {} device {}",
@@ -1236,5 +1255,90 @@ public class GpsServer {
         if (message.getResponseData() != null) {
             //channel.writeAndFlush(Unpooled.copiedBuffer(message.getResponseData()));
         }
+    }
+
+
+    private static class ConnectionInfo {
+        long lastActivity;
+        int connectionCount;
+        SocketAddress remoteAddress;
+
+        ConnectionInfo(SocketAddress remoteAddress) {
+            this.remoteAddress = remoteAddress;
+            this.lastActivity = System.currentTimeMillis();
+            this.connectionCount = 1;
+        }
+    }
+
+    private class DeviceConnection {
+        final String imei;
+        final String ip;
+        long lastSeen;
+        int connectionCount;
+        long firstSeen;
+        boolean flagged;
+
+        public DeviceConnection(String imei, String ip, long lastSeen, int connectionCount) {
+            this.imei = imei;
+            this.ip = ip;
+            this.lastSeen = lastSeen;
+            this.connectionCount = connectionCount;
+            this.firstSeen = System.currentTimeMillis();
+            this.flagged = false;
+        }
+
+        public boolean isSuspicious() {
+            long connectionInterval = lastSeen - firstSeen;
+            return connectionCount > SUSPICIOUS_CONNECTION_THRESHOLD &&
+                    connectionInterval < SUSPICIOUS_TIME_WINDOW;
+        }
+    }
+
+    public ServerStats getStats() {
+        return new ServerStats(
+                isRunning(),
+                tcpPort,
+                bossGroup != null ? 1 : 0, // Boss group always has 1 thread
+                workerGroup != null ? workerThreads : 0, // Use configured worker threads
+                sessionManager.getActiveSessionCount()
+        );
+    }
+
+    public static class ServerStats {
+        private final boolean running;
+        private final int port;
+        private final int bossThreads;
+        private final int workerThreads;
+        private final int activeConnections;
+
+        public ServerStats(boolean running, int port, int bossThreads,
+                           int workerThreads, int activeConnections) {
+            this.running = running;
+            this.port = port;
+            this.bossThreads = bossThreads;
+            this.workerThreads = workerThreads;
+            this.activeConnections = activeConnections;
+        }
+
+        // Getters
+        public boolean isRunning() { return running; }
+        public int getPort() { return port; }
+        public int getBossThreads() { return bossThreads; }
+        public int getWorkerThreads() { return workerThreads; }
+        public int getActiveConnections() { return activeConnections; }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "ServerStats[running=%s, port=%d, bossThreads=%d, workerThreads=%d, activeConnections=%d]",
+                    running, port, bossThreads, workerThreads, activeConnections
+            );
+        }
+    }
+
+    private boolean isRunning() {
+        return running.get() &&
+                (serverChannel != null && serverChannel.isActive()) ||
+                (tcpServerSocket != null && !tcpServerSocket.isClosed());
     }
 }
