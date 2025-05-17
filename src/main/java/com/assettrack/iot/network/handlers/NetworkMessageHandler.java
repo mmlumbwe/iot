@@ -16,7 +16,6 @@ import org.springframework.stereotype.Component;
 import io.netty.channel.socket.SocketChannel;
 
 @Component
-@ChannelHandler.Sharable
 public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMessage> {
 
     private static final Logger logger = LoggerFactory.getLogger(NetworkMessageHandler.class);

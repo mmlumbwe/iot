@@ -5,12 +5,12 @@ import com.assettrack.iot.network.TrackerPipelineFactory;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.BaseProtocolDecoder;
 import com.assettrack.iot.protocol.BaseProtocolEncoder;
-import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.security.AuthService;
 import com.assettrack.iot.security.PayloadValidator;
 import com.assettrack.iot.session.SessionManager;
 import com.assettrack.iot.session.cache.CacheManager;
+import io.netty.channel.ChannelOutboundBuffer;
 import org.mockito.Mockito;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -48,20 +48,17 @@ public class TestConfig {
     /***********************/
     @Bean
     @Primary
-    public TrackerPipelineFactory trackerPipelineFactory() {
-        // Mock all required dependencies
+    public TrackerPipelineFactory testTrackerPipelineFactory() {
         ProtocolDetector mockProtocolDetector = Mockito.mock(ProtocolDetector.class);
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
-        Gt06Handler mockGt06Handler = Mockito.mock(Gt06Handler.class);
-        NetworkMessageHandler mockNetworkHandler = Mockito.mock(NetworkMessageHandler.class);
-        AcknowledgementHandler mockAckHandler = Mockito.mock(AcknowledgementHandler.class); // 5th parameter
+        AcknowledgementHandler mockAckHandler = Mockito.mock(AcknowledgementHandler.class);
+        CacheManager mockCacheManager = Mockito.mock(CacheManager.class); // Correct type
 
         return new TrackerPipelineFactory(
                 mockProtocolDetector,
                 mockSessionManager,
                 mockAckHandler,
-                mockGt06Handler,
-                mockNetworkHandler  // Now providing all 5 required arguments
+                mockCacheManager  // Now providing CacheManager instead of MessageProcessor
         );
     }
 

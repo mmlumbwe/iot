@@ -74,7 +74,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             // Fallback detection if initial detection failed
             if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
-                    result = new ProtocolDetector.ProtocolDetectionResult("GT06", "LOGIN", "1.0",null,null);
+                    result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
+                    logger.debug("Manually detected GT06 packet");
                 } else {
                     return null;
                 }

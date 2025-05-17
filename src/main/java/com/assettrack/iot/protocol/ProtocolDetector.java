@@ -33,20 +33,25 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
-        if (data == null || data.length < MIN_DATA_LENGTH) {
-            return ProtocolDetectionResult.error(null, "INVALID", "Empty or short packet");
-        }
+        logger.debug("Detecting protocol for {} bytes: {}", data.length, Hex.encodeHexString(data));
 
-        // Special fast-path for GT06 protocol
-        if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+        // Fast path for GT06 protocol
+        if (data != null && data.length >= 12 && data[0] == 0x78 && data[1] == 0x78) {
             try {
-                ProtocolMatcher gt06Matcher = PROTOCOL_MATCHERS.get("GT06");
-                if (gt06Matcher != null && gt06Matcher.matches(data)) {
-                    String packetType = gt06Matcher.getPacketType(data);
+                int length = data[2] & 0xFF;
+                if (data.length == length + 5) { // Validate length
+                    byte protocol = data[3];
+                    String packetType = switch (protocol & 0xFF) {
+                        case 0x01 -> "LOGIN";
+                        case 0x12 -> "GPS";
+                        case 0x13 -> "HEARTBEAT";
+                        case 0x16 -> "ALARM";
+                        default -> "UNKNOWN";
+                    };
                     return ProtocolDetectionResult.success("GT06", packetType, "1.0");
                 }
-            } catch (ProtocolDetectionException e) {
-                logger.debug("GT06 detection failed: {}", e.getMessage());
+            } catch (Exception e) {
+                logger.warn("GT06 detection error", e);
             }
         }
 
