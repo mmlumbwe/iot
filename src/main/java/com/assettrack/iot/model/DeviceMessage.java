@@ -1,7 +1,7 @@
 package com.assettrack.iot.model;
 
+import io.netty.channel.socket.SocketChannel;
 import java.net.Socket;
-import java.nio.channels.SocketChannel;
 import java.net.SocketAddress;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -13,21 +13,27 @@ import java.util.Objects;
  * message type, device identification, and parsed data.
  */
 public class DeviceMessage {
-    private String protocolType;
-    private String protocolVersion;
+    // Protocol fields (both kept for backward compatibility)
+    private String protocol;         // Raw protocol string (e.g., "GT06")
+    private String protocolType;     // Normalized protocol type (e.g., "GT06")
+    private String protocolVersion;  // Protocol version (e.g., "1.0")
+
+    // Message metadata
     private String messageType;
     private String imei;
     private byte[] rawData;
     private String error;
-    private Map<String, Object> parsedData = new HashMap<>();;
+    private Map<String, Object> parsedData;
     private LocalDateTime timestamp;
     private int signalStrength;
     private int batteryLevel;
     private SocketAddress remoteAddress;
 
-    private SocketChannel channel;  // Using SocketChannel for NIO support
-    private Socket socket;         // Traditional Socket backup
+    // Channel information
+    private SocketChannel channel;  // Netty channel
+    private Socket socket;         // Legacy socket (deprecated)
 
+    // Response handling
     private byte[] responseData;
     private boolean responseRequired;
 
@@ -39,25 +45,168 @@ public class DeviceMessage {
     public static final String TYPE_ERROR = "ERROR";
     public static final String TYPE_CONFIGURATION = "CONFIGURATION";
 
-    /**
-     * Constructs an empty DeviceMessage with initialized parsedData map.
-     */
     public DeviceMessage() {
         this.parsedData = new HashMap<>();
     }
 
+    // Protocol Accessors **********************************************
+
     /**
-     * Constructs a DeviceMessage with specified parameters.
+     * Gets the raw protocol string (e.g., exactly as received from device)
      */
-    public DeviceMessage(String protocolType, String protocolVersion, String messageType,
-                         String imei, byte[] rawData, Map<String, Object> parsedData) {
-        this.protocolType = protocolType;
-        this.protocolVersion = protocolVersion;
-        this.messageType = messageType;
-        this.imei = imei;
-        this.rawData = rawData;
-        this.parsedData = parsedData != null ? new HashMap<>(parsedData) : new HashMap<>();
+    public String getProtocol() {
+        return protocol;
     }
+
+    /**
+     * Sets both protocol and protocolType fields
+     */
+    public void setProtocol(String protocol) {
+        this.protocol = protocol;
+        this.protocolType = protocol; // Maintain backward compatibility
+    }
+
+    /**
+     * @deprecated Use getProtocol() instead
+     */
+    @Deprecated
+    public String getProtocolType() {
+        return protocolType != null ? protocolType : protocol;
+    }
+
+    /**
+     * @deprecated Use setProtocol() instead
+     */
+    @Deprecated
+    public void setProtocolType(String protocolType) {
+        this.protocolType = protocolType;
+        if (this.protocol == null) {
+            this.protocol = protocolType;
+        }
+    }
+
+    public String getProtocolVersion() {
+        return protocolVersion;
+    }
+
+    public void setProtocolVersion(String protocolVersion) {
+        this.protocolVersion = protocolVersion;
+    }
+
+    // Message Content Accessors ***************************************
+
+    public String getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(String messageType) {
+        this.messageType = messageType;
+    }
+
+    public String getImei() {
+        return imei;
+    }
+
+    public void setImei(String imei) {
+        this.imei = imei;
+    }
+
+    public byte[] getRawData() {
+        return rawData;
+    }
+
+    public void setRawData(byte[] rawData) {
+        this.rawData = rawData;
+    }
+
+    // Error Handling *************************************************
+
+    public String getError() {
+        return error;
+    }
+
+    public void setError(String error) {
+        this.error = error;
+        if (error != null && !error.isEmpty()) {
+            this.messageType = TYPE_ERROR;
+        }
+    }
+
+    public boolean hasError() {
+        return error != null && !error.isEmpty();
+    }
+
+    // Parsed Data Management *****************************************
+
+    public Map<String, Object> getParsedData() {
+        return new HashMap<>(parsedData);
+    }
+
+    public void setParsedData(Map<String, Object> parsedData) {
+        this.parsedData = new HashMap<>(Objects.requireNonNull(parsedData));
+    }
+
+    public void addParsedData(String key, Object value) {
+        this.parsedData.put(key, value);
+    }
+
+    // Device Status Accessors *****************************************
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public int getSignalStrength() {
+        return signalStrength;
+    }
+
+    public void setSignalStrength(int signalStrength) {
+        this.signalStrength = signalStrength;
+    }
+
+    public int getBatteryLevel() {
+        return batteryLevel;
+    }
+
+    public void setBatteryLevel(int batteryLevel) {
+        this.batteryLevel = batteryLevel;
+    }
+
+    // Channel Management *********************************************
+
+    public SocketChannel getSocketChannel() {
+        return channel;
+    }
+
+    public void setChannel(SocketChannel channel) {
+        this.channel = channel;
+        this.socket = null;
+    }
+
+    @Deprecated
+    public Socket getSocket() {
+        return socket;
+    }
+
+    @Deprecated
+    public void setSocket(Socket socket) {
+        this.socket = socket;
+        this.channel = null;
+    }
+
+    public SocketAddress getRemoteAddress() {
+        return remoteAddress;
+    }
+
+    public void setRemoteAddress(SocketAddress remoteAddress) {
+        this.remoteAddress = remoteAddress;
+    }
+
+    // Response Handling **********************************************
 
     public byte[] getResponseData() {
         return responseData;
@@ -75,215 +224,55 @@ public class DeviceMessage {
         this.responseRequired = responseRequired;
     }
 
-
-    // Protocol Type Accessors
-    public String getProtocolType() {
-        return protocolType;
-    }
-
-    public void setProtocolType(String protocolType) {
-        this.protocolType = protocolType;
-    }
-
-    // Protocol Version Accessors
-    public String getProtocolVersion() {
-        return protocolVersion;
-    }
-
-    public void setProtocolVersion(String protocolVersion) {
-        this.protocolVersion = protocolVersion;
-    }
-
-    // Message Type Accessors
-    public String getMessageType() {
-        return messageType;
-    }
-
-    public void setMessageType(String messageType) {
-        this.messageType = messageType;
-    }
-
-    // IMEI Accessors
-    public String getImei() {
-        return imei;
-    }
-
-    public void setImei(String imei) {
-        this.imei = imei;
-    }
-
-    // Raw Data Accessors
-    public byte[] getRawData() {
-        return rawData;
-    }
-
-    public void setRawData(byte[] rawData) {
-        this.rawData = rawData;
-    }
-
-    // Error Handling
-    public boolean hasError() {
-        return error != null && !error.isEmpty();
-    }
-
-    public String getError() {
-        return error;
-    }
-
-    public void setError(String error) {
-        this.error = error;
-        if (error != null && !error.isEmpty()) {
-            this.messageType = TYPE_ERROR;
-        }
-    }
-
-    // Parsed Data Management
-    public Map<String, Object> getParsedData() {
-        return new HashMap<>(parsedData);
-    }
-
-    public void setParsedData(Map<String, Object> parsedData) {
-        this.parsedData = new HashMap<>(Objects.requireNonNull(parsedData));
-    }
-
-    public void addParsedData(String key, Object value) {
-        if (this.parsedData == null) {
-            this.parsedData = new HashMap<>();
-        }
-        this.parsedData.put(key, value);
-    }
-
-    // Timestamp Accessors
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(LocalDateTime timestamp) {
-        this.timestamp = timestamp;
-    }
-
-    // Device Status Accessors
-    public int getSignalStrength() {
-        return signalStrength;
-    }
-
-    public void setSignalStrength(int signalStrength) {
-        this.signalStrength = signalStrength;
-    }
-
-    public int getBatteryLevel() {
-        return batteryLevel;
-    }
-
-    public void setBatteryLevel(int batteryLevel) {
-        this.batteryLevel = batteryLevel;
-    }
-
-    // Deprecated methods for backward compatibility
-    @Deprecated
-    public void setProtocol(String protocol) {
-        this.protocolType = protocol;
-    }
-
-    @Deprecated
-    public String getProtocol() {
-        return protocolType;
-    }
-
-
-    @Override
-    public String toString() {
-        return "DeviceMessage{" +
-                "protocolType='" + protocolType + '\'' +
-                ", protocolVersion='" + protocolVersion + '\'' +
-                ", messageType='" + messageType + '\'' +
-                ", imei='" + imei + '\'' +
-                ", rawData=" + (rawData != null ? "[" + rawData.length + " bytes]" : "null") +
-                ", timestamp=" + timestamp +
-                ", signalStrength=" + signalStrength +
-                ", batteryLevel=" + batteryLevel +
-                ", error='" + error + '\'' +
-                ", parsedData=" + parsedData +
-                '}';
-    }
-
-    // Builder pattern for fluent construction
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public void setResponse(byte[] response) {
-    }
-
-    public void setRemoteAddress(SocketAddress remoteAddress) {
-        this.remoteAddress = remoteAddress;
-    }
-
-    public SocketAddress getRemoteAddress() {
-        return this.remoteAddress;
-    }
-
-    /**
-     * Gets the SocketChannel for NIO communication.
-     * Falls back to traditional Socket if NIO isn't available.
-     */
-    public Socket getChannel() {
-        if (this.channel != null && this.channel.isOpen()) {
-            return this.channel.socket();  // Extract Socket from SocketChannel
-        } else if (this.socket != null && !this.socket.isClosed()) {
-            return this.socket;
-        }
-        return null;
-    }
-
-    /**
-     * Gets the raw SocketChannel (NIO).
-     */
-    public SocketChannel getSocketChannel() {
-        return this.channel;
-    }
-
-    /**
-     * Sets the SocketChannel (NIO preferred).
-     */
-    public void setChannel(SocketChannel channel) {
-        this.channel = channel;
-        this.socket = null;  // Clear legacy socket
-    }
-
-    /**
-     * Sets a traditional Socket (fallback).
-     */
-    public void setSocket(Socket socket) {
-        this.socket = socket;
-        this.channel = null;  // Clear NIO channel
-    }
+    // Utility Methods ************************************************
 
     public Long getDeviceId() {
-        if (parsedData != null && parsedData.containsKey("deviceId")) {
-            Object deviceIdObj = parsedData.get("deviceId");
-            if (deviceIdObj instanceof Long) {
-                return (Long) deviceIdObj;
-            } else if (deviceIdObj instanceof Integer) {
-                return ((Integer) deviceIdObj).longValue();
-            } else if (deviceIdObj instanceof String) {
-                try {
-                    return Long.parseLong((String) deviceIdObj);
-                } catch (NumberFormatException e) {
-                    return null;
-                }
+        Object deviceIdObj = parsedData.get("deviceId");
+        if (deviceIdObj instanceof Long) return (Long) deviceIdObj;
+        if (deviceIdObj instanceof Integer) return ((Integer) deviceIdObj).longValue();
+        if (deviceIdObj instanceof String) {
+            try {
+                return Long.parseLong((String) deviceIdObj);
+            } catch (NumberFormatException e) {
+                return null;
             }
         }
         return null;
     }
 
+    @Override
+    public String toString() {
+        return "DeviceMessage{" +
+                "protocol='" + protocol + '\'' +
+                ", protocolType='" + protocolType + '\'' +
+                ", protocolVersion='" + protocolVersion + '\'' +
+                ", messageType='" + messageType + '\'' +
+                ", imei='" + imei + '\'' +
+                ", timestamp=" + timestamp +
+                ", error='" + error + '\'' +
+                ", parsedData=" + parsedData +
+                '}';
+    }
+
+    // Builder Pattern ************************************************
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
     public static class Builder {
+        private String protocol;
         private String protocolType;
         private String protocolVersion;
         private String messageType;
         private String imei;
         private byte[] rawData;
         private Map<String, Object> parsedData = new HashMap<>();
+
+        public Builder protocol(String protocol) {
+            this.protocol = protocol;
+            return this;
+        }
 
         public Builder protocolType(String protocolType) {
             this.protocolType = protocolType;
@@ -316,8 +305,15 @@ public class DeviceMessage {
         }
 
         public DeviceMessage build() {
-            return new DeviceMessage(protocolType, protocolVersion, messageType,
-                    imei, rawData, parsedData);
+            DeviceMessage message = new DeviceMessage();
+            message.protocol = this.protocol;
+            message.protocolType = this.protocolType != null ? this.protocolType : this.protocol;
+            message.protocolVersion = this.protocolVersion;
+            message.messageType = this.messageType;
+            message.imei = this.imei;
+            message.rawData = this.rawData;
+            message.setParsedData(this.parsedData);
+            return message;
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.assettrack.iot.network;
 
+import com.assettrack.iot.exception.ExceptionHandler;
 import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.channel.Channel;
@@ -39,21 +40,22 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // Add timeout handler (30s read timeout)
+        // 1. Timeout handler
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // Log raw incoming data (for debugging)
+        // 2. Log raw incoming data
         pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.DEBUG));
 
-        // Protocol detection and base decoding
-        pipeline.addLast("baseDecoder", new BaseProtocolDecoder(sessionManager, protocolDetector));
+        // 3. Protocol detection + base decoding
+        //pipeline.addLast("baseDecoder", new BaseProtocolDecoder(sessionManager, protocolDetector));
 
-        // Add protocol-specific decoders
+        // 4. GT06-specific handler
         pipeline.addLast("gt06Handler", gt06Handler);
-        //pipeline.addLast("tk103Handler", tk103Handler);
-        //pipeline.addLast("teltonikaHandler", teltonikaHandler);
 
-        // Log processed messages (for monitoring)
+        // 5. Log processed messages
         pipeline.addLast("processedLogger", new LoggingHandler("Processed-Messages", LogLevel.INFO));
+
+        // 6. Add an exception handler at the end
+        pipeline.addLast("exceptionHandler", new ExceptionHandler());
     }
 }

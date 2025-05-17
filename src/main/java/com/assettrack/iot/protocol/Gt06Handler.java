@@ -66,30 +66,26 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     protected Object decode(ChannelHandlerContext ctx,
                             ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
-        if (result == null || !"GT06".equals(result.getProtocol())) {
-            return null;  // Skip if not GT06 protocol
-        }
+        try {
+            if (!"GT06".equals(result.getProtocol())) return null;
 
-        byte[] data = new byte[buf.readableBytes()];
-        buf.readBytes(data);
-        DeviceMessage message = handle(data);
+            byte[] data = new byte[buf.readableBytes()];
+            buf.readBytes(data);
+            DeviceMessage message = handle(data);
 
-        if (message != null) {
-            message.setProtocolType("GT06");
-            message.setChannel((SocketChannel) ctx.channel());
-            message.setRemoteAddress(ctx.channel().remoteAddress());
-
-            if (message.getImei() != null) {
+            if (message != null && message.getImei() != null) {
                 message.addParsedData("deviceId", generateDeviceId(message.getImei()));
             }
+            return message;
+        } finally {
+            buf.release();
         }
-        return message;
     }
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
         DeviceMessage message = new DeviceMessage();
-        message.setProtocol("GT06");
+        message.setProtocolType("GT06");
         Map<String, Object> parsedData = new HashMap<>();
         message.setParsedData(parsedData);
 
@@ -508,9 +504,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return (byte)0xFF;
     }
 
-    private long generateDeviceId(String imei) {
+    /*private long generateDeviceId(String imei) {
         return imei.hashCode() & 0xffffffffL;
-    }
+    }*/
 
     private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();

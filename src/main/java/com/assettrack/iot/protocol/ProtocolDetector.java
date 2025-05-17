@@ -33,19 +33,19 @@ public class ProtocolDetector {
 
     public ProtocolDetectionResult detect(byte[] data) {
         if (data == null || data.length < MIN_DATA_LENGTH) {
-            return ProtocolDetectionResult.error("UNKNOWN", "INVALID", "Data too short");
+            return ProtocolDetectionResult.error(null, "INVALID", "Empty or short packet");
         }
 
-        String cacheKey = bytesToHex(data);
-        ProtocolDetectionResult cached = detectionCache.get(cacheKey);
-        if (cached != null) {
-            return cached;
+        // First try cached result if available
+        String dataKey = bytesToHex(data);
+        ProtocolDetectionResult cachedResult = detectionCache.get(dataKey);
+        if (cachedResult != null) {
+            return cachedResult;
         }
 
+        // Perform actual detection
         ProtocolDetectionResult result = performDetection(data);
-        if (result != null) {
-            detectionCache.put(cacheKey, result);
-        }
+        detectionCache.put(dataKey, result);
         return result;
     }
 

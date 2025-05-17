@@ -1,11 +1,14 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.channel.socket.SocketChannel;
+import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,11 +16,11 @@ import org.springframework.stereotype.Component;
 
 @Component
 @ChannelHandler.Sharable
-public class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
+public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(BaseProtocolDecoder.class);
 
-    private final ProtocolDetector protocolDetector;
-    private final SessionManager sessionManager;
+    protected final ProtocolDetector protocolDetector;
+    protected final SessionManager sessionManager;
 
     @Autowired
     public BaseProtocolDecoder(SessionManager sessionManager, ProtocolDetector protocolDetector) {
@@ -38,7 +41,14 @@ public class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             buf.getBytes(buf.readerIndex(), data);
 
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-            logDetectionResult(result, data);
+
+            if (result != null) {
+                logDetectionResult(result, data);
+            } else {
+                logger.warn("Protocol detection returned null for data: {}", bytesToHex(data));
+                ReferenceCountUtil.release(buf);
+                return;
+            }
 
             if (result.isValid()) {
                 ctx.channel().attr(ProtocolConstants.PROTOCOL_ATTRIBUTE).set(result.getProtocol());
@@ -48,21 +58,59 @@ public class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 }
             } else {
                 logger.warn("Invalid protocol detection: {}", result.getError());
-                ReferenceCountUtil.release(msg);
+                ReferenceCountUtil.release(buf);
             }
         } catch (Exception e) {
             logger.error("Error during protocol detection", e);
-            ReferenceCountUtil.release(msg);
-        } finally {
-            buf.release();
+            ReferenceCountUtil.release(buf);
         }
     }
 
-    protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
+    /**
+     * Abstract method to be implemented by protocol-specific decoders
+     * @param data The raw byte data to handle
+     * @return Processed DeviceMessage
+     * @throws ProtocolException if protocol parsing fails
+     */
+    protected abstract DeviceMessage handle(byte[] data) throws ProtocolException;
+
+    //@Override
+    protected Object decode(ChannelHandlerContext ctx,
+                            ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
-        // Default implementation - protocol specific decoders should override
-        logger.debug("No specific decoder for protocol: {}", result.getProtocol());
-        return null;
+        try {
+            if (result == null || !"GT06".equals(result.getProtocol())) {
+                return null;
+            }
+
+            byte[] data = new byte[buf.readableBytes()];
+            buf.readBytes(data);
+            DeviceMessage message = handle(data);
+
+            if (message != null) {
+                message.setProtocolType("GT06");
+                if (ctx.channel() instanceof SocketChannel) {
+                    message.setChannel((SocketChannel) ctx.channel());
+                }
+                message.setRemoteAddress(ctx.channel().remoteAddress());
+
+                if (message.getImei() != null) {
+                    message.addParsedData("deviceId", generateDeviceId(message.getImei()));
+                }
+            }
+            return message;
+        } catch (Exception e) {
+            logger.error("Decoding error", e);
+            return null;
+        } finally {
+            if (buf.refCnt() > 0) {
+                buf.release();
+            }
+        }
+    }
+
+    protected long generateDeviceId(String imei) {
+        return imei != null ? imei.hashCode() & 0xffffffffL : 0L;
     }
 
     private void logDetectionResult(ProtocolDetector.ProtocolDetectionResult result, byte[] data) {
