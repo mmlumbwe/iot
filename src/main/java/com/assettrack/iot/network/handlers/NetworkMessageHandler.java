@@ -32,6 +32,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DeviceMessage message) {
+        logger.info("Processing message: {}", message);
         if (message == null) {
             logger.warn("Received null message");
             return;

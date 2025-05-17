@@ -9,6 +9,7 @@ import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,6 +80,30 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             return message;
         } finally {
             buf.release();
+        }
+    }
+
+    //@Override
+    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+        if (msg instanceof ByteBuf) {
+            ByteBuf buf = (ByteBuf) msg;
+            try {
+                byte[] data = new byte[buf.readableBytes()];
+                buf.readBytes(data);
+
+                logger.debug("Processing GT06 message: {}", Hex.encodeHexString(data));
+
+                DeviceMessage message = handle(data);
+                if (message != null) {
+                    ctx.fireChannelRead(message);
+                }
+            } catch (Exception e) {
+                logger.error("Error processing message", e);
+            } finally {
+                buf.release();
+            }
+        } else {
+            ctx.fireChannelRead(msg);
         }
     }
 
