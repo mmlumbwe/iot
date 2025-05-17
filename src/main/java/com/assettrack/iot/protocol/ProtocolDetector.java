@@ -1,5 +1,6 @@
 package com.assettrack.iot.protocol;
 
+import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,7 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
+        logger.info("Received data ({} bytes): {}", data.length, Hex.encodeHexString(data));
         if (data == null || data.length < MIN_DATA_LENGTH) {
             return ProtocolDetectionResult.error(null, "INVALID", "Empty or short packet");
         }

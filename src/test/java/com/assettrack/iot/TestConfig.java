@@ -49,16 +49,17 @@ public class TestConfig {
     @Bean
     @Primary
     public TrackerPipelineFactory trackerPipelineFactory() {
-        // Mock all required dependencies for the simplified GT06-only pipeline
+        // Mock all required dependencies
         ProtocolDetector mockProtocolDetector = Mockito.mock(ProtocolDetector.class);
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
         Gt06Handler mockGt06Handler = Mockito.mock(Gt06Handler.class);
+        NetworkMessageHandler mockNetworkHandler = Mockito.mock(NetworkMessageHandler.class);
 
-        // Create the factory with the correct arguments
         return new TrackerPipelineFactory(
                 mockProtocolDetector,
                 mockSessionManager,
-                mockGt06Handler
+                mockGt06Handler,
+                mockNetworkHandler  // Add the missing 4th argument
         );
     }
 
