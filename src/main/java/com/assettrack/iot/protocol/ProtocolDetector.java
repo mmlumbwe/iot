@@ -105,8 +105,8 @@ public class ProtocolDetector {
         private final String error;
         private final Map<String, Object> metadata;
 
-        private ProtocolDetectionResult(String protocol, String packetType, String version,
-                                        String error, Map<String, Object> metadata) {
+        ProtocolDetectionResult(String protocol, String packetType, String version,
+                                String error, Map<String, Object> metadata) {
             this.protocol = protocol;
             this.packetType = packetType;
             this.version = version;
@@ -166,7 +166,7 @@ public class ProtocolDetector {
             // Length validation
             int declaredLength = data[2] & 0xFF;
             if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
-                logger.warn("GT06 length mismatch. Declared: {}, Actual: {}",
+                logger.info("GT06 length mismatch. Declared: {}, Actual: {}",
                         declaredLength, data.length - 5);
                 return false;
             }

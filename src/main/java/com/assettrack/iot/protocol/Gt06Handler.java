@@ -65,28 +65,28 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     @Override
-    protected Object decode(ChannelHandlerContext ctx,
-                            ByteBuf buf,
+    protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
         try {
-            if (result == null || !"GT06".equals(result.getProtocol())) {
-                logger.info("Skipping non-GT06 message. Result: {}", result);
-                return null;
-            }
-
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
-            logger.info("Decoding GT06 message: {}", Hex.encodeHexString(data));
+
+            // Fallback detection if initial detection failed
+            if (result == null || !"GT06".equals(result.getProtocol())) {
+                if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+                    result = new ProtocolDetector.ProtocolDetectionResult("GT06", "LOGIN", "1.0",null,null);
+                } else {
+                    return null;
+                }
+            }
 
             DeviceMessage message = handle(data);
-
             if (message != null && message.getImei() != null) {
                 message.addParsedData("deviceId", generateDeviceId(message.getImei()));
-                logger.info("Successfully decoded message from IMEI: {}", message.getImei());
             }
             return message;
         } catch (Exception e) {
-            logger.error("Error decoding message", e);
+            logger.error("Decoding error", e);
             return null;
         } finally {
             buf.release();
@@ -125,7 +125,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setParsedData(parsedData);
 
         try {
-            logger.debug("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
+            logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
             validatePacket(data);
 
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
@@ -133,8 +133,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             int length = buffer.get() & 0xFF;
             byte protocol = buffer.get();
 
+            logger.info("Detected GT06 packet - Protocol: 0x{}, Length: {}",
+                    String.format("%02X", protocol), length);
+
             Variant variant = detectVariant(buffer);
-            logger.debug("Processing protocol: 0x{}, length: {}, variant: {}",
+            logger.info("Processing protocol: 0x{}, length: {}, variant: {}",
                     String.format("%02X", protocol), length, variant);
 
             acknowledgementHandler.write(null, new AcknowledgementHandler.EventReceived(), null);
@@ -204,9 +207,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     receivedChecksum, calculatedChecksum));
         }
 
-        // Verify footer (optional for some devices)
+        // Footer validation (optional for some devices)
         if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-            logger.info("Non-standard packet termination");
+            logger.warn("Non-standard packet termination");
         }
     }
 
