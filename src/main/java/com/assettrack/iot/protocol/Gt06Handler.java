@@ -55,16 +55,25 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private AcknowledgementHandler acknowledgementHandler;
 
     @Autowired
-    public Gt06Handler(SessionManager sessionManager, AcknowledgementHandler acknowledgementHandler) {
-        super(sessionManager);  // Pass SessionManager to parent
+    public Gt06Handler(SessionManager sessionManager,
+                       ProtocolDetector protocolDetector,
+                       AcknowledgementHandler acknowledgementHandler) {
+        super(sessionManager, protocolDetector);  // Pass both required parameters
         this.acknowledgementHandler = acknowledgementHandler;
     }
 
     @Override
-    protected Object decode(ChannelHandlerContext ctx, ByteBuf buf) {
+    protected Object decode(ChannelHandlerContext ctx,
+                            ByteBuf buf,
+                            ProtocolDetector.ProtocolDetectionResult result) {
+        if (result == null || !"GT06".equals(result.getProtocol())) {
+            return null;  // Skip if not GT06 protocol
+        }
+
         byte[] data = new byte[buf.readableBytes()];
         buf.readBytes(data);
         DeviceMessage message = handle(data);
+
         if (message != null) {
             message.setProtocolType("GT06");
             message.setChannel((SocketChannel) ctx.channel());

@@ -5,6 +5,8 @@ import com.assettrack.iot.network.TrackerPipelineFactory;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.BaseProtocolDecoder;
 import com.assettrack.iot.protocol.BaseProtocolEncoder;
+import com.assettrack.iot.protocol.Gt06Handler;
+import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.security.AuthService;
 import com.assettrack.iot.security.PayloadValidator;
 import com.assettrack.iot.session.SessionManager;
@@ -47,13 +49,17 @@ public class TestConfig {
     @Bean
     @Primary
     public TrackerPipelineFactory trackerPipelineFactory() {
-        // Create mock instances for all required dependencies
-        BaseProtocolDecoder mockDecoder = Mockito.mock(BaseProtocolDecoder.class);
-        BaseProtocolEncoder mockEncoder = Mockito.mock(BaseProtocolEncoder.class);
+        // Mock all required dependencies for the simplified GT06-only pipeline
+        ProtocolDetector mockProtocolDetector = Mockito.mock(ProtocolDetector.class);
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
+        Gt06Handler mockGt06Handler = Mockito.mock(Gt06Handler.class);
 
-        // Create the factory with all mocked dependencies
-        return new TrackerPipelineFactory(mockDecoder, mockEncoder, mockSessionManager);
+        // Create the factory with the correct arguments
+        return new TrackerPipelineFactory(
+                mockProtocolDetector,
+                mockSessionManager,
+                mockGt06Handler
+        );
     }
 
     @Bean

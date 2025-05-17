@@ -1,8 +1,8 @@
 package com.assettrack.iot.protocol;
 
-public class ProtocolConstants {
-    public static final String PROTOCOL_GT06 = "GT06";
-    public static final String PROTOCOL_TELTONIKA = "TELTONIKA";
+import io.netty.util.AttributeKey;
 
-    // Add other protocol constants as needed
+public class ProtocolConstants {
+    public static final AttributeKey<String> PROTOCOL_ATTRIBUTE =
+            AttributeKey.valueOf("protocolType");
 }
