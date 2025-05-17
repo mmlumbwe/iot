@@ -69,16 +69,25 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                             ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
         try {
-            if (!"GT06".equals(result.getProtocol())) return null;
+            if (result == null || !"GT06".equals(result.getProtocol())) {
+                logger.info("Skipping non-GT06 message. Result: {}", result);
+                return null;
+            }
 
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
+            logger.info("Decoding GT06 message: {}", Hex.encodeHexString(data));
+
             DeviceMessage message = handle(data);
 
             if (message != null && message.getImei() != null) {
                 message.addParsedData("deviceId", generateDeviceId(message.getImei()));
+                logger.info("Successfully decoded message from IMEI: {}", message.getImei());
             }
             return message;
+        } catch (Exception e) {
+            logger.error("Error decoding message", e);
+            return null;
         } finally {
             buf.release();
         }
@@ -171,25 +180,33 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     data.length, MIN_PACKET_LENGTH));
         }
 
+        // Verify header bytes
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException("Invalid protocol header");
         }
 
+        // Verify declared length matches actual length
         int declaredLength = data[2] & 0xFF;
         if (data.length != declaredLength + 5) {
-            throw new ProtocolException("Packet length mismatch");
+            throw new ProtocolException(String.format(
+                    "Packet length mismatch. Declared: %d, Actual: %d",
+                    declaredLength, data.length - 5));
         }
 
+        // Verify checksum
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
         ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         if (receivedChecksum != calculatedChecksum) {
-            throw new ProtocolException("Checksum mismatch");
+            throw new ProtocolException(String.format(
+                    "Checksum mismatch. Received: %04X, Calculated: %04X",
+                    receivedChecksum, calculatedChecksum));
         }
 
+        // Verify footer (optional for some devices)
         if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-            throw new ProtocolException("Invalid packet termination");
+            logger.info("Non-standard packet termination");
         }
     }
 

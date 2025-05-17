@@ -33,22 +33,25 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
-        logger.info("Received data ({} bytes): {}", data.length, Hex.encodeHexString(data));
         if (data == null || data.length < MIN_DATA_LENGTH) {
             return ProtocolDetectionResult.error(null, "INVALID", "Empty or short packet");
         }
 
-        // First try cached result if available
-        String dataKey = bytesToHex(data);
-        ProtocolDetectionResult cachedResult = detectionCache.get(dataKey);
-        if (cachedResult != null) {
-            return cachedResult;
+        // Special fast-path for GT06 protocol
+        if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+            try {
+                ProtocolMatcher gt06Matcher = PROTOCOL_MATCHERS.get("GT06");
+                if (gt06Matcher != null && gt06Matcher.matches(data)) {
+                    String packetType = gt06Matcher.getPacketType(data);
+                    return ProtocolDetectionResult.success("GT06", packetType, "1.0");
+                }
+            } catch (ProtocolDetectionException e) {
+                logger.debug("GT06 detection failed: {}", e.getMessage());
+            }
         }
 
-        // Perform actual detection
-        ProtocolDetectionResult result = performDetection(data);
-        detectionCache.put(dataKey, result);
-        return result;
+        // Fall back to normal detection
+        return performDetection(data);
     }
 
     private ProtocolDetectionResult performDetection(byte[] data) {
@@ -148,18 +151,27 @@ public class ProtocolDetector {
         private static final int MIN_GT06_LENGTH = 12;
         private static final byte START_BYTE_1 = 0x78;
         private static final byte START_BYTE_2 = 0x78;
-        private static final byte END_BYTE_1 = 0x0D;
-        private static final byte END_BYTE_2 = 0x0A;
 
         @Override
         public boolean matches(byte[] data) throws ProtocolDetectionException {
             if (data == null || data.length < MIN_GT06_LENGTH) {
                 return false;
             }
-            return data[0] == START_BYTE_1 &&
-                    data[1] == START_BYTE_2 &&
-                    data[data.length-2] == END_BYTE_1 &&
-                    data[data.length-1] == END_BYTE_2;
+
+            // Basic header check
+            if (data[0] != START_BYTE_1 || data[1] != START_BYTE_2) {
+                return false;
+            }
+
+            // Length validation
+            int declaredLength = data[2] & 0xFF;
+            if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
+                logger.warn("GT06 length mismatch. Declared: {}, Actual: {}",
+                        declaredLength, data.length - 5);
+                return false;
+            }
+
+            return true;
         }
 
         @Override
@@ -167,13 +179,16 @@ public class ProtocolDetector {
             if (!matches(data) || data.length < 4) {
                 throw new ProtocolDetectionException("Not a GT06 packet");
             }
-            switch (data[3] & 0xFF) {
+
+            byte protocolByte = data[3];
+            switch (protocolByte & 0xFF) {
                 case 0x01: return "LOGIN";
                 case 0x12: return "GPS";
                 case 0x13: return "HEARTBEAT";
                 case 0x16: return "ALARM";
                 case 0x80: return "CONFIGURATION";
-                default: return "DATA";
+                case 0x26: return "VL03_EXTENDED";
+                default:   return "UNKNOWN_0x" + String.format("%02X", protocolByte);
             }
         }
     }
