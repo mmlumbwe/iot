@@ -4,6 +4,7 @@ import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.session.SessionManager;
+import  com.assettrack.iot.handler.network.AcknowledgementHandler;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.handler.logging.LogLevel;
@@ -21,17 +22,19 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
     private final ProtocolDetector protocolDetector;
     private final SessionManager sessionManager;
+    private final AcknowledgementHandler acknowledgementHandler;
     private final Gt06Handler gt06Handler; // Using your existing handler
     private final NetworkMessageHandler networkMessageHandler;
 
     @Autowired
     public TrackerPipelineFactory(
             ProtocolDetector protocolDetector,
-            SessionManager sessionManager,
+            SessionManager sessionManager, AcknowledgementHandler acknowledgementHandler,
             Gt06Handler gt06Handler,
             NetworkMessageHandler networkMessageHandler) {
         this.protocolDetector = protocolDetector;
         this.sessionManager = sessionManager;
+        this.acknowledgementHandler = acknowledgementHandler;
         this.gt06Handler = gt06Handler;
         this.networkMessageHandler = networkMessageHandler;
     }
@@ -58,7 +61,8 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             }
         });
 
-        // 3. Add your Gt06Handler (which includes protocol detection and decoding)
+        // 3. Create new Gt06Handler instance per channel
+        Gt06Handler gt06Handler = new Gt06Handler(sessionManager, protocolDetector, acknowledgementHandler);
         pipeline.addLast("gt06Handler", gt06Handler);
 
         // 4. Add your business logic handler

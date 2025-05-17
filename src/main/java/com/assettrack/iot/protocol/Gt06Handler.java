@@ -29,7 +29,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Component
-@ChannelHandler.Sharable
 public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(Gt06Handler.class);
 

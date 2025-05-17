@@ -54,12 +54,14 @@ public class TestConfig {
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
         Gt06Handler mockGt06Handler = Mockito.mock(Gt06Handler.class);
         NetworkMessageHandler mockNetworkHandler = Mockito.mock(NetworkMessageHandler.class);
+        AcknowledgementHandler mockAckHandler = Mockito.mock(AcknowledgementHandler.class); // 5th parameter
 
         return new TrackerPipelineFactory(
                 mockProtocolDetector,
                 mockSessionManager,
+                mockAckHandler,
                 mockGt06Handler,
-                mockNetworkHandler  // Add the missing 4th argument
+                mockNetworkHandler  // Now providing all 5 required arguments
         );
     }
 
