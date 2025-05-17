@@ -8,6 +8,7 @@ import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.coyote.ProtocolException;
@@ -28,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Component
+@ChannelHandler.Sharable
 public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(Gt06Handler.class);
 
