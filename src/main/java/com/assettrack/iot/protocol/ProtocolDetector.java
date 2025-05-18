@@ -33,27 +33,33 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
-        // Fast path for GT06 protocol
-        if (data != null && data.length >= 12 && data[1] == 0x78 && data[2] == 0x78) {
-            try {
-                int length = data[2] & 0xFF;
-                if (data.length == length + 5) { // Validate packet length
-                    byte protocol = data[3];
-                    String packetType = switch (protocol & 0xFF) {
-                        case 0x01 -> "LOGIN";
-                        case 0x12 -> "GPS";
-                        case 0x13 -> "HEARTBEAT";
-                        case 0x16 -> "ALARM";
-                        case 0x26 -> "VL03_EXTENDED";
-                        default -> "DATA";
-                    };
-                    return ProtocolDetectionResult.success("GT06", packetType, "1.0");
+        if (data == null || data.length < MIN_DATA_LENGTH) {
+            return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "Insufficient data");
+        }
+
+        // Try to match known fast-detectable protocols (like GT06)
+        if (isLikelyGt06(data)) {
+            ProtocolMatcher matcher = PROTOCOL_MATCHERS.get("GT06");
+            if (matcher != null) {
+                try {
+                    if (matcher.matches(data)) {
+                        String packetType = matcher.getPacketType(data);
+                        return ProtocolDetectionResult.success("GT06", packetType, "1.0");
+                    }
+                } catch (ProtocolDetectionException e) {
+                    logger.debug("GT06 quick check failed: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                logger.warn("GT06 detection error", e);
             }
         }
+
+        // Fall back to full matcher loop
         return performDetection(data);
+    }
+
+    private boolean isLikelyGt06(byte[] data) {
+        return data.length >= 5 &&
+                data[0] == 0x78 && data[1] == 0x78 && // Start of GT06 packet
+                data[data.length - 2] == 0x0D && data[data.length - 1] == 0x0A; // GT06 footer
     }
 
     private ProtocolDetectionResult performDetection(byte[] data) {
