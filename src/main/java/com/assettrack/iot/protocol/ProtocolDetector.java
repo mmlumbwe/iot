@@ -34,7 +34,7 @@ public class ProtocolDetector {
 
     public ProtocolDetectionResult detect(byte[] data) {
         // Fast path for GT06 protocol
-        if (data != null && data.length >= 12 && data[0] == 0x78 && data[1] == 0x78) {
+        if (data != null && data.length >= 12 && data[1] == 0x78 && data[2] == 0x78) {
             try {
                 int length = data[2] & 0xFF;
                 if (data.length == length + 5) { // Validate packet length
