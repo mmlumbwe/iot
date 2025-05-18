@@ -58,8 +58,8 @@ public class ProtocolDetector {
 
     private boolean isLikelyGt06(byte[] data) {
         return data.length >= 5 &&
-                data[0] == 0x78 && data[1] == 0x78 && // Start of GT06 packet
-                data[data.length - 2] == 0x0D && data[data.length - 1] == 0x0A; // GT06 footer
+                data[0] == 0x78 && data[1] == 0x78; //&& // Start of GT06 packet
+                //data[data.length - 2] == 0x0D && data[data.length - 1] == 0x0A; // GT06 footer
     }
 
     private ProtocolDetectionResult performDetection(byte[] data) {
