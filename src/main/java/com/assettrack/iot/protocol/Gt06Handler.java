@@ -67,15 +67,16 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     @Override
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
+        byte[] data = null;
         try {
-            byte[] data = new byte[buf.readableBytes()];
+            data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
             // Fallback detection if initial detection failed
             if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
-                    logger.debug("Manually detected GT06 packet");
+                    logger.info("Manually detected GT06 packet");
                 } else {
                     return null;
                 }
@@ -87,7 +88,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             }
             return message;
         } catch (Exception e) {
-            logger.error("Decoding error", e);
+            logger.error("Decoding error for packet: {}", Hex.encodeHexString(data), e);
             return null;
         } finally {
             buf.release();
@@ -120,6 +121,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
+        logger.debug("Processing GT06 packet: {}", Hex.encodeHexString(data));
         DeviceMessage message = new DeviceMessage();
         message.setProtocolType("GT06");
         Map<String, Object> parsedData = new HashMap<>();
@@ -158,7 +160,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
             }
         } catch (Exception e) {
-            logger.error("GT06 processing error", e);
+            logger.info("GT06 processing error", e);
+            logger.info("Error processing packet: {}", Hex.encodeHexString(data), e);
             message.setError(e.getMessage());
             message.setResponseData(generateErrorResponse(e));
             message.setResponseRequired(true);

@@ -33,20 +33,19 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
-        logger.debug("Detecting protocol for {} bytes: {}", data.length, Hex.encodeHexString(data));
-
         // Fast path for GT06 protocol
         if (data != null && data.length >= 12 && data[0] == 0x78 && data[1] == 0x78) {
             try {
                 int length = data[2] & 0xFF;
-                if (data.length == length + 5) { // Validate length
+                if (data.length == length + 5) { // Validate packet length
                     byte protocol = data[3];
                     String packetType = switch (protocol & 0xFF) {
                         case 0x01 -> "LOGIN";
                         case 0x12 -> "GPS";
                         case 0x13 -> "HEARTBEAT";
                         case 0x16 -> "ALARM";
-                        default -> "UNKNOWN";
+                        case 0x26 -> "VL03_EXTENDED";
+                        default -> "DATA";
                     };
                     return ProtocolDetectionResult.success("GT06", packetType, "1.0");
                 }
@@ -54,8 +53,6 @@ public class ProtocolDetector {
                 logger.warn("GT06 detection error", e);
             }
         }
-
-        // Fall back to normal detection
         return performDetection(data);
     }
 
