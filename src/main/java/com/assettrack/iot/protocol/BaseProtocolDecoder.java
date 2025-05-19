@@ -1,5 +1,6 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.SessionManager;
@@ -323,30 +324,43 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @return Byte array with the response
      */
     private byte[] generateLoginResponse(short serialNumber) {
-        ByteBuffer buf = ByteBuffer.allocate(5).order(ByteOrder.BIG_ENDIAN);
+        // GT06 login response format with CRC16:
+        // [0x78 0x78][length][protocol][serial][status][checksumHi][checksumLo][0x0D 0x0A]
+        byte[] response = new byte[11]; // 11 bytes total
 
         // Header
-        buf.put((byte) 0x78);
-        buf.put((byte) 0x78);
+        response[0] = (byte) 0x78;  // PROTOCOL_HEADER_1
+        response[1] = (byte) 0x78;  // PROTOCOL_HEADER_2
 
-        // Length (excluding header and checksum)
-        buf.put((byte) 0x05);
+        // Length (5 bytes: protocol + serial + status)
+        response[2] = 0x05;
 
-        // Protocol number (0x01 for login response)
-        buf.put((byte) 0x01);
+        // Protocol (0x01 for login response)
+        response[3] = 0x01;         // PROTOCOL_LOGIN
 
-        // Serial number (echo from login)
-        buf.putShort(serialNumber);
+        // Serial number (big-endian)
+        response[4] = (byte) (serialNumber >> 8);
+        response[5] = (byte) (serialNumber & 0xFF);
 
-        // Checksum (simple sum of bytes after header)
-        byte checksum = calculateChecksum(buf.array(), 2, 3);
-        buf.put(checksum);
+        // Status (0x01 = success)
+        response[6] = 0x01;
+
+        // Calculate CRC16 checksum for bytes 2-6 (length through status)
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        // Add checksum (2 bytes)
+        response[7] = (byte) (checksum >> 8);
+        response[8] = (byte) (checksum & 0xFF);
 
         // Terminator
-        buf.put((byte) 0x0D);
-        buf.put((byte) 0x0A);
+        response[9] = 0x0D;         // CR
+        response[10] = 0x0A;        // LF
 
-        return buf.array();
+        logger.info("Generated login response for serial {}: {}",
+                serialNumber, bytesToHex(response));
+
+        return response;
     }
 
     private byte calculateChecksum(byte[] data, int start, int length) {
