@@ -324,8 +324,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @return Byte array with the response
      */
     private byte[] generateLoginResponse(short serialNumber) {
-        // Try multiple checksum methods if first attempt fails
-        for (int attempt = 0; attempt < 3; attempt++) {
+        // Try all known checksum variants
+        for (ChecksumType type : ChecksumType.values()) {
             try {
                 byte[] response = new byte[11];
 
@@ -338,27 +338,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 response[5] = (byte) (serialNumber & 0xFF);
                 response[6] = 0x01;  // Status
 
-                // Try different checksum methods
-                int checksum;
-                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-
-                switch (attempt) {
-                    case 0:  // First try with CRC16 (most common)
-                        checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-                        break;
-                    case 1:  // Then try XOR checksum (some older devices)
-                        checksum = 0;
-                        for (int i = 2; i <= 6; i++) {
-                            checksum ^= response[i] & 0xFF;
-                        }
-                        break;
-                    default:  // Finally try simple sum (some variants)
-                        checksum = 0;
-                        for (int i = 2; i <= 6; i++) {
-                            checksum += response[i] & 0xFF;
-                        }
-                        checksum &= 0xFFFF;
-                }
+                // Calculate checksum based on type
+                int checksum = calculateChecksum(response, 2, 5, type);
 
                 response[7] = (byte) (checksum >> 8);
                 response[8] = (byte) (checksum & 0xFF);
@@ -367,15 +348,40 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 response[9] = 0x0D;
                 response[10] = 0x0A;
 
-                logger.info("Attempt {}: Generated login response: {}",
-                        attempt, bytesToHex(response));
+                logger.info("Trying {} checksum: {}", type, bytesToHex(response));
                 return response;
 
             } catch (Exception e) {
-                logger.error("Attempt {} failed to generate response", attempt, e);
+                logger.error("Failed to generate {} checksum response", type, e);
             }
         }
         return null;
+    }
+
+    private int calculateChecksum(byte[] data, int offset, int length, ChecksumType type) {
+        switch (type) {
+            case CRC16_X25:
+                return Checksum.crc16(Checksum.CRC16_X25,
+                        ByteBuffer.wrap(data, offset, length));
+            case XOR:
+                int xor = 0;
+                for (int i = offset; i < offset + length; i++) {
+                    xor ^= data[i] & 0xFF;
+                }
+                return xor;
+            case SUM:
+                int sum = 0;
+                for (int i = offset; i < offset + length; i++) {
+                    sum += data[i] & 0xFF;
+                }
+                return sum & 0xFFFF;
+            default:
+                throw new IllegalArgumentException("Unknown checksum type");
+        }
+    }
+
+    enum ChecksumType {
+        CRC16_X25, XOR, SUM
     }
 
 
