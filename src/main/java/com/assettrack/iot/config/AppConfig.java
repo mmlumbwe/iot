@@ -2,6 +2,8 @@ package com.assettrack.iot.config;
 
 import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.protocol.Gt06Handler;
+import com.assettrack.iot.protocol.ProtocolDetectionHandler;
+import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.protocol.ProtocolHandler;
 import com.assettrack.iot.repository.PositionRepository;
 import com.assettrack.iot.service.GpsServer;
@@ -78,6 +80,11 @@ public class AppConfig {
     @Bean
     public AcknowledgementHandler acknowledgementHandler() {
         return new AcknowledgementHandler();
+    }
+
+    @Bean
+    public ProtocolDetectionHandler protocolDetectionHandler(ProtocolDetector detector) {
+        return new ProtocolDetectionHandler(detector);
     }
 
 }

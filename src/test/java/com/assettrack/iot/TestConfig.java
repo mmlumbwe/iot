@@ -5,6 +5,7 @@ import com.assettrack.iot.network.TrackerPipelineFactory;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.BaseProtocolDecoder;
 import com.assettrack.iot.protocol.BaseProtocolEncoder;
+import com.assettrack.iot.protocol.ProtocolDetectionHandler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.security.AuthService;
 import com.assettrack.iot.security.PayloadValidator;
@@ -53,12 +54,14 @@ public class TestConfig {
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
         AcknowledgementHandler mockAckHandler = Mockito.mock(AcknowledgementHandler.class);
         CacheManager mockCacheManager = Mockito.mock(CacheManager.class); // Correct type
+        ProtocolDetectionHandler mockProtocolDetectionHandler = Mockito.mock(ProtocolDetectionHandler.class);
 
         return new TrackerPipelineFactory(
                 mockProtocolDetector,
                 mockSessionManager,
                 mockAckHandler,
-                mockCacheManager  // Now providing CacheManager instead of MessageProcessor
+                mockCacheManager,  // Now providing CacheManager instead of MessageProcessor
+                mockProtocolDetectionHandler
         );
     }
 
