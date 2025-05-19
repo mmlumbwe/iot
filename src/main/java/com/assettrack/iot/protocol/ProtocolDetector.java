@@ -1,5 +1,6 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.config.Checksum;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,19 +40,22 @@ public class ProtocolDetector {
 
     public ProtocolDetectionResult detect(byte[] data) {
         if (data == null || data.length < MIN_DATA_LENGTH) {
+            logger.info("Insufficient data for detection ({} bytes)", data == null ? 0 : data.length);
             return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "Insufficient data");
         }
 
-
         // Special fast path for GT06 packets
         if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+            logger.debug("Potential GT06 packet detected");
             ProtocolMatcher matcher = PROTOCOL_MATCHERS.get("GT06");
             if (matcher != null) {
                 try {
                     if (matcher.matches(data)) {
                         String packetType = matcher.getPacketType(data);
-                        logger.info("GT06 packet detected - Type: {}, Length: {}", packetType, data.length);
+                        logger.info("GT06 packet confirmed - Type: {}, Length: {}", packetType, data.length);
                         return ProtocolDetectionResult.success("GT06", packetType, "1.0");
+                    } else {
+                        logger.debug("GT06 packet validation failed");
                     }
                 } catch (ProtocolDetectionException e) {
                     logger.debug("GT06 detection failed: {}", e.getMessage());
@@ -176,12 +180,35 @@ public class ProtocolDetector {
 
             // Special handling for login packets
             if (data.length == LOGIN_PACKET_LENGTH && data[3] == LOGIN_PROTOCOL) {
-                return true;
+                return validateLoginPacket(data);
             }
 
             // Length validation for other packet types
             int declaredLength = data[2] & 0xFF;
-            return data.length == declaredLength + 5; // 2 header + 1 length + 2 footer
+            if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
+                return false;
+            }
+
+            return validateChecksum(data);
+        }
+
+        private boolean validateLoginPacket(byte[] data) {
+            // Verify footer bytes (0D 0A)
+            if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+                return false;
+            }
+            return validateChecksum(data);
+        }
+
+        private boolean validateChecksum(byte[] data) {
+            try {
+                int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
+                ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
+                int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+                return receivedChecksum == calculatedChecksum;
+            } catch (Exception e) {
+                return false;
+            }
         }
 
         @Override
