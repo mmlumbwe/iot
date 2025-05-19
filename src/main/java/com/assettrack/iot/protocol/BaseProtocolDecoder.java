@@ -324,81 +324,85 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @return Byte array with the response
      */
     private byte[] generateLoginResponse(short serialNumber) {
-        // GT06 login response format with CRC16:
-        // [0x78 0x78][length][protocol][serial][status][checksumHi][checksumLo][0x0D 0x0A]
-        byte[] response = new byte[11]; // 11 bytes total
+        try {
+            // GT06 login response format:
+            // [0x78 0x78][0x05][0x01][serialHi][serialLo][0x01][checksumHi][checksumLo][0x0D 0x0A]
+            byte[] response = new byte[11];
 
-        // Header
-        response[0] = (byte) 0x78;  // PROTOCOL_HEADER_1
-        response[1] = (byte) 0x78;  // PROTOCOL_HEADER_2
+            // Header
+            response[0] = (byte) 0x78;
+            response[1] = (byte) 0x78;
 
-        // Length (5 bytes: protocol + serial + status)
-        response[2] = 0x05;
+            // Length (5 bytes of payload)
+            response[2] = 0x05;
 
-        // Protocol (0x01 for login response)
-        response[3] = 0x01;         // PROTOCOL_LOGIN
+            // Protocol (0x01 = login response)
+            response[3] = 0x01;
 
-        // Serial number (big-endian)
-        response[4] = (byte) (serialNumber >> 8);
-        response[5] = (byte) (serialNumber & 0xFF);
+            // Serial number (big-endian)
+            response[4] = (byte) (serialNumber >> 8);
+            response[5] = (byte) (serialNumber & 0xFF);
 
-        // Status (0x01 = success)
-        response[6] = 0x01;
+            // Status (0x01 = success)
+            response[6] = 0x01;
 
-        // Calculate CRC16 checksum for bytes 2-6 (length through status)
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+            // Calculate CRC16 checksum (bytes 2-6)
+            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-        // Add checksum (2 bytes)
-        response[7] = (byte) (checksum >> 8);
-        response[8] = (byte) (checksum & 0xFF);
+            // Add checksum
+            response[7] = (byte) (checksum >> 8);
+            response[8] = (byte) (checksum & 0xFF);
 
-        // Terminator
-        response[9] = 0x0D;         // CR
-        response[10] = 0x0A;        // LF
+            // Terminator
+            response[9] = 0x0D;
+            response[10] = 0x0A;
 
-        logger.info("Generated login response for serial {}: {}",
-                serialNumber, bytesToHex(response));
-
-        return response;
-    }
-
-    private byte calculateChecksum(byte[] data, int start, int length) {
-        byte sum = 0;
-        for (int i = start; i < start + length; i++) {
-            sum += data[i];
+            logger.info("Generated GT06 login response: {}", bytesToHex(response));
+            return response;
+        } catch (Exception e) {
+            logger.error("Failed to generate login response", e);
+            return null;
         }
-        return sum;
     }
+
 
     /**
      * Generates a standard acknowledgment packet (0x01 type)
      * @return Byte array with the ACK response
      */
     private byte[] generateAckResponse() {
-        ByteBuffer buf = ByteBuffer.allocate(5).order(ByteOrder.BIG_ENDIAN);
+        // GT06 ACK response format with CRC16:
+        // [0x78 0x78][0x05][0x01][0x00][0x00][checksumHi][checksumLo][0x0D 0x0A]
+        byte[] response = new byte[11]; // 11 bytes total
 
         // Header
-        buf.put((byte) 0x78);
-        buf.put((byte) 0x78);
+        response[0] = (byte) 0x78;
+        response[1] = (byte) 0x78;
 
-        // Length (fixed for ACK)
-        buf.put((byte) 0x05);
+        // Length (5 bytes: protocol + serial)
+        response[2] = 0x05;
 
-        // Protocol number (0x01 for ACK)
-        buf.put((byte) 0x01);
+        // Protocol (0x01 for ACK)
+        response[3] = 0x01;
 
-        // Serial number (0 for ACK)
-        buf.putShort((short) 0);
+        // Serial number (0x0000 for ACK)
+        response[4] = 0x00;
+        response[5] = 0x00;
 
-        // Checksum
-        byte checksum = calculateChecksum(buf.array(), 2, 3);
-        buf.put(checksum);
+        // Calculate CRC16 checksum for bytes 2-5 (length through serial)
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        // Add checksum (2 bytes)
+        response[6] = (byte) (checksum >> 8);
+        response[7] = (byte) (checksum & 0xFF);
 
         // Terminator
-        buf.put((byte) 0x0D);
-        buf.put((byte) 0x0A);
+        response[8] = 0x0D;
+        response[9] = 0x0A;
 
-        return buf.array();
+        logger.debug("Generated ACK response: {}", bytesToHex(response));
+        return response;
     }
 }
