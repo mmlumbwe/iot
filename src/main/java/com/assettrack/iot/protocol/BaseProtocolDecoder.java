@@ -202,7 +202,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     handleGpsPacket(buffer, message, parsedData);
                     break;
                 case 0x13: // Heartbeat
-                    //handleHeartbeatPacket(buffer, message, parsedData);
+                    handleHeartbeatPacket(buffer, message, parsedData);
                     break;
                 default:
                     logger.warn("Unsupported GT06 protocol type: 0x{}",
@@ -236,8 +236,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         parsedData.put("serialNumber", serialNumber);
 
         // Generate login response
-        //byte[] response = generateLoginResponse(serialNumber);
-        //message.setResponseData(response);
+        byte[] response = generateLoginResponse(serialNumber);
+        message.setResponseData(response);
         message.setResponseRequired(true);
     }
 
@@ -251,7 +251,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         parsedData.put("position", position);
 
         message.setMessageType("GPS");
-        //message.setResponseData(generateAckResponse());
+        message.setResponseData(generateAckResponse());
     }
 
     /**
@@ -276,14 +276,14 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         Position position = new Position();
 
         // Date and time (6 bytes)
-        /*position.setTime(LocalDateTime.of(
+        position.setTimestamp(LocalDateTime.of(
                 2000 + (buffer.get() & 0xFF), // Year
                 buffer.get() & 0xFF,          // Month
                 buffer.get() & 0xFF,          // Day
                 buffer.get() & 0xFF,          // Hour
                 buffer.get() & 0xFF,          // Minute
                 buffer.get() & 0xFF           // Second
-        ));*/
+        ));
 
         // GPS info
         position.setSatellites(buffer.get() & 0xFF);
@@ -296,5 +296,95 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         position.setCourse((double) course);
 
         return position;
+    }
+
+    /**
+     * Handles GT06 heartbeat packets
+     */
+    private void handleHeartbeatPacket(ByteBuffer buffer, DeviceMessage message,
+                                       Map<String, Object> parsedData) {
+        // Typically heartbeat packets are empty after the protocol byte
+        message.setMessageType("HEARTBEAT");
+
+        // Some devices include voltage info in heartbeat (check buffer remaining)
+        if (buffer.remaining() >= 2) {
+            int voltageLevel = buffer.get() & 0xFF; // Often 1 byte for voltage
+            parsedData.put("battery", voltageLevel);
+        }
+
+        // Generate ACK response
+        message.setResponseData(generateAckResponse());
+        message.setResponseRequired(true);
+    }
+
+    /**
+     * Generates a login response packet (0x01)
+     * @param serialNumber The serial number from the login packet
+     * @return Byte array with the response
+     */
+    private byte[] generateLoginResponse(short serialNumber) {
+        ByteBuffer buf = ByteBuffer.allocate(5).order(ByteOrder.BIG_ENDIAN);
+
+        // Header
+        buf.put((byte) 0x78);
+        buf.put((byte) 0x78);
+
+        // Length (excluding header and checksum)
+        buf.put((byte) 0x05);
+
+        // Protocol number (0x01 for login response)
+        buf.put((byte) 0x01);
+
+        // Serial number (echo from login)
+        buf.putShort(serialNumber);
+
+        // Checksum (simple sum of bytes after header)
+        byte checksum = calculateChecksum(buf.array(), 2, 3);
+        buf.put(checksum);
+
+        // Terminator
+        buf.put((byte) 0x0D);
+        buf.put((byte) 0x0A);
+
+        return buf.array();
+    }
+
+    private byte calculateChecksum(byte[] data, int start, int length) {
+        byte sum = 0;
+        for (int i = start; i < start + length; i++) {
+            sum += data[i];
+        }
+        return sum;
+    }
+
+    /**
+     * Generates a standard acknowledgment packet (0x01 type)
+     * @return Byte array with the ACK response
+     */
+    private byte[] generateAckResponse() {
+        ByteBuffer buf = ByteBuffer.allocate(5).order(ByteOrder.BIG_ENDIAN);
+
+        // Header
+        buf.put((byte) 0x78);
+        buf.put((byte) 0x78);
+
+        // Length (fixed for ACK)
+        buf.put((byte) 0x05);
+
+        // Protocol number (0x01 for ACK)
+        buf.put((byte) 0x01);
+
+        // Serial number (0 for ACK)
+        buf.putShort((short) 0);
+
+        // Checksum
+        byte checksum = calculateChecksum(buf.array(), 2, 3);
+        buf.put(checksum);
+
+        // Terminator
+        buf.put((byte) 0x0D);
+        buf.put((byte) 0x0A);
+
+        return buf.array();
     }
 }
