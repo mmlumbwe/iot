@@ -39,6 +39,7 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
+        logger.info("IN ProtocolDetectionResult detect!!!!!!!!!!!");
         logger.info("GT06 detection - Length: {}, Declared: {}, Valid: {}",
                 data.length,
                 data[2] & 0xFF,
