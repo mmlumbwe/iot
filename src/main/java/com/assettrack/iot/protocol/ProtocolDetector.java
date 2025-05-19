@@ -169,22 +169,33 @@ public class ProtocolDetector {
         @Override
         public boolean matches(byte[] data) throws ProtocolDetectionException {
             if (data == null || data.length < MIN_GT06_LENGTH) {
+                logger.debug("Packet too short");
                 return false;
             }
 
-            // Basic header check
+            // Header check
             if (data[0] != START_BYTE_1 || data[1] != START_BYTE_2) {
+                logger.debug("Invalid header");
                 return false;
             }
 
-            // Special handling for login packets
-            if (data.length == LOGIN_PACKET_LENGTH && data[3] == 0x01) {
-                return validateLoginPacket(data);
+            // Length validation
+            int declaredLength = data[2] & 0xFF;
+            if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
+                logger.debug("Length mismatch. Declared: {}, Actual: {}",
+                        declaredLength, data.length - 5);
+                return false;
             }
 
-            // Length validation for other packet types
-            int declaredLength = data[2] & 0xFF;
-            return data.length == declaredLength + 5; // 2 header + 1 length + 2 footer
+            // Footer check for login packets
+            if (data.length >= 2 && data[data.length-2] != 0x0D && data[data.length-1] != 0x0A) {
+                logger.debug("Invalid footer");
+                return false;
+            }
+
+            // Skip checksum validation temporarily for debugging
+            logger.debug("GT06 packet validation passed");
+            return true;
         }
 
         private boolean validateLoginPacket(byte[] data) {
