@@ -18,6 +18,11 @@ public class ProtocolDetector {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetector.class);
     private static final Map<String, ProtocolMatcher> PROTOCOL_MATCHERS = new ConcurrentHashMap<>();
     private static final int MIN_DATA_LENGTH = 2;
+
+    // Protocol constants
+    private static final byte PROTOCOL_HEADER_1 = 0x78;
+    private static final byte PROTOCOL_HEADER_2 = 0x78;
+
     private final Map<String, ProtocolDetectionResult> detectionCache = new ConcurrentHashMap<>();
 
     static {
@@ -38,7 +43,7 @@ public class ProtocolDetector {
         }
 
         // Try to match known fast-detectable protocols (like GT06)
-        if (isLikelyGt06(data)) {
+        if (isGt06Packet(data)) {
             ProtocolMatcher matcher = PROTOCOL_MATCHERS.get("GT06");
             if (matcher != null) {
                 try {
@@ -56,10 +61,10 @@ public class ProtocolDetector {
         return performDetection(data);
     }
 
-    private boolean isLikelyGt06(byte[] data) {
-        return data.length >= 5 &&
-                data[0] == 0x78 && data[1] == 0x78; //&& // Start of GT06 packet
-                //data[data.length - 2] == 0x0D && data[data.length - 1] == 0x0A; // GT06 footer
+    private boolean isGt06Packet(byte[] data) {
+        return data.length >= 2 &&
+                data[0] == PROTOCOL_HEADER_1 &&
+                data[1] == PROTOCOL_HEADER_2;
     }
 
     private ProtocolDetectionResult performDetection(byte[] data) {

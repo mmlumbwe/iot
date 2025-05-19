@@ -187,33 +187,37 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     data.length, MIN_PACKET_LENGTH));
         }
 
-        // Verify header bytes
+        // Verify header
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-            throw new ProtocolException("Invalid protocol header");
+            throw new ProtocolException(String.format(
+                    "Invalid protocol header: 0x%02X 0x%02X (expected 0x78 0x78)",
+                    data[0], data[1]));
         }
 
-        // Verify declared length matches actual length
+        // Verify length matches actual packet size
         int declaredLength = data[2] & 0xFF;
-        if (data.length != declaredLength + 5) {
+        if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 tail
             throw new ProtocolException(String.format(
-                    "Packet length mismatch. Declared: %d, Actual: %d",
+                    "Packet length mismatch. Declared: %d, actual: %d",
                     declaredLength, data.length - 5));
         }
 
-        // Verify checksum
+        // Verify checksum using CRC-16/X25
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
         ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         if (receivedChecksum != calculatedChecksum) {
             throw new ProtocolException(String.format(
-                    "Checksum mismatch. Received: %04X, Calculated: %04X",
+                    "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
                     receivedChecksum, calculatedChecksum));
         }
 
-        // Footer validation (optional for some devices)
+        // Verify termination bytes
         if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-            logger.warn("Non-standard packet termination");
+            throw new ProtocolException(String.format(
+                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
+                    data[data.length - 2], data[data.length - 1]));
         }
     }
 
@@ -293,18 +297,20 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         byte[] response = new byte[10];
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05;
+        response[2] = 0x05; // Length
         response[3] = PROTOCOL_LOGIN;
         response[4] = (byte)(serialNumber >> 8);
         response[5] = (byte)(serialNumber);
-        response[6] = 0x01;
+        response[6] = 0x01; // Success status
 
+        // Calculate checksum
         ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         response[7] = (byte)(checksum >> 8);
         response[8] = (byte)(checksum);
-        response[9] = 0x0A;
+        response[9] = 0x0A; // Termination byte
+
         return response;
     }
 
@@ -499,16 +505,19 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
-            imei.append(String.format("%02d", b & 0xFF));
+            int high = (b >> 4) & 0x0F;
+            int low = b & 0x0F;
+            imei.append(high).append(low);
         }
 
         String imeiStr = imei.toString();
+        // Remove leading zeros until we get 15 digits
         while (imeiStr.length() > 15 && imeiStr.startsWith("0")) {
             imeiStr = imeiStr.substring(1);
         }
 
         if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
-            throw new ProtocolException("Invalid IMEI format");
+            throw new ProtocolException("Invalid IMEI format. Expected 15 digits, got: " + imeiStr);
         }
 
         return imeiStr;
