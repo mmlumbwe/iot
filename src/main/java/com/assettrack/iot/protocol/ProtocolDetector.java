@@ -38,6 +38,22 @@ public class ProtocolDetector {
         }
     }
 
+    // Temporary test method
+    public ProtocolDetectionResult debugDetection(byte[] data) {
+        logger.info("==== DEBUG DETECTION ====");
+        logger.info("Data length: {}", data.length);
+        logger.info("Header bytes: {} {}",
+                data.length > 0 ? String.format("%02X", data[0]) : "N/A",
+                data.length > 1 ? String.format("%02X", data[1]) : "N/A");
+
+        // Manually check GT06 pattern
+        if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+            logger.info("GT06 header detected");
+            return ProtocolDetectionResult.success("GT06", "DEBUG", "1.0");
+        }
+        return null;
+    }
+
     public ProtocolDetectionResult detect(byte[] data) {
         logger.info("IN ProtocolDetectionResult detect!!!!!!!!!!!");
         logger.info("GT06 detection - Length: {}, Declared: {}, Valid: {}",

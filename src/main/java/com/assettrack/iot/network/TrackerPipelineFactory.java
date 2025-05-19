@@ -52,7 +52,14 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         // 2. Idle state handler
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 3. Raw data logger
+        // 3. Protocol-specific handlers
+        pipeline.addLast("gt06Handler", new Gt06Handler(
+                sessionManager,
+                protocolDetector,
+                acknowledgementHandler
+        ));
+
+        // 4. Raw data logger
         pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO) {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -66,13 +73,6 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
                 super.channelRead(ctx, msg);
             }
         });
-
-        // 4. Protocol-specific handlers
-        pipeline.addLast("gt06Handler", new Gt06Handler(
-                sessionManager,
-                protocolDetector,
-                acknowledgementHandler
-        ));
 
         // 5. Business logic handler
         pipeline.addLast("messageHandler", new NetworkMessageHandler(

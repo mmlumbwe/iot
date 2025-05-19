@@ -24,41 +24,55 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         try {
+            logger.info("Received message of type: {}", msg != null ? msg.getClass().getName() : "null");
+
             if (msg == null) {
-                logger.info("Received null message");
+                logger.warn("Null message received");
                 return;
             }
 
             if (!(msg instanceof ByteBuf)) {
-                logger.info("Forwarding non-ByteBuf message of type {}", msg.getClass().getSimpleName());
+                logger.warn("Unexpected message type: {}", msg.getClass().getName());
                 ctx.fireChannelRead(msg);
                 return;
             }
 
             ByteBuf buf = (ByteBuf) msg;
+            logger.info("ByteBuf details - readable: {}, readerIndex: {}, writerIndex: {}",
+                    buf.isReadable(), buf.readerIndex(), buf.writerIndex());
+
             if (!buf.isReadable()) {
-                logger.info("Received empty ByteBuf");
+                logger.warn("Empty ByteBuf received");
+                buf.release();
                 return;
             }
 
-            // Extract data for processing
+            // Extract data
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data);
-            logger.info("Processing {} bytes of data: {}", data.length, Hex.encodeHexString(data));
+            logger.info("Attempting protocol detection on: {}", Hex.encodeHexString(data));
 
-            // Perform protocol detection
-            ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-            logger.info("RIGHT BEFORE THE FAILURE!!!!!!!!!!!");
-            logger.info(String.valueOf(result));
-            System.out.println(result);
-            if (result != null) {
-                logger.info("Detected protocol: {}", result.getProtocol());
-                ctx.fireChannelRead(result);
-            } else {
-                logger.info("No protocol detected for incoming data");
+            // THIS IS THE LINE THAT'S NOT BEING REACHED
+            ProtocolDetector.ProtocolDetectionResult result1 = protocolDetector.detect(data);
+            logger.info("Detection result: {}", result1 != null ? result1.getProtocol() : "null");
+
+            if (!buf.isReadable()) {
+                logger.warn("ByteBuf has no readable bytes");
+                buf.release();
+                return;
             }
+
+            ProtocolDetector.ProtocolDetectionResult result = protocolDetector.debugDetection(data);
+            if (result != null) {
+                ctx.fireChannelRead(result);
+            }
+
+            if (result != null) {
+                ctx.fireChannelRead(result);
+            }
+            ctx.fireChannelRead(msg);
         } catch (Exception e) {
-            logger.error("Error during message processing", e);
+            logger.error("Error during protocol detection", e);
         } finally {
             ReferenceCountUtil.release(msg);
         }
