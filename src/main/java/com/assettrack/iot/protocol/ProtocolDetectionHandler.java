@@ -53,14 +53,8 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             logger.info("Attempting protocol detection on: {}", Hex.encodeHexString(data));
 
             // THIS IS THE LINE THAT'S NOT BEING REACHED
-            ProtocolDetector.ProtocolDetectionResult result1 = protocolDetector.detect(data);
-            logger.info("Detection result: {}", result1 != null ? result1.getProtocol() : "null");
-
-            if (!buf.isReadable()) {
-                logger.warn("ByteBuf has no readable bytes");
-                buf.release();
-                return;
-            }
+            //ProtocolDetector.ProtocolDetectionResult result1 = protocolDetector.detect(data);
+            //logger.info("Detection result: {}", result1 != null ? result1.getProtocol() : "null");
 
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.debugDetection(data);
             if (result != null) {
