@@ -39,6 +39,18 @@ public class ProtocolDetector {
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
+        logger.info("GT06 detection - Length: {}, Declared: {}, Valid: {}",
+                data.length,
+                data[2] & 0xFF,
+                data.length == (data[2] & 0xFF) + 5);
+
+        System.out.println("Packet analysis:");
+        System.out.println("Header: " + String.format("%02X%02X", data[0], data[1]));
+        System.out.println("Length: " + (data[2] & 0xFF));
+        System.out.println("Protocol: " + String.format("%02X", data[3]));
+        System.out.println("Footer: " +
+                String.format("%02X%02X", data[data.length-2], data[data.length-1]));
+
         if (data == null || data.length < MIN_DATA_LENGTH) {
             logger.info("Insufficient data for detection ({} bytes)", data == null ? 0 : data.length);
             return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "Insufficient data");
@@ -167,35 +179,8 @@ public class ProtocolDetector {
         private static final int LOGIN_PACKET_LENGTH = 22;
 
         @Override
-        public boolean matches(byte[] data) throws ProtocolDetectionException {
-            if (data == null || data.length < MIN_GT06_LENGTH) {
-                logger.debug("Packet too short");
-                return false;
-            }
-
-            // Header check
-            if (data[0] != START_BYTE_1 || data[1] != START_BYTE_2) {
-                logger.debug("Invalid header");
-                return false;
-            }
-
-            // Length validation
-            int declaredLength = data[2] & 0xFF;
-            if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
-                logger.debug("Length mismatch. Declared: {}, Actual: {}",
-                        declaredLength, data.length - 5);
-                return false;
-            }
-
-            // Footer check for login packets
-            if (data.length >= 2 && data[data.length-2] != 0x0D && data[data.length-1] != 0x0A) {
-                logger.debug("Invalid footer");
-                return false;
-            }
-
-            // Skip checksum validation temporarily for debugging
-            logger.debug("GT06 packet validation passed");
-            return true;
+        public boolean matches(byte[] data) {
+            return data != null && data.length >= 2 && data[0] == 0x78 && data[1] == 0x78;
         }
 
         private boolean validateLoginPacket(byte[] data) {
