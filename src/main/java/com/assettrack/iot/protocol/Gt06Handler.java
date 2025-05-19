@@ -181,6 +181,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private void validatePacket(byte[] data) throws ProtocolException {
+        // Add explicit length check for login packets
+        if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
+            throw new ProtocolException("Invalid login packet length");
+        }
+
         if (data.length < MIN_PACKET_LENGTH) {
             throw new ProtocolException(String.format(
                     "Packet too short (%d bytes), minimum required %d",

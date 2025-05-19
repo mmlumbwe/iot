@@ -1,6 +1,7 @@
 package com.assettrack.iot.network;
 
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
+import com.assettrack.iot.protocol.BaseProtocolDecoder;
 import com.assettrack.iot.protocol.Gt06Handler;
 import com.assettrack.iot.protocol.ProtocolDetector;
 import com.assettrack.iot.session.SessionManager;
@@ -41,6 +42,10 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     @Override
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
+
+        pipeline.addLast("protocolDetector", (ChannelHandler) new ProtocolDetector());
+
+
 
         // 1. Timeout handler
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));

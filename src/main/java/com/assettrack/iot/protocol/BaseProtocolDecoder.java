@@ -85,6 +85,18 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
+
+            // Fallback detection for GT06
+            if ((result == null || !"GT06".equals(result.getProtocol()))) {
+                if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+                    result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
+                    logger.info("Manually detected GT06 packet");
+                } else {
+                    return null;
+                }
+            }
+
+
             DeviceMessage message = handle(data);
 
             if (message != null) {
@@ -118,6 +130,11 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             logger.debug("Detected protocol: {}, Type: {}, Version: {}",
                     result.getProtocol(), result.getPacketType(), result.getVersion());
             logger.debug("Raw data ({} bytes): {}", data.length, bytesToHex(data));
+        }
+        if (result == null) {
+            logger.warn("Protocol detection failed for data: {}", bytesToHex(data));
+        } else {
+            logger.info("Detected protocol: {}", result.getProtocol());
         }
     }
 
