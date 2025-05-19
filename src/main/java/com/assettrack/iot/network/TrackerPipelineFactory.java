@@ -46,7 +46,8 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        pipeline.addLast("protocolDetector", protocolDetectionHandler);
+        // Create new instance for each channel instead of using autowired one
+        pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
 
         // 1. Timeout handler
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
