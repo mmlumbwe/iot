@@ -324,23 +324,30 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @return Byte array with the response
      */
     private byte[] generateLoginResponse(short serialNumber) {
-        // Try all known checksum variants
-        for (ChecksumType type : ChecksumType.values()) {
+        // Try all known checksum variants in order of probability
+        for (ChecksumVariant variant : ChecksumVariant.values()) {
             try {
                 byte[] response = new byte[11];
 
                 // Standard GT06 header
                 response[0] = (byte) 0x78;
                 response[1] = (byte) 0x78;
-                response[2] = 0x05;  // Length
-                response[3] = 0x01;  // Protocol
+
+                // Packet length (5 bytes of payload)
+                response[2] = 0x05;
+
+                // Protocol number (0x01 for login response)
+                response[3] = 0x01;
+
+                // Serial number (big-endian)
                 response[4] = (byte) (serialNumber >> 8);
                 response[5] = (byte) (serialNumber & 0xFF);
-                response[6] = 0x01;  // Status
 
-                // Calculate checksum based on type
-                int checksum = calculateChecksum(response, 2, 5, type);
+                // Status byte (0x01 = success)
+                response[6] = 0x01;
 
+                // Calculate checksum based on variant
+                int checksum = calculateChecksum(response, 2, 5, variant);
                 response[7] = (byte) (checksum >> 8);
                 response[8] = (byte) (checksum & 0xFF);
 
@@ -348,40 +355,54 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 response[9] = 0x0D;
                 response[10] = 0x0A;
 
-                logger.info("Trying {} checksum: {}", type, bytesToHex(response));
+                logger.info("Trying {} checksum variant: {}", variant, bytesToHex(response));
                 return response;
 
             } catch (Exception e) {
-                logger.error("Failed to generate {} checksum response", type, e);
+                logger.error("Failed to generate {} checksum response", variant, e);
             }
         }
         return null;
     }
 
-    private int calculateChecksum(byte[] data, int offset, int length, ChecksumType type) {
-        switch (type) {
+    private int calculateChecksum(byte[] data, int offset, int length, ChecksumVariant variant) {
+        switch (variant) {
             case CRC16_X25:
                 return Checksum.crc16(Checksum.CRC16_X25,
                         ByteBuffer.wrap(data, offset, length));
+
             case XOR:
                 int xor = 0;
                 for (int i = offset; i < offset + length; i++) {
-                    xor ^= data[i] & 0xFF;
+                    xor ^= (data[i] & 0xFF);
                 }
                 return xor;
-            case SUM:
+
+            case MOD256:
                 int sum = 0;
                 for (int i = offset; i < offset + length; i++) {
-                    sum += data[i] & 0xFF;
+                    sum += (data[i] & 0xFF);
                 }
-                return sum & 0xFFFF;
+                return sum % 256;
+
+            case FLETCHER:
+                int sum1 = 0, sum2 = 0;
+                for (int i = offset; i < offset + length; i++) {
+                    sum1 = (sum1 + (data[i] & 0xFF)) % 255;
+                    sum2 = (sum2 + sum1) % 255;
+                }
+                return (sum2 << 8) | sum1;
+
             default:
-                throw new IllegalArgumentException("Unknown checksum type");
+                throw new IllegalArgumentException("Unknown checksum variant");
         }
     }
 
-    enum ChecksumType {
-        CRC16_X25, XOR, SUM
+    enum ChecksumVariant {
+        CRC16_X25,  // Most common for GT06
+        XOR,        // Common in Chinese clones
+        MOD256,     // Some older models
+        FLETCHER    // Rare but exists in some variants
     }
 
 
