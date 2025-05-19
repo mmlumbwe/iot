@@ -42,29 +42,25 @@ public class ProtocolDetector {
             return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "Insufficient data");
         }
 
-        // Try to match known fast-detectable protocols (like GT06)
-        if (isGt06Packet(data)) {
+
+        // Special fast path for GT06 packets
+        if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
             ProtocolMatcher matcher = PROTOCOL_MATCHERS.get("GT06");
             if (matcher != null) {
                 try {
                     if (matcher.matches(data)) {
                         String packetType = matcher.getPacketType(data);
+                        logger.info("GT06 packet detected - Type: {}, Length: {}", packetType, data.length);
                         return ProtocolDetectionResult.success("GT06", packetType, "1.0");
                     }
                 } catch (ProtocolDetectionException e) {
-                    logger.debug("GT06 quick check failed: {}", e.getMessage());
+                    logger.debug("GT06 detection failed: {}", e.getMessage());
                 }
             }
         }
 
         // Fall back to full matcher loop
         return performDetection(data);
-    }
-
-    private boolean isGt06Packet(byte[] data) {
-        return data.length >= 2 &&
-                data[0] == PROTOCOL_HEADER_1 &&
-                data[1] == PROTOCOL_HEADER_2;
     }
 
     private ProtocolDetectionResult performDetection(byte[] data) {
@@ -164,6 +160,8 @@ public class ProtocolDetector {
         private static final int MIN_GT06_LENGTH = 12;
         private static final byte START_BYTE_1 = 0x78;
         private static final byte START_BYTE_2 = 0x78;
+        private static final byte LOGIN_PROTOCOL = 0x01;
+        private static final int LOGIN_PACKET_LENGTH = 22;
 
         @Override
         public boolean matches(byte[] data) throws ProtocolDetectionException {
@@ -176,15 +174,14 @@ public class ProtocolDetector {
                 return false;
             }
 
-            // Length validation
-            int declaredLength = data[2] & 0xFF;
-            if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
-                logger.info("GT06 length mismatch. Declared: {}, Actual: {}",
-                        declaredLength, data.length - 5);
-                return false;
+            // Special handling for login packets
+            if (data.length == LOGIN_PACKET_LENGTH && data[3] == LOGIN_PROTOCOL) {
+                return true;
             }
 
-            return true;
+            // Length validation for other packet types
+            int declaredLength = data[2] & 0xFF;
+            return data.length == declaredLength + 5; // 2 header + 1 length + 2 footer
         }
 
         @Override

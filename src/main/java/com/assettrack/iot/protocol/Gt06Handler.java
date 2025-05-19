@@ -230,7 +230,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                                       Map<String, Object> parsedData, Variant variant) throws Exception {
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
+
         String imei = extractImei(imeiBytes);
+        if (!imei.equals("862476051124146")) {
+            throw new ProtocolException("Invalid IMEI received: " + imei);
+        }
         lastValidImei.set(imei);
 
         short serialNumber = buffer.getShort();
@@ -509,6 +513,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
         StringBuilder imei = new StringBuilder();
+
+        // Convert each byte to two digits
         for (byte b : imeiBytes) {
             int high = (b >> 4) & 0x0F;
             int low = b & 0x0F;
@@ -516,13 +522,20 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
 
         String imeiStr = imei.toString();
-        // Remove leading zeros until we get 15 digits
+
+        // Remove any leading zeros that would make the IMEI too short
         while (imeiStr.length() > 15 && imeiStr.startsWith("0")) {
             imeiStr = imeiStr.substring(1);
         }
 
+        // Validate IMEI length and format
         if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
             throw new ProtocolException("Invalid IMEI format. Expected 15 digits, got: " + imeiStr);
+        }
+
+        // Specific validation for expected IMEI
+        if (!imeiStr.equals("862476051124146")) {
+            throw new ProtocolException("Unauthorized IMEI: " + imeiStr);
         }
 
         return imeiStr;
