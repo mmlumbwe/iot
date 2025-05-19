@@ -324,46 +324,58 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @return Byte array with the response
      */
     private byte[] generateLoginResponse(short serialNumber) {
-        try {
-            // GT06 login response format:
-            // [0x78 0x78][0x05][0x01][serialHi][serialLo][0x01][checksumHi][checksumLo][0x0D 0x0A]
-            byte[] response = new byte[11];
+        // Try multiple checksum methods if first attempt fails
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                byte[] response = new byte[11];
 
-            // Header
-            response[0] = (byte) 0x78;
-            response[1] = (byte) 0x78;
+                // Standard GT06 header
+                response[0] = (byte) 0x78;
+                response[1] = (byte) 0x78;
+                response[2] = 0x05;  // Length
+                response[3] = 0x01;  // Protocol
+                response[4] = (byte) (serialNumber >> 8);
+                response[5] = (byte) (serialNumber & 0xFF);
+                response[6] = 0x01;  // Status
 
-            // Length (5 bytes of payload)
-            response[2] = 0x05;
+                // Try different checksum methods
+                int checksum;
+                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
 
-            // Protocol (0x01 = login response)
-            response[3] = 0x01;
+                switch (attempt) {
+                    case 0:  // First try with CRC16 (most common)
+                        checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+                        break;
+                    case 1:  // Then try XOR checksum (some older devices)
+                        checksum = 0;
+                        for (int i = 2; i <= 6; i++) {
+                            checksum ^= response[i] & 0xFF;
+                        }
+                        break;
+                    default:  // Finally try simple sum (some variants)
+                        checksum = 0;
+                        for (int i = 2; i <= 6; i++) {
+                            checksum += response[i] & 0xFF;
+                        }
+                        checksum &= 0xFFFF;
+                }
 
-            // Serial number (big-endian)
-            response[4] = (byte) (serialNumber >> 8);
-            response[5] = (byte) (serialNumber & 0xFF);
+                response[7] = (byte) (checksum >> 8);
+                response[8] = (byte) (checksum & 0xFF);
 
-            // Status (0x01 = success)
-            response[6] = 0x01;
+                // Terminator
+                response[9] = 0x0D;
+                response[10] = 0x0A;
 
-            // Calculate CRC16 checksum (bytes 2-6)
-            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+                logger.info("Attempt {}: Generated login response: {}",
+                        attempt, bytesToHex(response));
+                return response;
 
-            // Add checksum
-            response[7] = (byte) (checksum >> 8);
-            response[8] = (byte) (checksum & 0xFF);
-
-            // Terminator
-            response[9] = 0x0D;
-            response[10] = 0x0A;
-
-            logger.info("Generated GT06 login response: {}", bytesToHex(response));
-            return response;
-        } catch (Exception e) {
-            logger.error("Failed to generate login response", e);
-            return null;
+            } catch (Exception e) {
+                logger.error("Attempt {} failed to generate response", attempt, e);
+            }
         }
+        return null;
     }
 
 
