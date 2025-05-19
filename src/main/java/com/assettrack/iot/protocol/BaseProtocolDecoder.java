@@ -4,6 +4,7 @@ import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.SessionManager;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -323,86 +324,92 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @param serialNumber The serial number from the login packet
      * @return Byte array with the response
      */
-    private byte[] generateLoginResponse(short serialNumber) {
+    public byte[] generateLoginResponse(short serialNumber) {
         // Try all known checksum variants in order of probability
         for (ChecksumVariant variant : ChecksumVariant.values()) {
             try {
-                byte[] response = new byte[11];
+                ByteBuf buf = Unpooled.buffer(11);
 
-                // Standard GT06 header
-                response[0] = (byte) 0x78;
-                response[1] = (byte) 0x78;
+                // Header
+                buf.writeByte(0x78);
+                buf.writeByte(0x78);
 
-                // Packet length (5 bytes of payload)
-                response[2] = 0x05;
+                // Length (5 bytes of payload)
+                buf.writeByte(0x05);
 
-                // Protocol number (0x01 for login response)
-                response[3] = 0x01;
+                // Protocol (0x01 for login response)
+                buf.writeByte(0x01);
 
                 // Serial number (big-endian)
-                response[4] = (byte) (serialNumber >> 8);
-                response[5] = (byte) (serialNumber & 0xFF);
+                buf.writeShort(serialNumber);
 
-                // Status byte (0x01 = success)
-                response[6] = 0x01;
+                // Status (0x01 = success)
+                buf.writeByte(0x01);
 
-                // Calculate checksum based on variant
-                int checksum = calculateChecksum(response, 2, 5, variant);
-                response[7] = (byte) (checksum >> 8);
-                response[8] = (byte) (checksum & 0xFF);
+                // Calculate and write checksum
+                int checksum = calculateChecksum(buf, variant);
+                buf.writeShort(checksum);
 
                 // Terminator
-                response[9] = 0x0D;
-                response[10] = 0x0A;
+                buf.writeByte(0x0D);
+                buf.writeByte(0x0A);
 
-                logger.info("Trying {} checksum variant: {}", variant, bytesToHex(response));
+                byte[] response = new byte[buf.readableBytes()];
+                buf.readBytes(response);
+                buf.release();
+
+                logger.info("Generated {} response: {}", variant, bytesToHex(response));
                 return response;
 
             } catch (Exception e) {
-                logger.error("Failed to generate {} checksum response", variant, e);
+                logger.error("Failed to generate {} response", variant, e);
             }
         }
         return null;
     }
 
-    private int calculateChecksum(byte[] data, int offset, int length, ChecksumVariant variant) {
-        switch (variant) {
-            case CRC16_X25:
-                return Checksum.crc16(Checksum.CRC16_X25,
-                        ByteBuffer.wrap(data, offset, length));
+    private int calculateChecksum(ByteBuf buf, ChecksumVariant variant) {
+        // Save reader index
+        int readerIndex = buf.readerIndex();
 
-            case XOR:
-                int xor = 0;
-                for (int i = offset; i < offset + length; i++) {
-                    xor ^= (data[i] & 0xFF);
-                }
-                return xor;
+        try {
+            // Checksum is calculated from length byte (position 2) through status byte (position 6)
+            byte[] checksumBytes = new byte[5];
+            buf.readerIndex(2);
+            buf.readBytes(checksumBytes);
 
-            case MOD256:
-                int sum = 0;
-                for (int i = offset; i < offset + length; i++) {
-                    sum += (data[i] & 0xFF);
-                }
-                return sum % 256;
+            switch (variant) {
+                case CRC16_X25:
+                    return Checksum.crc16(Checksum.CRC16_X25,
+                            ByteBuffer.wrap(checksumBytes));
 
-            case FLETCHER:
-                int sum1 = 0, sum2 = 0;
-                for (int i = offset; i < offset + length; i++) {
-                    sum1 = (sum1 + (data[i] & 0xFF)) % 255;
-                    sum2 = (sum2 + sum1) % 255;
-                }
-                return (sum2 << 8) | sum1;
+                case XOR:
+                    int xor = 0;
+                    for (byte b : checksumBytes) {
+                        xor ^= (b & 0xFF);
+                    }
+                    return xor;
 
-            default:
-                throw new IllegalArgumentException("Unknown checksum variant");
+                case MOD256:
+                    int sum = 0;
+                    for (byte b : checksumBytes) {
+                        sum += (b & 0xFF);
+                    }
+                    return sum % 256;
+
+                default:
+                    throw new IllegalArgumentException("Unknown variant");
+            }
+        } finally {
+            // Restore reader index
+            buf.readerIndex(readerIndex);
         }
     }
 
     enum ChecksumVariant {
-        CRC16_X25,  // Most common for GT06
-        XOR,        // Common in Chinese clones
-        MOD256,     // Some older models
-        FLETCHER    // Rare but exists in some variants
+        CRC16_X25,  // Standard GT06
+        XOR,        // Chinese clones
+        MOD256      // Some older models
     }
 
 
