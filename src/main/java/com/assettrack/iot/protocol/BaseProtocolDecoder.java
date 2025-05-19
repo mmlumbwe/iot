@@ -325,28 +325,28 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
      * @return Byte array with the response
      */
     public byte[] generateLoginResponse(short serialNumber) {
-        // Try all known checksum variants in order of probability
+        // Try all checksum variants in order of probability
         for (ChecksumVariant variant : ChecksumVariant.values()) {
             try {
                 ByteBuf buf = Unpooled.buffer(11);
 
-                // Header
+                // Standard GT06 header
                 buf.writeByte(0x78);
                 buf.writeByte(0x78);
 
-                // Length (5 bytes of payload)
+                // Packet length (5 bytes)
                 buf.writeByte(0x05);
 
-                // Protocol (0x01 for login response)
+                // Protocol number (0x01)
                 buf.writeByte(0x01);
 
-                // Serial number (big-endian)
+                // Serial number
                 buf.writeShort(serialNumber);
 
                 // Status (0x01 = success)
                 buf.writeByte(0x01);
 
-                // Calculate and write checksum
+                // Calculate checksum
                 int checksum = calculateChecksum(buf, variant);
                 buf.writeShort(checksum);
 
@@ -360,7 +360,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
                 logger.info("Generated {} response: {}", variant, bytesToHex(response));
                 return response;
-
             } catch (Exception e) {
                 logger.error("Failed to generate {} response", variant, e);
             }
@@ -369,13 +368,10 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     }
 
     private int calculateChecksum(ByteBuf buf, ChecksumVariant variant) {
-        // Save reader index
         int readerIndex = buf.readerIndex();
-
         try {
-            // Checksum is calculated from length byte (position 2) through status byte (position 6)
+            buf.readerIndex(2); // Start from length byte
             byte[] checksumBytes = new byte[5];
-            buf.readerIndex(2);
             buf.readBytes(checksumBytes);
 
             switch (variant) {
@@ -401,7 +397,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     throw new IllegalArgumentException("Unknown variant");
             }
         } finally {
-            // Restore reader index
             buf.readerIndex(readerIndex);
         }
     }
