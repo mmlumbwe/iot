@@ -46,13 +46,13 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // Create new instance for each channel instead of using autowired one
+        // 1. Protocol detection first
         pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
 
-        // 1. Timeout handler
+        // 2. Idle state handler
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 2. Log raw incoming data
+        // 3. Raw data logger
         pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO) {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -67,27 +67,27 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             }
         });
 
-        // 3. Create new Gt06Handler instance per channel
-        //Gt06Handler gt06Handler = new Gt06Handler(sessionManager, protocolDetector, acknowledgementHandler);
+        // 4. Protocol-specific handlers
         pipeline.addLast("gt06Handler", new Gt06Handler(
                 sessionManager,
                 protocolDetector,
                 acknowledgementHandler
         ));
 
-        // 4. Add your business logic handler
+        // 5. Business logic handler
         pipeline.addLast("messageHandler", new NetworkMessageHandler(
-                sessionManager,  // First required argument
-                cacheManager    // Second required argument
+                sessionManager,
+                cacheManager
         ));
 
-        // 5. Final logging
-        pipeline.addLast("processedLogger", new LoggingHandler("Processed-Messages", LogLevel.INFO));
+        // 6. Processed messages logger
+        pipeline.addLast("processedLogger", new LoggingHandler("Processed-Messages", LogLevel.DEBUG));
 
+        // 7. Exception handler
         pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                logger.error("Pipeline error from {}", ctx.channel().remoteAddress(), cause);
+                logger.error("Pipeline error", cause);
                 ctx.close();
             }
         });
