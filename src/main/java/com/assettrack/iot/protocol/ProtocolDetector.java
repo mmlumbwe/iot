@@ -164,16 +164,10 @@ public class ProtocolDetector {
         private static final int MIN_GT06_LENGTH = 12;
         private static final byte START_BYTE_1 = 0x78;
         private static final byte START_BYTE_2 = 0x78;
-        private static final byte LOGIN_PROTOCOL = 0x01;
         private static final int LOGIN_PACKET_LENGTH = 22;
 
         @Override
         public boolean matches(byte[] data) throws ProtocolDetectionException {
-
-            logger.info("Validating GT06 packet - Header: {}, Length: {}",
-                    data.length >= 2 ? String.format("%02X%02X", data[0], data[1]) : "N/A",
-                    data.length >= 3 ? data[2] & 0xFF : "N/A");
-
             if (data == null || data.length < MIN_GT06_LENGTH) {
                 return false;
             }
@@ -184,44 +178,31 @@ public class ProtocolDetector {
             }
 
             // Special handling for login packets
-            if (data.length == LOGIN_PACKET_LENGTH && data[3] == LOGIN_PROTOCOL) {
+            if (data.length == LOGIN_PACKET_LENGTH && data[3] == 0x01) {
                 return validateLoginPacket(data);
             }
 
             // Length validation for other packet types
             int declaredLength = data[2] & 0xFF;
-            if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 footer
-                return false;
-            }
-
-            return validateChecksum(data);
+            return data.length == declaredLength + 5; // 2 header + 1 length + 2 footer
         }
 
         private boolean validateLoginPacket(byte[] data) {
             // Verify footer bytes (0D 0A)
             if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-                logger.info("in boolean validateLoginPacket");
                 return false;
             }
-            return validateChecksum(data);
-        }
 
-        private boolean validateChecksum(byte[] data) {
-            try {
-                logger.info("in boolean validateChecksum");
-                int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-                ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
-                int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-                return receivedChecksum == calculatedChecksum;
-            } catch (Exception e) {
-                logger.info("in boolean validateChecksum FAILED!!!!");
-                return false;
+            // Verify checksum (simple XOR for GT06)
+            byte checksum = 0;
+            for (int i = 2; i < data.length - 4; i++) {
+                checksum ^= data[i];
             }
+            return checksum == data[data.length - 4];
         }
 
         @Override
         public String getPacketType(byte[] data) throws ProtocolDetectionException {
-            logger.info("in boolean getPacketType");
             if (!matches(data) || data.length < 4) {
                 throw new ProtocolDetectionException("Not a GT06 packet");
             }

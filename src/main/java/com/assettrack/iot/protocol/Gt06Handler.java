@@ -228,21 +228,35 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
                                       Map<String, Object> parsedData, Variant variant) throws Exception {
+        // Read IMEI (8 bytes in packed BCD format)
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
 
-        String imei = extractImei(imeiBytes);
-        if (!imei.equals("862476051124146")) {
-            throw new ProtocolException("Invalid IMEI received: " + imei);
+        // Extract and validate IMEI
+        String imei;
+        try {
+            imei = extractImei(imeiBytes);
+        } catch (ProtocolException e) {
+            logger.error("IMEI validation failed: {}", e.getMessage());
+            throw e;
         }
+
+        // Store the validated IMEI
         lastValidImei.set(imei);
 
+        // Read serial number (2 bytes)
         short serialNumber = buffer.getShort();
+
+        // Handle VL03 extension if present
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
+        // Manage device session
         DeviceSession session = manageDeviceSession(imei, serialNumber);
+
+        // Generate response
         byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
 
+        // Populate message
         parsedData.put("response", response);
         message.setResponseData(response);
         message.setResponseRequired(true);
@@ -250,6 +264,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setMessageType("LOGIN");
         message.getParsedData().put("sessionId", session.getSessionId());
 
+        // Update session and send acknowledgement
         session.updateLastActivity();
         acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
@@ -512,25 +527,24 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private String extractImei(byte[] imeiBytes) throws ProtocolException {
+        // Convert packed BCD to string
         StringBuilder imei = new StringBuilder();
-
-        // Convert each byte to two digits
         for (byte b : imeiBytes) {
-            int high = (b >> 4) & 0x0F;
-            int low = b & 0x0F;
-            imei.append(high).append(low);
+            // Each byte contains two BCD digits
+            imei.append(String.format("%02d", ((b >> 4) & 0x0F) * 10 + (b & 0x0F)));
         }
 
+        // The IMEI should be exactly 15 digits
         String imeiStr = imei.toString();
 
-        // Remove any leading zeros that would make the IMEI too short
+        // Remove any leading zeros that would make it too short
         while (imeiStr.length() > 15 && imeiStr.startsWith("0")) {
             imeiStr = imeiStr.substring(1);
         }
 
-        // Validate IMEI length and format
+        // Validate length and format
         if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
-            throw new ProtocolException("Invalid IMEI format. Expected 15 digits, got: " + imeiStr);
+            throw new ProtocolException("Invalid IMEI format: " + imeiStr);
         }
 
         // Specific validation for expected IMEI
