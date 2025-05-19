@@ -34,31 +34,27 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            // Create a copy of the data without consuming the buffer
+            // Make a copy of the data without consuming the buffer
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data);
-
-            logger.debug("Processing packet: {}", Hex.encodeHexString(data));
 
             // Perform protocol detection
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
             if (result != null) {
-                logger.info("Detected protocol: {}", result.getProtocol());
+                logger.debug("Detected protocol: {}", result.getProtocol());
+                // Forward both the result AND original message
                 ctx.fireChannelRead(result);
-                // We've processed the message, no need to forward original
-                return;
             }
 
-            logger.debug("No protocol detected, forwarding original message");
-            // Forward the original message if no protocol detected
+            // Always forward the original message
             ctx.fireChannelRead(msg);
 
         } catch (Exception e) {
-            logger.error("Error processing message", e);
+            logger.error("Protocol detection error", e);
             ctx.close();
         } finally {
-            // Always release the buffer
-            ReferenceCountUtil.release(buf);
+            // We're forwarding the original message, so don't release it here
+            // The downstream handler will release it
         }
     }
 

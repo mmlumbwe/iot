@@ -1,6 +1,7 @@
 package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.model.DeviceMessage;
+import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -13,6 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 @ChannelHandler.Sharable
@@ -30,39 +37,32 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (!(msg instanceof ByteBuf)) {
-            ctx.fireChannelRead(msg);
-            return;
-        }
-
-        ByteBuf buf = (ByteBuf) msg;
         try {
-            byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data);
-
-            ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-
-            if (result != null) {
-                logDetectionResult(result, data);
-            } else {
-                logger.warn("Protocol detection returned null for data: {}", bytesToHex(data));
-                ReferenceCountUtil.release(buf);
-                return;
-            }
-
-            if (result.isValid()) {
-                ctx.channel().attr(ProtocolConstants.PROTOCOL_ATTRIBUTE).set(result.getProtocol());
-                Object decoded = decode(ctx, buf, result);
-                if (decoded != null) {
-                    ctx.fireChannelRead(decoded);
+            if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
+                // Handle protocol-specific decoding
+                ProtocolDetector.ProtocolDetectionResult result = (ProtocolDetector.ProtocolDetectionResult) msg;
+                if ("GT06".equals(result.getProtocol())) {
+                    // GT06-specific decoding logic
+                    decodeGt06Message(ctx, result);
                 }
-            } else {
-                logger.warn("Invalid protocol detection: {}", result.getError());
-                ReferenceCountUtil.release(buf);
+            } else if (msg instanceof ByteBuf) {
+                // Fallback processing if no protocol detected
+                ByteBuf buf = (ByteBuf) msg;
+                if (buf.isReadable()) {
+                    // Attempt to process as GT06 anyway (backward compatibility)
+                    byte[] data = new byte[buf.readableBytes()];
+                    buf.getBytes(buf.readerIndex(), data);
+                    if (isPotentialGt06Packet(data)) {
+                        decodeGt06Message(ctx, data);
+                    }
+                }
             }
         } catch (Exception e) {
-            logger.error("Error during protocol detection", e);
-            ReferenceCountUtil.release(buf);
+            logger.error("Decoding error", e);
+        } finally {
+            if (msg instanceof ByteBuf) {
+                ((ByteBuf) msg).release();
+            }
         }
     }
 
@@ -144,5 +144,157 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             sb.append(String.format("%02X ", b));
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * Checks if the data could be a GT06 protocol packet
+     */
+    private boolean isPotentialGt06Packet(byte[] data) {
+        // Minimum GT06 packet is 12 bytes and starts with 0x78 0x78
+        return data != null &&
+                data.length >= 12 &&
+                data[0] == 0x78 &&
+                data[1] == 0x78;
+    }
+
+    /**
+     * Decodes a GT06 message from protocol detection result
+     */
+    private void decodeGt06Message(ChannelHandlerContext ctx, ProtocolDetector.ProtocolDetectionResult result) {
+        try {
+            // Extract the raw data from the result's metadata if stored
+            byte[] data = (byte[]) result.getMetadata().get("rawData");
+            if (data == null) {
+                logger.warn("No raw data in protocol detection result");
+                return;
+            }
+            decodeGt06Message(ctx, data);
+        } catch (Exception e) {
+            logger.error("GT06 decoding error", e);
+        }
+    }
+
+    /**
+     * Decodes a GT06 message from raw bytes
+     */
+    private void decodeGt06Message(ChannelHandlerContext ctx, byte[] data) {
+        try {
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+
+            // Skip header (0x78 0x78)
+            buffer.position(2);
+
+            int length = buffer.get() & 0xFF;
+            byte protocol = buffer.get();
+
+            logger.debug("Decoding GT06 packet - Type: 0x{}, Length: {}",
+                    String.format("%02X", protocol), length);
+
+            DeviceMessage message = new DeviceMessage();
+            message.setProtocolType("GT06");
+            Map<String, Object> parsedData = new HashMap<>();
+
+            switch (protocol) {
+                case 0x01: // Login
+                    handleLoginPacket(buffer, message, parsedData);
+                    break;
+                case 0x12: // GPS
+                    handleGpsPacket(buffer, message, parsedData);
+                    break;
+                case 0x13: // Heartbeat
+                    //handleHeartbeatPacket(buffer, message, parsedData);
+                    break;
+                default:
+                    logger.warn("Unsupported GT06 protocol type: 0x{}",
+                            String.format("%02X", protocol));
+                    return;
+            }
+
+            message.setParsedData(parsedData);
+            ctx.fireChannelRead(message);
+
+        } catch (Exception e) {
+            logger.error("GT06 message decoding failed", e);
+        }
+    }
+
+    /**
+     * Handles GT06 login packets
+     */
+    private void handleLoginPacket(ByteBuffer buffer, DeviceMessage message,
+                                   Map<String, Object> parsedData) {
+        // IMEI (8 bytes in packed BCD format)
+        byte[] imeiBytes = new byte[8];
+        buffer.get(imeiBytes);
+        String imei = extractImei(imeiBytes);
+
+        // Serial number (2 bytes)
+        short serialNumber = buffer.getShort();
+
+        message.setImei(imei);
+        message.setMessageType("LOGIN");
+        parsedData.put("serialNumber", serialNumber);
+
+        // Generate login response
+        //byte[] response = generateLoginResponse(serialNumber);
+        //message.setResponseData(response);
+        message.setResponseRequired(true);
+    }
+
+    /**
+     * Handles GT06 GPS packets
+     */
+    private void handleGpsPacket(ByteBuffer buffer, DeviceMessage message,
+                                 Map<String, Object> parsedData) {
+        // Parse GPS data
+        Position position = parseGpsData(buffer);
+        parsedData.put("position", position);
+
+        message.setMessageType("GPS");
+        //message.setResponseData(generateAckResponse());
+    }
+
+    /**
+     * Extracts IMEI from packed BCD format
+     */
+    private String extractImei(byte[] imeiBytes) {
+        StringBuilder imei = new StringBuilder();
+        for (byte b : imeiBytes) {
+            imei.append(String.format("%02X", b));
+        }
+        // Remove leading zeros if necessary
+        while (imei.length() > 15 && imei.charAt(0) == '0') {
+            imei.deleteCharAt(0);
+        }
+        return imei.toString();
+    }
+
+    /**
+     * Parses GT06 GPS data
+     */
+    private Position parseGpsData(ByteBuffer buffer) {
+        Position position = new Position();
+
+        // Date and time (6 bytes)
+        /*position.setTime(LocalDateTime.of(
+                2000 + (buffer.get() & 0xFF), // Year
+                buffer.get() & 0xFF,          // Month
+                buffer.get() & 0xFF,          // Day
+                buffer.get() & 0xFF,          // Hour
+                buffer.get() & 0xFF,          // Minute
+                buffer.get() & 0xFF           // Second
+        ));*/
+
+        // GPS info
+        position.setSatellites(buffer.get() & 0xFF);
+        position.setLatitude(buffer.getInt() / 1800000.0);
+        position.setLongitude(buffer.getInt() / 1800000.0);
+        position.setSpeed((buffer.get() & 0xFF) * 1.852); // Knots to km/h
+
+        // Course and status flags
+        int course = buffer.getShort() & 0xFFFF;
+        position.setCourse((double) course);
+
+        return position;
     }
 }
