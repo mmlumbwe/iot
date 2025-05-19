@@ -46,7 +46,7 @@ public class ProtocolDetector {
 
         // Special fast path for GT06 packets
         if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
-            logger.debug("Potential GT06 packet detected");
+            logger.info("Potential GT06 packet detected: {}", Hex.encodeHexString(data));
             ProtocolMatcher matcher = PROTOCOL_MATCHERS.get("GT06");
             if (matcher != null) {
                 try {
@@ -169,6 +169,11 @@ public class ProtocolDetector {
 
         @Override
         public boolean matches(byte[] data) throws ProtocolDetectionException {
+
+            logger.info("Validating GT06 packet - Header: {}, Length: {}",
+                    data.length >= 2 ? String.format("%02X%02X", data[0], data[1]) : "N/A",
+                    data.length >= 3 ? data[2] & 0xFF : "N/A");
+
             if (data == null || data.length < MIN_GT06_LENGTH) {
                 return false;
             }
@@ -195,6 +200,7 @@ public class ProtocolDetector {
         private boolean validateLoginPacket(byte[] data) {
             // Verify footer bytes (0D 0A)
             if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+                logger.info("in boolean validateLoginPacket");
                 return false;
             }
             return validateChecksum(data);
@@ -202,17 +208,20 @@ public class ProtocolDetector {
 
         private boolean validateChecksum(byte[] data) {
             try {
+                logger.info("in boolean validateChecksum");
                 int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
                 ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
                 int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
                 return receivedChecksum == calculatedChecksum;
             } catch (Exception e) {
+                logger.info("in boolean validateChecksum FAILED!!!!");
                 return false;
             }
         }
 
         @Override
         public String getPacketType(byte[] data) throws ProtocolDetectionException {
+            logger.info("in boolean getPacketType");
             if (!matches(data) || data.length < 4) {
                 throw new ProtocolDetectionException("Not a GT06 packet");
             }
