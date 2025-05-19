@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ProtocolDetector {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetector.class);
     private static final Map<String, ProtocolMatcher> PROTOCOL_MATCHERS = new ConcurrentHashMap<>();
-    private static final int MIN_DATA_LENGTH = 2;
+    static final int MIN_DATA_LENGTH = 2;
 
     // Protocol constants
     private static final byte PROTOCOL_HEADER_1 = 0x78;
