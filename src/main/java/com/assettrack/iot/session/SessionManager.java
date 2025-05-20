@@ -225,4 +225,20 @@ public class SessionManager {
             logger.info("Created new session for IMEI: {}", imei);
         }
     }
+
+    public boolean validateSession(String imei, Channel channel) {
+        DeviceSession session = sessionsByImei.get(imei);
+        if (session == null) {
+            return false;
+        }
+
+        // Check if this is the same physical connection
+        if (session.getChannel() != null &&
+                !session.getChannel().id().equals(channel.id())) {
+            logger.warn("Session exists but with different channel for IMEI: {}", imei);
+            return false;
+        }
+
+        return !session.isExpired();
+    }
 }

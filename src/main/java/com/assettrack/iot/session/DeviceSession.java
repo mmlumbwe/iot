@@ -7,14 +7,15 @@ public class DeviceSession {
     private final long deviceId;
     private final String uniqueId; // IMEI
     private final String protocolType;
-    private final Channel channel;
-    private final SocketAddress remoteAddress;
+    private Channel channel;  // Changed from final to allow updates
+    private SocketAddress remoteAddress;  // Changed from final to allow updates
     private volatile long lastUpdate = System.currentTimeMillis();
     private volatile boolean connected = false;
     private volatile short lastSerialNumber = 0;
     private volatile short lastSequenceNumber = 0;
     private volatile boolean awaitingLoginResponse = false;
     private volatile long loginRequestTime = 0;
+    private volatile boolean duplicate = false;  // Added duplicate flag
 
     public DeviceSession(long deviceId, String uniqueId, String protocolType,
                          Channel channel, SocketAddress remoteAddress) {
@@ -26,9 +27,10 @@ public class DeviceSession {
         this.protocolType = protocolType;
         this.channel = channel;
         this.remoteAddress = remoteAddress;
+        this.connected = (channel != null && channel.isActive());
     }
 
-    // Getters for all required fields
+    // Getters
     public String getSessionId() {
         return this.uniqueId;
     }
@@ -66,41 +68,49 @@ public class DeviceSession {
     }
 
     public boolean isConnected() {
-        return connected;
+        return connected && (channel != null && channel.isActive());
     }
 
-    // Session state methods
-    public void setConnected(boolean connected) {
+    public boolean isDuplicate() {
+        return duplicate;
+    }
+
+    // Setters
+    public synchronized void setDuplicate(boolean duplicate) {
+        this.duplicate = duplicate;
+    }
+
+    public synchronized void setConnected(boolean connected) {
         this.connected = connected;
         if (connected) {
             updateLastActivity();
         }
     }
 
-    public void updateLastActivity() {
+    public synchronized void updateLastActivity() {
         this.lastUpdate = System.currentTimeMillis();
     }
 
     public boolean isExpired() {
-        return !connected || (System.currentTimeMillis() - lastUpdate) > 300000; // 5 minute timeout
+        return !isConnected() || (System.currentTimeMillis() - lastUpdate) > 300000; // 5 minute timeout
     }
 
     // GT06-specific methods
     public boolean shouldReconnect(short serialNumber) {
-        return !connected || serialNumber > lastSerialNumber;
+        return !isConnected() || serialNumber > lastSerialNumber;
     }
 
-    public void updateSerialNumber(short serialNumber) {
+    public synchronized void updateSerialNumber(short serialNumber) {
         this.lastSerialNumber = serialNumber;
         updateLastActivity();
     }
 
     public boolean isDuplicateSerialNumber(short serialNumber) {
-        return connected && serialNumber <= lastSerialNumber;
+        return isConnected() && serialNumber <= lastSerialNumber;
     }
 
     // Sequence number management
-    public boolean updateSequenceNumber(short sequenceNumber) {
+    public synchronized boolean updateSequenceNumber(short sequenceNumber) {
         if (sequenceNumber > lastSequenceNumber ||
                 (sequenceNumber < 0 && lastSequenceNumber > 0)) { // Handle rollover
             lastSequenceNumber = sequenceNumber;
@@ -110,7 +120,7 @@ public class DeviceSession {
         return false;
     }
 
-    public boolean isAwaitingLoginResponse() {
+    public synchronized boolean isAwaitingLoginResponse() {
         if (!awaitingLoginResponse) {
             return false;
         }
@@ -122,14 +132,36 @@ public class DeviceSession {
         return true;
     }
 
-    public void resetLoginState() {
+    public synchronized void resetLoginState() {
         this.awaitingLoginResponse = false;
         this.loginRequestTime = 0;
     }
 
-    public void setAwaitingLoginResponse(boolean awaiting) {
+    public synchronized void setAwaitingLoginResponse(boolean awaiting) {
         this.awaitingLoginResponse = awaiting;
         this.loginRequestTime = awaiting ? System.currentTimeMillis() : 0;
+    }
+
+    public synchronized void setChannel(Channel channel) {
+        this.channel = channel;
+        this.connected = (channel != null && channel.isActive());
+        if (this.connected) {
+            updateLastActivity();
+        }
+    }
+
+    public synchronized void setRemoteAddress(SocketAddress remoteAddress) {
+        this.remoteAddress = remoteAddress;
+    }
+
+    // Helper methods
+    public boolean isActive() {
+        return isConnected() && !isExpired();
+    }
+
+    public boolean isSameDevice(DeviceSession other) {
+        if (other == null) return false;
+        return this.uniqueId.equals(other.uniqueId);
     }
 
     @Override
@@ -141,16 +173,7 @@ public class DeviceSession {
                 ", connected=" + connected +
                 ", lastUpdate=" + lastUpdate +
                 ", remoteAddress=" + remoteAddress +
+                ", duplicate=" + duplicate +
                 '}';
-    }
-
-    // Additional helper methods
-    public boolean isActive() {
-        return connected && !isExpired();
-    }
-
-    public boolean isSameDevice(DeviceSession other) {
-        if (other == null) return false;
-        return this.uniqueId.equals(other.uniqueId);
     }
 }

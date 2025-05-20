@@ -1,37 +1,38 @@
 package com.assettrack.iot.model;
 
 import io.netty.channel.socket.SocketChannel;
-import java.net.Socket;
 import java.net.SocketAddress;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * Represents a message from an IoT device containing protocol information,
+ * Represents a message from an IoT device with protocol information,
  * message type, device identification, and parsed data.
+ * Thread-safe implementation for concurrent access.
  */
 public class DeviceMessage {
-    // Protocol fields (both kept for backward compatibility)
-    private String protocol;         // Raw protocol string (e.g., "GT06")
-    private String protocolType;     // Normalized protocol type (e.g., "GT06")
-    private String protocolVersion;  // Protocol version (e.g., "1.0")
+    // Protocol information
+    private String protocol;
+    private String protocolType;
+    private String protocolVersion;
 
     // Message metadata
     private String messageType;
     private String imei;
     private byte[] rawData;
     private String error;
-    private Map<String, Object> parsedData;
+    private final Map<String, Object> parsedData;
     private LocalDateTime timestamp;
     private int signalStrength;
     private int batteryLevel;
     private SocketAddress remoteAddress;
 
     // Channel information
-    private SocketChannel channel;  // Netty channel
-    private Socket socket;         // Legacy socket (deprecated)
+    private SocketChannel channel;
+    private volatile boolean duplicate = false;
 
     // Response handling
     private byte[] responseData;
@@ -46,187 +47,165 @@ public class DeviceMessage {
     public static final String TYPE_CONFIGURATION = "CONFIGURATION";
 
     public DeviceMessage() {
-        this.parsedData = new HashMap<>();
+        this.parsedData = Collections.synchronizedMap(new HashMap<>());
     }
 
-    // Protocol Accessors **********************************************
-
-    /**
-     * Gets the raw protocol string (e.g., exactly as received from device)
-     */
-    public String getProtocol() {
+    // Protocol Accessors
+    public synchronized String getProtocol() {
         return protocol;
     }
 
-    /**
-     * Sets both protocol and protocolType fields
-     */
-    public void setProtocol(String protocol) {
+    public synchronized void setProtocol(String protocol) {
         this.protocol = protocol;
         this.protocolType = protocol; // Maintain backward compatibility
     }
 
-    /**
-     * @deprecated Use getProtocol() instead
-     */
-    @Deprecated
-    public String getProtocolType() {
+    public synchronized String getProtocolType() {
         return protocolType != null ? protocolType : protocol;
     }
 
-    /**
-     * @deprecated Use setProtocol() instead
-     */
-    @Deprecated
-    public void setProtocolType(String protocolType) {
+    public synchronized void setProtocolType(String protocolType) {
         this.protocolType = protocolType;
         if (this.protocol == null) {
             this.protocol = protocolType;
         }
     }
 
-    public String getProtocolVersion() {
+    public synchronized String getProtocolVersion() {
         return protocolVersion;
     }
 
-    public void setProtocolVersion(String protocolVersion) {
+    public synchronized void setProtocolVersion(String protocolVersion) {
         this.protocolVersion = protocolVersion;
     }
 
-    // Message Content Accessors ***************************************
-
-    public String getMessageType() {
+    // Message Content Accessors
+    public synchronized String getMessageType() {
         return messageType;
     }
 
-    public void setMessageType(String messageType) {
+    public synchronized void setMessageType(String messageType) {
         this.messageType = messageType;
     }
 
-    public String getImei() {
+    public synchronized String getImei() {
         return imei;
     }
 
-    public void setImei(String imei) {
+    public synchronized void setImei(String imei) {
         this.imei = imei;
     }
 
-    public byte[] getRawData() {
-        return rawData;
+    public synchronized byte[] getRawData() {
+        return rawData != null ? rawData.clone() : null;
     }
 
-    public void setRawData(byte[] rawData) {
-        this.rawData = rawData;
+    public synchronized void setRawData(byte[] rawData) {
+        this.rawData = rawData != null ? rawData.clone() : null;
     }
 
-    // Error Handling *************************************************
-
-    public String getError() {
+    // Error Handling
+    public synchronized String getError() {
         return error;
     }
 
-    public void setError(String error) {
+    public synchronized void setError(String error) {
         this.error = error;
         if (error != null && !error.isEmpty()) {
             this.messageType = TYPE_ERROR;
         }
     }
 
-    public boolean hasError() {
+    public synchronized boolean hasError() {
         return error != null && !error.isEmpty();
     }
 
-    // Parsed Data Management *****************************************
-
-    public Map<String, Object> getParsedData() {
+    // Parsed Data Management
+    public synchronized Map<String, Object> getParsedData() {
         return new HashMap<>(parsedData);
     }
 
-    public void setParsedData(Map<String, Object> parsedData) {
-        this.parsedData = new HashMap<>(Objects.requireNonNull(parsedData));
+    public synchronized void setParsedData(Map<String, Object> parsedData) {
+        this.parsedData.clear();
+        if (parsedData != null) {
+            this.parsedData.putAll(parsedData);
+        }
     }
 
-    public void addParsedData(String key, Object value) {
+    public synchronized void addParsedData(String key, Object value) {
         this.parsedData.put(key, value);
     }
 
-    // Device Status Accessors *****************************************
-
-    public LocalDateTime getTimestamp() {
+    // Device Status Accessors
+    public synchronized LocalDateTime getTimestamp() {
         return timestamp;
     }
 
-    public void setTimestamp(LocalDateTime timestamp) {
+    public synchronized void setTimestamp(LocalDateTime timestamp) {
         this.timestamp = timestamp;
     }
 
-    public int getSignalStrength() {
+    public synchronized int getSignalStrength() {
         return signalStrength;
     }
 
-    public void setSignalStrength(int signalStrength) {
+    public synchronized void setSignalStrength(int signalStrength) {
         this.signalStrength = signalStrength;
     }
 
-    public int getBatteryLevel() {
+    public synchronized int getBatteryLevel() {
         return batteryLevel;
     }
 
-    public void setBatteryLevel(int batteryLevel) {
+    public synchronized void setBatteryLevel(int batteryLevel) {
         this.batteryLevel = batteryLevel;
     }
 
-    // Channel Management *********************************************
-
-    public SocketChannel getSocketChannel() {
+    // Channel Management
+    public synchronized SocketChannel getSocketChannel() {
         return channel;
     }
 
-    public void setChannel(SocketChannel channel) {
+    public synchronized void setChannel(SocketChannel channel) {
         this.channel = channel;
-        this.socket = null;
     }
 
-    @Deprecated
-    public Socket getSocket() {
-        return socket;
-    }
-
-    @Deprecated
-    public void setSocket(Socket socket) {
-        this.socket = socket;
-        this.channel = null;
-    }
-
-    public SocketAddress getRemoteAddress() {
+    public synchronized SocketAddress getRemoteAddress() {
         return remoteAddress;
     }
 
-    public void setRemoteAddress(SocketAddress remoteAddress) {
+    public synchronized void setRemoteAddress(SocketAddress remoteAddress) {
         this.remoteAddress = remoteAddress;
     }
 
-    // Response Handling **********************************************
-
-    public byte[] getResponseData() {
-        return responseData;
+    // Response Handling
+    public synchronized byte[] getResponseData() {
+        return responseData != null ? responseData.clone() : null;
     }
 
-    public void setResponseData(byte[] responseData) {
-        this.responseData = responseData;
+    public synchronized void setResponseData(byte[] responseData) {
+        this.responseData = responseData != null ? responseData.clone() : null;
     }
 
-    public boolean isResponseRequired() {
+    public synchronized boolean isResponseRequired() {
         return responseRequired;
     }
 
-    public void setResponseRequired(boolean responseRequired) {
+    public synchronized void setResponseRequired(boolean responseRequired) {
         this.responseRequired = responseRequired;
     }
 
-    // Utility Methods ************************************************
+    // Duplicate Handling
+    public synchronized boolean isDuplicate() {
+        return duplicate;
+    }
 
-    public Long getDeviceId() {
+    public synchronized void setDuplicate(boolean duplicate) {
+        this.duplicate = duplicate;
+    }
+
+    // Utility Methods
+    public synchronized Long getDeviceId() {
         Object deviceIdObj = parsedData.get("deviceId");
         if (deviceIdObj instanceof Long) return (Long) deviceIdObj;
         if (deviceIdObj instanceof Integer) return ((Integer) deviceIdObj).longValue();
@@ -241,78 +220,66 @@ public class DeviceMessage {
     }
 
     @Override
-    public String toString() {
+    public synchronized String toString() {
         return "DeviceMessage{" +
                 "protocol='" + protocol + '\'' +
-                ", protocolType='" + protocolType + '\'' +
-                ", protocolVersion='" + protocolVersion + '\'' +
                 ", messageType='" + messageType + '\'' +
                 ", imei='" + imei + '\'' +
                 ", timestamp=" + timestamp +
-                ", error='" + error + '\'' +
-                ", parsedData=" + parsedData +
+                ", duplicate=" + duplicate +
+                ", parsedData=" + parsedData.keySet() +
                 '}';
     }
 
-    // Builder Pattern ************************************************
-
+    // Builder Pattern
     public static Builder builder() {
         return new Builder();
     }
 
     public static class Builder {
-        private String protocol;
-        private String protocolType;
-        private String protocolVersion;
-        private String messageType;
-        private String imei;
-        private byte[] rawData;
-        private Map<String, Object> parsedData = new HashMap<>();
+        private final DeviceMessage message = new DeviceMessage();
 
         public Builder protocol(String protocol) {
-            this.protocol = protocol;
+            message.setProtocol(protocol);
             return this;
         }
 
         public Builder protocolType(String protocolType) {
-            this.protocolType = protocolType;
+            message.setProtocolType(protocolType);
             return this;
         }
 
         public Builder protocolVersion(String protocolVersion) {
-            this.protocolVersion = protocolVersion;
+            message.setProtocolVersion(protocolVersion);
             return this;
         }
 
         public Builder messageType(String messageType) {
-            this.messageType = messageType;
+            message.setMessageType(messageType);
             return this;
         }
 
         public Builder imei(String imei) {
-            this.imei = imei;
+            message.setImei(imei);
             return this;
         }
 
         public Builder rawData(byte[] rawData) {
-            this.rawData = rawData;
+            message.setRawData(rawData);
             return this;
         }
 
         public Builder addParsedData(String key, Object value) {
-            this.parsedData.put(key, value);
+            message.addParsedData(key, value);
+            return this;
+        }
+
+        public Builder duplicate(boolean duplicate) {
+            message.setDuplicate(duplicate);
             return this;
         }
 
         public DeviceMessage build() {
-            DeviceMessage message = new DeviceMessage();
-            message.protocol = this.protocol;
-            message.protocolType = this.protocolType != null ? this.protocolType : this.protocol;
-            message.protocolVersion = this.protocolVersion;
-            message.messageType = this.messageType;
-            message.imei = this.imei;
-            message.rawData = this.rawData;
-            message.setParsedData(this.parsedData);
             return message;
         }
     }

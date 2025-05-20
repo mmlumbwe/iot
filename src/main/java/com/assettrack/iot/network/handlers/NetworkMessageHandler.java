@@ -51,33 +51,29 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             return;
         }
 
-        Long deviceId = message.getDeviceId();
         DeviceSession session = sessionManager.getSessionByImei(imei);
 
-        // Session management goes here - right after getting IMEI
-        if (sessionManager.exists(imei)) {
-            DeviceSession existingSession = sessionManager.getSessionByImei(imei);
-            if (existingSession.isAwaitingLoginResponse()) {
-                logger.info("Device {} is re-sending login - possible response not received", imei);
-                existingSession.resetLoginState();
+        // Handle login messages
+        if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
+            if (session == null) {
+                // Create new session if none exists
+                Long deviceId = message.getDeviceId() != null ? message.getDeviceId() : generateDeviceId(imei);
+                session = createNewSession(message, ctx, deviceId, imei);
+                logger.info("Created new session for IMEI: {}", imei);
             } else {
-                logger.info("Using existing session for {}", imei);
+                // Update existing session with new channel
+                session.setChannel(ctx.channel());
+                session.setRemoteAddress(ctx.channel().remoteAddress());
+                session.updateLastActivity();
+                logger.info("Updated existing session for IMEI: {}", imei);
             }
-            existingSession.updateLastActivity();
-        } else {
-            logger.info("Creating new session for {}", imei);
-            sessionManager.create(imei);
-        }
-
-        if (session == null && DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
-            session = createNewSession(message, ctx, deviceId, imei);
         }
 
         if (session != null) {
             session.updateLastActivity();
             processMessage(message, session);
         } else {
-            logger.info("No session found for IMEI: {}", imei);
+            logger.warn("No session found for IMEI: {}", imei);
         }
     }
 

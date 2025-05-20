@@ -3,6 +3,7 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
@@ -202,6 +203,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         String imei = extractImei(imeiBytes);
 
         short serialNumber = buffer.getShort();
+
+        DeviceSession session = sessionManager.getSessionByImei(imei);
+        if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
+            logger.warn("Duplicate login packet from IMEI: {}, Serial: {}", imei, serialNumber);
+            message.setDuplicate(true);
+            return;
+        }
 
         message.setImei(imei);
         message.setMessageType("LOGIN");
