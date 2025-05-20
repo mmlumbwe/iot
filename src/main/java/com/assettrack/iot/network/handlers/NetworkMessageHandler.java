@@ -58,7 +58,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                 // Create new session
                 Long deviceId = message.getDeviceId() != null ? message.getDeviceId() : generateDeviceId(imei);
                 session = createNewSession(message, ctx, deviceId, imei);
-                logger.info("Created new session for IMEI: {}", imei);
+
             } else {
                 // Update existing session
                 session.setChannel(ctx.channel());
