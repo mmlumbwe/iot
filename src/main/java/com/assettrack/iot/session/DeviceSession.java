@@ -13,9 +13,14 @@ public class DeviceSession {
     private volatile boolean connected = false;
     private volatile short lastSerialNumber = 0;
     private volatile short lastSequenceNumber = 0;
+    private volatile boolean awaitingLoginResponse = false;
+    private volatile long loginRequestTime = 0;
 
     public DeviceSession(long deviceId, String uniqueId, String protocolType,
                          Channel channel, SocketAddress remoteAddress) {
+        if (uniqueId == null || uniqueId.trim().isEmpty()) {
+            throw new IllegalArgumentException("Unique ID (IMEI) cannot be null or empty");
+        }
         this.deviceId = deviceId;
         this.uniqueId = uniqueId;
         this.protocolType = protocolType;
@@ -25,11 +30,11 @@ public class DeviceSession {
 
     // Getters for all required fields
     public String getSessionId() {
-        return this.uniqueId; // Using IMEI as session ID
+        return this.uniqueId;
     }
 
     public String getImei() {
-        return this.uniqueId; // Alias for getUniqueId()
+        return this.uniqueId;
     }
 
     public String getProtocol() {
@@ -103,5 +108,49 @@ public class DeviceSession {
             return true;
         }
         return false;
+    }
+
+    public boolean isAwaitingLoginResponse() {
+        if (!awaitingLoginResponse) {
+            return false;
+        }
+        // Check if we've been waiting too long (30 seconds timeout)
+        if (System.currentTimeMillis() - loginRequestTime > 30000) {
+            awaitingLoginResponse = false;
+            return false;
+        }
+        return true;
+    }
+
+    public void resetLoginState() {
+        this.awaitingLoginResponse = false;
+        this.loginRequestTime = 0;
+    }
+
+    public void setAwaitingLoginResponse(boolean awaiting) {
+        this.awaitingLoginResponse = awaiting;
+        this.loginRequestTime = awaiting ? System.currentTimeMillis() : 0;
+    }
+
+    @Override
+    public String toString() {
+        return "DeviceSession{" +
+                "deviceId=" + deviceId +
+                ", uniqueId='" + uniqueId + '\'' +
+                ", protocolType='" + protocolType + '\'' +
+                ", connected=" + connected +
+                ", lastUpdate=" + lastUpdate +
+                ", remoteAddress=" + remoteAddress +
+                '}';
+    }
+
+    // Additional helper methods
+    public boolean isActive() {
+        return connected && !isExpired();
+    }
+
+    public boolean isSameDevice(DeviceSession other) {
+        if (other == null) return false;
+        return this.uniqueId.equals(other.uniqueId);
     }
 }

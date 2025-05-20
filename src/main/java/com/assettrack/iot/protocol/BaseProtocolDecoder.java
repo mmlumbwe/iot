@@ -41,17 +41,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         try {
             if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
-                // Handle protocol-specific decoding
                 ProtocolDetector.ProtocolDetectionResult result = (ProtocolDetector.ProtocolDetectionResult) msg;
                 if ("GT06".equals(result.getProtocol())) {
-                    // GT06-specific decoding logic
                     decodeGt06Message(ctx, result);
                 }
             } else if (msg instanceof ByteBuf) {
-                // Fallback processing if no protocol detected
                 ByteBuf buf = (ByteBuf) msg;
                 if (buf.isReadable()) {
-                    // Attempt to process as GT06 anyway (backward compatibility)
                     byte[] data = new byte[buf.readableBytes()];
                     buf.getBytes(buf.readerIndex(), data);
                     if (isPotentialGt06Packet(data)) {
@@ -68,15 +64,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
-    /**
-     * Abstract method to be implemented by protocol-specific decoders
-     * @param data The raw byte data to handle
-     * @return Processed DeviceMessage
-     * @throws ProtocolException if protocol parsing fails
-     */
     protected abstract DeviceMessage handle(byte[] data) throws ProtocolException;
 
-    //@Override
     protected Object decode(ChannelHandlerContext ctx,
                             ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
@@ -88,7 +77,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
-            // Fallback detection for GT06
             if ((result == null || !"GT06".equals(result.getProtocol()))) {
                 if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
@@ -97,7 +85,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     return null;
                 }
             }
-
 
             DeviceMessage message = handle(data);
 
@@ -148,23 +135,15 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         return sb.toString().trim();
     }
 
-    /**
-     * Checks if the data could be a GT06 protocol packet
-     */
     private boolean isPotentialGt06Packet(byte[] data) {
-        // Minimum GT06 packet is 12 bytes and starts with 0x78 0x78
         return data != null &&
                 data.length >= 12 &&
                 data[0] == 0x78 &&
                 data[1] == 0x78;
     }
 
-    /**
-     * Decodes a GT06 message from protocol detection result
-     */
     private void decodeGt06Message(ChannelHandlerContext ctx, ProtocolDetector.ProtocolDetectionResult result) {
         try {
-            // Extract the raw data from the result's metadata if stored
             byte[] data = (byte[]) result.getMetadata().get("rawData");
             if (data == null) {
                 logger.warn("No raw data in protocol detection result");
@@ -176,14 +155,10 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
-    /**
-     * Decodes a GT06 message from raw bytes
-     */
     private void decodeGt06Message(ChannelHandlerContext ctx, byte[] data) {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-            // Skip header (0x78 0x78)
             buffer.position(2);
 
             int length = buffer.get() & 0xFF;
@@ -197,13 +172,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             Map<String, Object> parsedData = new HashMap<>();
 
             switch (protocol) {
-                case 0x01: // Login
+                case 0x01:
                     handleLoginPacket(buffer, message, parsedData);
                     break;
-                case 0x12: // GPS
+                case 0x12:
                     handleGpsPacket(buffer, message, parsedData);
                     break;
-                case 0x13: // Heartbeat
+                case 0x13:
                     handleHeartbeatPacket(buffer, message, parsedData);
                     break;
                 default:
@@ -220,35 +195,27 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
-    /**
-     * Handles GT06 login packets
-     */
     private void handleLoginPacket(ByteBuffer buffer, DeviceMessage message,
                                    Map<String, Object> parsedData) {
-        // IMEI (8 bytes in packed BCD format)
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
         String imei = extractImei(imeiBytes);
 
-        // Serial number (2 bytes)
         short serialNumber = buffer.getShort();
 
         message.setImei(imei);
         message.setMessageType("LOGIN");
         parsedData.put("serialNumber", serialNumber);
 
-        // Generate login response
         byte[] response = generateLoginResponse(serialNumber);
         message.setResponseData(response);
         message.setResponseRequired(true);
+
+        logger.info("Login response prepared for IMEI: {}", message.getImei());
     }
 
-    /**
-     * Handles GT06 GPS packets
-     */
     private void handleGpsPacket(ByteBuffer buffer, DeviceMessage message,
                                  Map<String, Object> parsedData) {
-        // Parse GPS data
         Position position = parseGpsData(buffer);
         parsedData.put("position", position);
 
@@ -256,190 +223,94 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         message.setResponseData(generateAckResponse());
     }
 
-    /**
-     * Extracts IMEI from packed BCD format
-     */
     private String extractImei(byte[] imeiBytes) {
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
             imei.append(String.format("%02X", b));
         }
-        // Remove leading zeros if necessary
         while (imei.length() > 15 && imei.charAt(0) == '0') {
             imei.deleteCharAt(0);
         }
         return imei.toString();
     }
 
-    /**
-     * Parses GT06 GPS data
-     */
     private Position parseGpsData(ByteBuffer buffer) {
         Position position = new Position();
 
-        // Date and time (6 bytes)
         position.setTimestamp(LocalDateTime.of(
-                2000 + (buffer.get() & 0xFF), // Year
-                buffer.get() & 0xFF,          // Month
-                buffer.get() & 0xFF,          // Day
-                buffer.get() & 0xFF,          // Hour
-                buffer.get() & 0xFF,          // Minute
-                buffer.get() & 0xFF           // Second
+                2000 + (buffer.get() & 0xFF),
+                buffer.get() & 0xFF,
+                buffer.get() & 0xFF,
+                buffer.get() & 0xFF,
+                buffer.get() & 0xFF,
+                buffer.get() & 0xFF
         ));
 
-        // GPS info
         position.setSatellites(buffer.get() & 0xFF);
         position.setLatitude(buffer.getInt() / 1800000.0);
         position.setLongitude(buffer.getInt() / 1800000.0);
-        position.setSpeed((buffer.get() & 0xFF) * 1.852); // Knots to km/h
+        position.setSpeed((buffer.get() & 0xFF) * 1.852);
 
-        // Course and status flags
         int course = buffer.getShort() & 0xFFFF;
         position.setCourse((double) course);
 
         return position;
     }
 
-    /**
-     * Handles GT06 heartbeat packets
-     */
     private void handleHeartbeatPacket(ByteBuffer buffer, DeviceMessage message,
                                        Map<String, Object> parsedData) {
-        // Typically heartbeat packets are empty after the protocol byte
         message.setMessageType("HEARTBEAT");
 
-        // Some devices include voltage info in heartbeat (check buffer remaining)
         if (buffer.remaining() >= 2) {
-            int voltageLevel = buffer.get() & 0xFF; // Often 1 byte for voltage
+            int voltageLevel = buffer.get() & 0xFF;
             parsedData.put("battery", voltageLevel);
         }
 
-        // Generate ACK response
         message.setResponseData(generateAckResponse());
         message.setResponseRequired(true);
     }
 
-    /**
-     * Generates a login response packet (0x01)
-     * @param serialNumber The serial number from the login packet
-     * @return Byte array with the response
-     */
     public byte[] generateLoginResponse(short serialNumber) {
-        // Try all checksum variants in order of probability
-        for (ChecksumVariant variant : ChecksumVariant.values()) {
-            try {
-                ByteBuf buf = Unpooled.buffer(11);
+        byte[] response = new byte[11];
 
-                // Standard GT06 header
-                buf.writeByte(0x78);
-                buf.writeByte(0x78);
+        response[0] = 0x78;
+        response[1] = 0x78;
+        response[2] = 0x05;
+        response[3] = 0x01;
+        response[4] = (byte)(serialNumber >> 8);
+        response[5] = (byte)(serialNumber & 0xFF);
+        response[6] = 0x01;
 
-                // Packet length (5 bytes)
-                buf.writeByte(0x05);
-
-                // Protocol number (0x01)
-                buf.writeByte(0x01);
-
-                // Serial number
-                buf.writeShort(serialNumber);
-
-                // Status (0x01 = success)
-                buf.writeByte(0x01);
-
-                // Calculate checksum
-                int checksum = calculateChecksum(buf, variant);
-                buf.writeShort(checksum);
-
-                // Terminator
-                buf.writeByte(0x0D);
-                buf.writeByte(0x0A);
-
-                byte[] response = new byte[buf.readableBytes()];
-                buf.readBytes(response);
-                buf.release();
-
-                logger.info("Generated {} response: {}", variant, bytesToHex(response));
-                return response;
-            } catch (Exception e) {
-                logger.error("Failed to generate {} response", variant, e);
-            }
+        int checksum = 0;
+        for (int i = 2; i <= 6; i++) {
+            checksum ^= response[i] & 0xFF;
         }
-        return null;
+        response[7] = (byte)(checksum >> 8);
+        response[8] = (byte)(checksum & 0xFF);
+
+        response[9] = 0x0D;
+        response[10] = 0x0A;
+
+        logger.info("Generated XOR response: {}", bytesToHex(response));
+        return response;
     }
 
-    private int calculateChecksum(ByteBuf buf, ChecksumVariant variant) {
-        int readerIndex = buf.readerIndex();
-        try {
-            buf.readerIndex(2); // Start from length byte
-            byte[] checksumBytes = new byte[5];
-            buf.readBytes(checksumBytes);
-
-            switch (variant) {
-                case CRC16_X25:
-                    return Checksum.crc16(Checksum.CRC16_X25,
-                            ByteBuffer.wrap(checksumBytes));
-
-                case XOR:
-                    int xor = 0;
-                    for (byte b : checksumBytes) {
-                        xor ^= (b & 0xFF);
-                    }
-                    return xor;
-
-                case MOD256:
-                    int sum = 0;
-                    for (byte b : checksumBytes) {
-                        sum += (b & 0xFF);
-                    }
-                    return sum % 256;
-
-                default:
-                    throw new IllegalArgumentException("Unknown variant");
-            }
-        } finally {
-            buf.readerIndex(readerIndex);
-        }
-    }
-
-    enum ChecksumVariant {
-        CRC16_X25,  // Standard GT06
-        XOR,        // Chinese clones
-        MOD256      // Some older models
-    }
-
-
-    /**
-     * Generates a standard acknowledgment packet (0x01 type)
-     * @return Byte array with the ACK response
-     */
     private byte[] generateAckResponse() {
-        // GT06 ACK response format with CRC16:
-        // [0x78 0x78][0x05][0x01][0x00][0x00][checksumHi][checksumLo][0x0D 0x0A]
-        byte[] response = new byte[11]; // 11 bytes total
+        byte[] response = new byte[11];
 
-        // Header
         response[0] = (byte) 0x78;
         response[1] = (byte) 0x78;
-
-        // Length (5 bytes: protocol + serial)
         response[2] = 0x05;
-
-        // Protocol (0x01 for ACK)
         response[3] = 0x01;
-
-        // Serial number (0x0000 for ACK)
         response[4] = 0x00;
         response[5] = 0x00;
 
-        // Calculate CRC16 checksum for bytes 2-5 (length through serial)
         ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-        // Add checksum (2 bytes)
         response[6] = (byte) (checksum >> 8);
         response[7] = (byte) (checksum & 0xFF);
 
-        // Terminator
         response[8] = 0x0D;
         response[9] = 0x0A;
 

@@ -26,7 +26,6 @@ public class SessionManager {
     @Autowired
     private CacheManager cacheManager;
 
-    // Existing methods remain unchanged
     public DeviceSession getSessionByImei(String imei) {
         return sessionsByImei.get(imei);
     }
@@ -59,7 +58,6 @@ public class SessionManager {
         return session;
     }
 
-    // New methods to support required functionality
     public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
         return sessionsByImei.compute(imei, (key, existing) -> {
             if (existing != null && !existing.isExpired()) {
@@ -86,11 +84,9 @@ public class SessionManager {
     }
 
     public void closeSession(String sessionId) {
-        // Assuming sessionId is the same as IMEI in this implementation
         removeSession(sessionId);
     }
 
-    // Updated removeSession methods
     public void removeSession(String imei) {
         DeviceSession session = sessionsByImei.remove(imei);
         if (session != null) {
@@ -112,21 +108,20 @@ public class SessionManager {
     public void removeSession(Channel channel) {
         DeviceSession session = sessionsByChannel.remove(channel);
         if (session != null) {
-            sessionsByImei.remove(session.getUniqueId());
+            sessionsByImei.remove(session.getImei());
             sessionsByDeviceId.remove(session.getDeviceId());
 
             Map<String, DeviceSession> protocolSessions = sessionsByProtocol.get(session.getProtocolType());
             if (protocolSessions != null) {
-                protocolSessions.remove(session.getUniqueId());
+                protocolSessions.remove(session.getImei());
             }
 
             cacheManager.removeDevice(session.getDeviceId());
         }
     }
 
-    // Helper method to generate device ID from IMEI
     private long generateDeviceId(String imei) {
-        return imei.hashCode() & 0xffffffffL; // Ensure positive long value
+        return imei.hashCode() & 0xffffffffL;
     }
 
     @Scheduled(fixedRate = 60000)
@@ -142,7 +137,7 @@ public class SessionManager {
 
                 Map<String, DeviceSession> protocolSessions = sessionsByProtocol.get(session.getProtocolType());
                 if (protocolSessions != null) {
-                    protocolSessions.remove(session.getUniqueId());
+                    protocolSessions.remove(session.getImei());
                 }
 
                 cacheManager.removeDevice(session.getDeviceId());
@@ -156,11 +151,6 @@ public class SessionManager {
         return sessionsByImei.size();
     }
 
-    /**
-     * Adds a new device session to the session manager
-     * @param session The device session to add
-     * @throws IllegalArgumentException if session is null or missing required fields
-     */
     public void addSession(DeviceSession session) {
         if (session == null) {
             throw new IllegalArgumentException("Session cannot be null");
@@ -176,19 +166,22 @@ public class SessionManager {
             throw new IllegalArgumentException("Session deviceId cannot be null");
         }
 
-        // Synchronize to prevent concurrent modifications
         synchronized (this) {
-            // Remove any existing session with the same IMEI
             DeviceSession existingSession = sessionsByImei.get(imei);
             if (existingSession != null) {
                 removeSession(existingSession);
                 logger.info("Replaced existing session for IMEI: {}", imei);
             }
 
-            // Add to both maps
             sessionsByImei.put(imei, session);
-            sessionsByChannel.put(session.getChannel(), session);
+            sessionsByDeviceId.put(deviceId, session);
+            if (session.getChannel() != null) {
+                sessionsByChannel.put(session.getChannel(), session);
+            }
+            sessionsByProtocol.computeIfAbsent(session.getProtocolType(), k -> new ConcurrentHashMap<>())
+                    .put(imei, session);
 
+            cacheManager.addDevice(deviceId);
             logger.debug("Added new session for IMEI: {}, DeviceID: {}", imei, deviceId);
         }
     }
@@ -198,9 +191,38 @@ public class SessionManager {
 
         synchronized (this) {
             sessionsByImei.remove(session.getImei());
-            sessionsByChannel.remove(session.getChannel());
+            sessionsByDeviceId.remove(session.getDeviceId());
+            if (session.getChannel() != null) {
+                sessionsByChannel.remove(session.getChannel());
+            }
+
+            Map<String, DeviceSession> protocolSessions = sessionsByProtocol.get(session.getProtocolType());
+            if (protocolSessions != null) {
+                protocolSessions.remove(session.getImei());
+            }
+
+            cacheManager.removeDevice(session.getDeviceId());
             logger.debug("Removed session for IMEI: {}", session.getImei());
         }
     }
 
+    public boolean exists(String imei) {
+        if (imei == null || imei.trim().isEmpty()) {
+            return false;
+        }
+        return sessionsByImei.containsKey(imei);
+    }
+
+    public void create(String imei) {
+        if (imei == null || imei.trim().isEmpty()) {
+            throw new IllegalArgumentException("IMEI cannot be null or empty");
+        }
+
+        if (!exists(imei)) {
+            long deviceId = generateDeviceId(imei);
+            DeviceSession session = new DeviceSession(deviceId, imei, "UNKNOWN", null, null);
+            addSession(session);
+            logger.info("Created new session for IMEI: {}", imei);
+        }
+    }
 }

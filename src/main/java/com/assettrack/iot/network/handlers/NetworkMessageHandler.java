@@ -54,6 +54,21 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
         Long deviceId = message.getDeviceId();
         DeviceSession session = sessionManager.getSessionByImei(imei);
 
+        // Session management goes here - right after getting IMEI
+        if (sessionManager.exists(imei)) {
+            DeviceSession existingSession = sessionManager.getSessionByImei(imei);
+            if (existingSession.isAwaitingLoginResponse()) {
+                logger.info("Device {} is re-sending login - possible response not received", imei);
+                existingSession.resetLoginState();
+            } else {
+                logger.info("Using existing session for {}", imei);
+            }
+            existingSession.updateLastActivity();
+        } else {
+            logger.info("Creating new session for {}", imei);
+            sessionManager.create(imei);
+        }
+
         if (session == null && DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
             session = createNewSession(message, ctx, deviceId, imei);
         }
@@ -62,7 +77,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             session.updateLastActivity();
             processMessage(message, session);
         } else {
-            logger.warn("No session found for IMEI: {}", imei);
+            logger.info("No session found for IMEI: {}", imei);
         }
     }
 
@@ -123,7 +138,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
     private void handleLogin(DeviceMessage message, DeviceSession session) {
         if (message.getResponseData() != null) {
             session.getChannel().writeAndFlush(message.getResponseData());
-            logger.debug("Sent login acknowledgment for {}", session.getDeviceId());
+            logger.info("Sent login acknowledgment for {}", session.getDeviceId());
         }
     }
 
@@ -138,7 +153,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
     }
 
     private void handleHeartbeat(DeviceMessage message, DeviceSession session) {
-        logger.debug("Heartbeat received from {}", session.getDeviceId());
+        logger.info("Heartbeat received from {}", session.getDeviceId());
         if (message.getResponseData() != null) {
             session.getChannel().writeAndFlush(message.getResponseData());
         }
