@@ -442,6 +442,11 @@ public class GpsServer {
     }
 
     private void handleLoginMessage(DeviceMessage message, Socket socket, OutputStream output) throws IOException {
+        // Validate input parameters
+        Objects.requireNonNull(message, "DeviceMessage cannot be null");
+        Objects.requireNonNull(socket, "Socket cannot be null");
+        Objects.requireNonNull(output, "OutputStream cannot be null");
+
         String imei = message.getImei();
         if (imei == null || imei.isEmpty()) {
             logger.error("Invalid login attempt - missing IMEI");
@@ -450,18 +455,21 @@ public class GpsServer {
 
         String protocol = message.getProtocol();
         SocketAddress remoteAddress = socket.getRemoteSocketAddress();
+        DeviceSession session = null;
 
         try {
-            // Get or create session for all protocols
-            DeviceSession session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
+            // Get or create session without passing the channel
+            session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
 
             // Protocol-specific handling
             if (PROTOCOL_GT06.equals(protocol)) {
                 short serialNumber = extractSerialNumber(message);
 
-                // Check for duplicate login
-                if (!session.shouldReconnect(serialNumber)) {
-                    logger.debug("Duplicate login from IMEI {}, sending keepalive response", imei);
+                // Check for duplicate login with serial number validation
+                if (session.isDuplicateSerialNumber(serialNumber)) {
+                    logger.warn("Duplicate GT06 login from IMEI {} (Serial: {})", imei, serialNumber);
+
+                    // Still send response to keep connection alive
                     byte[] response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
                     output.write(response);
                     output.flush();
@@ -470,33 +478,55 @@ public class GpsServer {
 
                 // Update session with new serial number
                 session.updateSerialNumber(serialNumber);
-            }
+                session.updateLastActivity();
 
-            // Get response from message or generate default for protocol
-            byte[] response = (byte[]) message.getParsedData().get("response");
-            if (response == null && PROTOCOL_GT06.equals(protocol)) {
-                short serialNumber = extractSerialNumber(message);
-                response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
-            }
+                // Generate response
+                byte[] response = (byte[]) message.getParsedData().get("response");
+                if (response == null) {
+                    response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
+                }
 
-            // Send response if available
-            if (response != null && response.length > 0) {
+                // Send response
                 output.write(response);
                 output.flush();
-                logger.info("Successfully sent login response to {}", imei);
-                session.setConnected(true); // Mark session as connected after successful response
-            } else if (PROTOCOL_GT06.equals(protocol)) {
-                logger.error("No login response available for GT06 device {}", imei);
-                throw new IOException("Missing login response for GT06 device");
+                logger.debug("Sent login response to IMEI {}", imei);
+
+                // Update connection state
+                session.setConnected(true);
+                // Removed the channel setting since we're not using Netty in this context
+            } else {
+                // Handle other protocols
+                logger.debug("Processing login for protocol {}", protocol);
+                if (message.getResponseData() != null) {
+                    output.write(message.getResponseData());
+                    output.flush();
+                }
+                session.setConnected(true);
             }
         } catch (IOException e) {
-            logger.error("Failed to send login response to {}: {}", imei, e.getMessage());
-            sessionManager.getSession(imei).ifPresent(s -> s.setConnected(false));
+            logger.error("IO error during login for IMEI {}: {}", imei, e.getMessage());
+            if (session != null) {
+                session.setConnected(false);
+            }
             throw e;
         } catch (Exception e) {
-            logger.error("Error processing login for IMEI {}: {}", imei, e.getMessage());
+            logger.error("Unexpected error during login for IMEI {}: {}", imei, e.getMessage());
+            if (session != null) {
+                session.setConnected(false);
+            }
             throw new IOException("Login processing failed", e);
         }
+    }
+
+    // Helper method to extract serial number from GT06 message
+    private short extractSerialNumber(DeviceMessage message) {
+        Object serialObj = message.getParsedData().get("serialNumber");
+        if (serialObj instanceof Short) {
+            return (Short) serialObj;
+        } else if (serialObj instanceof Integer) {
+            return ((Integer) serialObj).shortValue();
+        }
+        throw new IllegalArgumentException("Invalid serial number in message");
     }
 
     private void handleGpsMessage(DeviceMessage message, Socket socket, OutputStream output) throws IOException {
@@ -549,11 +579,7 @@ public class GpsServer {
             logger.info("Processed GPS data for device {}", imei);
         }
     }
-    private short extractSerialNumber(DeviceMessage message) {
-        // Extract serial number from message or use default
-        Object serialObj = message.getParsedData().get("serialNumber");
-        return serialObj instanceof Short ? (short)serialObj : 0;
-    }
+
 
     private short extractSequenceNumber(DeviceMessage message) {
         Object seqObj = message.getParsedData().get("sequenceNumber");

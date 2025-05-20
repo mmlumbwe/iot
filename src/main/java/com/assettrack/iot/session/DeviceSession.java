@@ -1,6 +1,8 @@
 package com.assettrack.iot.session;
 
 import io.netty.channel.Channel;
+
+import java.net.Socket;
 import java.net.SocketAddress;
 
 public class DeviceSession {
@@ -11,11 +13,14 @@ public class DeviceSession {
     private SocketAddress remoteAddress;  // Changed from final to allow updates
     private volatile long lastUpdate = System.currentTimeMillis();
     private volatile boolean connected = false;
-    private volatile short lastSerialNumber = 0;
+    private volatile short lastSerialNumber = -1;
+    private volatile long lastLoginTime = 0;
     private volatile short lastSequenceNumber = 0;
     private volatile boolean awaitingLoginResponse = false;
     private volatile long loginRequestTime = 0;
     private volatile boolean duplicate = false;  // Added duplicate flag
+    private Channel nettyChannel;
+    private Socket javaSocket;
 
     public DeviceSession(long deviceId, String uniqueId, String protocolType,
                          Channel channel, SocketAddress remoteAddress) {
@@ -102,13 +107,20 @@ public class DeviceSession {
 
     public synchronized void updateSerialNumber(short serialNumber) {
         this.lastSerialNumber = serialNumber;
-        updateLastActivity();
+        this.lastLoginTime = System.currentTimeMillis();
     }
 
     public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
+        // Special case for first packet
+        if (lastSerialNumber == -1) {
+            lastSerialNumber = serialNumber;
+            return false;
+        }
+
+        // Check if serial number is older than current
         if (serialNumber <= lastSerialNumber) {
-            // If we're getting older serial numbers, the device may have reset
-            return (lastSerialNumber - serialNumber) < 1000; // Allow for some rollover
+            // Allow for some rollover (GT06 uses 2-byte unsigned)
+            return (lastSerialNumber - serialNumber) < 1000;
         }
         return false;
     }
@@ -166,6 +178,16 @@ public class DeviceSession {
     public boolean isSameDevice(DeviceSession other) {
         if (other == null) return false;
         return this.uniqueId.equals(other.uniqueId);
+    }
+
+    public void setNettyChannel(Channel channel) {
+        this.nettyChannel = channel;
+        this.javaSocket = null;
+    }
+
+    public void setJavaSocket(Socket socket) {
+        this.javaSocket = socket;
+        this.nettyChannel = null;
     }
 
     @Override

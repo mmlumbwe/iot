@@ -206,7 +206,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         // Check for existing session
         DeviceSession session = sessionManager.getSessionByImei(imei);
         if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
-            message.setDuplicate(true);
             logger.debug("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
             return;
         }
@@ -215,11 +214,9 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         message.setMessageType("LOGIN");
         parsedData.put("serialNumber", serialNumber);
 
-        if (!message.isDuplicate()) {
-            byte[] response = generateLoginResponse(serialNumber);
-            message.setResponseData(response);
-            message.setResponseRequired(true);
-        }
+        byte[] response = generateLoginResponse(serialNumber);
+        message.setResponseData(response);
+        message.setResponseRequired(true);
     }
 
     private void handleGpsPacket(ByteBuffer buffer, DeviceMessage message,

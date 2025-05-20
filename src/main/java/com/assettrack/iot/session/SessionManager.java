@@ -58,20 +58,43 @@ public class SessionManager {
         return session;
     }
 
-    public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
-        return sessionsByImei.compute(imei, (key, existing) -> {
-            if (existing != null && !existing.isExpired()) {
-                return existing;
-            }
-            // Create new session without channel (for non-Netty connections)
+    public synchronized DeviceSession getOrCreateSession(String imei, String protocol,
+                                                         Channel channel, SocketAddress remoteAddress) {
+        DeviceSession session = sessionsByImei.get(imei);
+
+        if (session == null) {
+            // Create new session
             long deviceId = generateDeviceId(imei);
-            DeviceSession newSession = new DeviceSession(deviceId, imei, protocol, null, remoteAddress);
-            sessionsByDeviceId.put(deviceId, newSession);
-            sessionsByProtocol.computeIfAbsent(protocol, k -> new ConcurrentHashMap<>())
-                    .put(imei, newSession);
-            cacheManager.addDevice(deviceId);
-            return newSession;
-        });
+            session = new DeviceSession(deviceId, imei, protocol, channel, remoteAddress);
+            addSession(session);
+            logger.info("Created new session for IMEI: {}", imei);
+        } else if (session.isExpired()) {
+            // Replace expired session
+            removeSession(imei);
+            long deviceId = generateDeviceId(imei);
+            session = new DeviceSession(deviceId, imei, protocol, channel, remoteAddress);
+            addSession(session);
+            logger.info("Recreated expired session for IMEI: {}", imei);
+        } else {
+            // Update existing session
+            session.setChannel(channel);
+            session.setRemoteAddress(remoteAddress);
+            session.updateLastActivity();
+            logger.debug("Updated existing session for IMEI: {}", imei);
+        }
+
+        return session;
+    }
+
+    public DeviceSession getOrCreateSession(String imei, String protocol, SocketAddress remoteAddress) {
+        // Create a temporary session without channel
+        DeviceSession session = sessionsByImei.get(imei);
+        if (session == null) {
+            long deviceId = generateDeviceId(imei);
+            session = new DeviceSession(deviceId, imei, protocol, null, remoteAddress);
+            addSession(session);
+        }
+        return session;
     }
 
     public Optional<DeviceSession> getSession(String imei) {
