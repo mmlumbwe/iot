@@ -201,13 +201,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
         String imei = extractImei(imeiBytes);
-
         short serialNumber = buffer.getShort();
 
+        // Check for duplicate serial numbers
         DeviceSession session = sessionManager.getSessionByImei(imei);
         if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
-            logger.warn("Duplicate login packet from IMEI: {}, Serial: {}", imei, serialNumber);
             message.setDuplicate(true);
+            logger.warn("Duplicate login packet from IMEI: {}, Serial: {}", imei, serialNumber);
             return;
         }
 
@@ -215,11 +215,12 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         message.setMessageType("LOGIN");
         parsedData.put("serialNumber", serialNumber);
 
-        byte[] response = generateLoginResponse(serialNumber);
-        message.setResponseData(response);
-        message.setResponseRequired(true);
-
-        logger.info("Login response prepared for IMEI: {}", message.getImei());
+        // Only generate response if not duplicate
+        if (!message.isDuplicate()) {
+            byte[] response = generateLoginResponse(serialNumber);
+            message.setResponseData(response);
+            message.setResponseRequired(true);
+        }
     }
 
     private void handleGpsPacket(ByteBuffer buffer, DeviceMessage message,

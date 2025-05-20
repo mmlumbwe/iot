@@ -105,8 +105,12 @@ public class DeviceSession {
         updateLastActivity();
     }
 
-    public boolean isDuplicateSerialNumber(short serialNumber) {
-        return isConnected() && serialNumber <= lastSerialNumber;
+    public synchronized boolean isDuplicateSerialNumber(short serialNumber) {
+        if (serialNumber <= lastSerialNumber) {
+            // If we're getting older serial numbers, the device may have reset
+            return (lastSerialNumber - serialNumber) < 1000; // Allow for some rollover
+        }
+        return false;
     }
 
     // Sequence number management

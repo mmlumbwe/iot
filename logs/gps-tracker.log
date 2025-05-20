@@ -33,3 +33,38 @@
 2025-05-21 00:01:09 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x8c0ef05d, L:/[0:0:0:0:0:0:0:0]:5023] ACTIVE
 2025-05-21 00:01:09 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
 2025-05-21 00:01:09 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server successfully bound to port 5023
+2025-05-21 00:09:53 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 23135 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-05-21 00:09:53 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-05-21 00:09:53 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-05-21 00:09:54 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-05-21 00:09:55 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 121 ms. Found 2 JPA repository interfaces.
+2025-05-21 00:09:55 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-05-21 00:09:55 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-05-21 00:09:55 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-05-21 00:09:56 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-05-21 00:09:56 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-05-21 00:09:56 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@15371de2
+2025-05-21 00:09:56 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-05-21 00:09:56 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-05-21 00:09:56 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-05-21 00:09:56 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-05-21 00:09:58 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-05-21 00:09:58 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-05-21 00:10:00 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-05-21 00:10:01 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-05-21 00:10:02 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-05-21 00:10:02 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023, Max Threads: 10, Max Connections: 100
+2025-05-21 00:10:02 [main] INFO  c.assettrack.iot.service.GpsServer - Starting Netty TCP server on port 5023
+2025-05-21 00:10:02 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x29f1736e] REGISTERED
+2025-05-21 00:10:02 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x29f1736e] BIND: 0.0.0.0/0.0.0.0:5023
+2025-05-21 00:10:02 [main] INFO  c.assettrack.iot.service.GpsServer - Netty TCP server started successfully on port 5023
+2025-05-21 00:10:02 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
+2025-05-21 00:10:02 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x29f1736e, L:/[0:0:0:0:0:0:0:0]:5023] ACTIVE
+2025-05-21 00:10:02 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server successfully bound to port 5023

@@ -32,12 +32,12 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DeviceMessage message) {
         logger.info("Processing message: {}", message);
-        if (message == null) {
-            logger.warn("Received null message");
+        if (message == null || message.isDuplicate()) {
+            logger.warn("Ignoring null or duplicate message");
             return;
         }
 
-        // Set the channel/remote address if not already set
+        // Set channel/remote address
         if (message.getSocketChannel() == null) {
             message.setChannel((SocketChannel) ctx.channel());
         }
@@ -51,10 +51,10 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             return;
         }
 
-        DeviceSession session = sessionManager.getSessionByImei(imei);
-
         // Handle login messages
         if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
+            DeviceSession session = sessionManager.getSessionByImei(imei);
+
             if (session == null) {
                 // Create new session if none exists
                 Long deviceId = message.getDeviceId() != null ? message.getDeviceId() : generateDeviceId(imei);
@@ -66,14 +66,24 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                 session.setRemoteAddress(ctx.channel().remoteAddress());
                 session.updateLastActivity();
                 logger.info("Updated existing session for IMEI: {}", imei);
+
+                // Mark as duplicate if we've seen this serial number before
+                Short serialNumber = (Short) message.getParsedData().get("serialNumber");
+                if (serialNumber != null && session.isDuplicateSerialNumber(serialNumber)) {
+                    message.setDuplicate(true);
+                    logger.warn("Duplicate login packet from IMEI: {}, Serial: {}", imei, serialNumber);
+                    return;
+                }
             }
         }
 
-        if (session != null) {
-            session.updateLastActivity();
-            processMessage(message, session);
-        } else {
-            logger.warn("No session found for IMEI: {}", imei);
+        // Process the message if not duplicate
+        if (!message.isDuplicate()) {
+            DeviceSession session = sessionManager.getSessionByImei(imei);
+            if (session != null) {
+                session.updateLastActivity();
+                processMessage(message, session);
+            }
         }
     }
 
