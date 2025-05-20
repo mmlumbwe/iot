@@ -203,11 +203,11 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         String imei = extractImei(imeiBytes);
         short serialNumber = buffer.getShort();
 
-        // Check for duplicate serial numbers
+        // Check for existing session
         DeviceSession session = sessionManager.getSessionByImei(imei);
         if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
             message.setDuplicate(true);
-            logger.warn("Duplicate login packet from IMEI: {}, Serial: {}", imei, serialNumber);
+            logger.debug("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
             return;
         }
 
@@ -215,7 +215,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         message.setMessageType("LOGIN");
         parsedData.put("serialNumber", serialNumber);
 
-        // Only generate response if not duplicate
         if (!message.isDuplicate()) {
             byte[] response = generateLoginResponse(serialNumber);
             message.setResponseData(response);

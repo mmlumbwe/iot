@@ -31,13 +31,12 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DeviceMessage message) {
-        logger.info("Processing message: {}", message);
         if (message == null || message.isDuplicate()) {
             logger.warn("Ignoring null or duplicate message");
             return;
         }
 
-        // Set channel/remote address
+        // Set channel information
         if (message.getSocketChannel() == null) {
             message.setChannel((SocketChannel) ctx.channel());
         }
@@ -51,39 +50,36 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             return;
         }
 
-        // Handle login messages
-        if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
-            DeviceSession session = sessionManager.getSessionByImei(imei);
+        // Get or create session
+        DeviceSession session = sessionManager.getSessionByImei(imei);
 
+        if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
             if (session == null) {
-                // Create new session if none exists
+                // Create new session
                 Long deviceId = message.getDeviceId() != null ? message.getDeviceId() : generateDeviceId(imei);
                 session = createNewSession(message, ctx, deviceId, imei);
                 logger.info("Created new session for IMEI: {}", imei);
             } else {
-                // Update existing session with new channel
+                // Update existing session
                 session.setChannel(ctx.channel());
                 session.setRemoteAddress(ctx.channel().remoteAddress());
                 session.updateLastActivity();
-                logger.info("Updated existing session for IMEI: {}", imei);
 
-                // Mark as duplicate if we've seen this serial number before
+                // Check for duplicate serial number
                 Short serialNumber = (Short) message.getParsedData().get("serialNumber");
                 if (serialNumber != null && session.isDuplicateSerialNumber(serialNumber)) {
                     message.setDuplicate(true);
-                    logger.warn("Duplicate login packet from IMEI: {}, Serial: {}", imei, serialNumber);
+                    logger.warn("Duplicate login from IMEI: {} (Serial: {})", imei, serialNumber);
                     return;
                 }
+                logger.info("Updated existing session for IMEI: {}", imei);
             }
         }
 
-        // Process the message if not duplicate
-        if (!message.isDuplicate()) {
-            DeviceSession session = sessionManager.getSessionByImei(imei);
-            if (session != null) {
-                session.updateLastActivity();
-                processMessage(message, session);
-            }
+        // Process message if valid
+        if (!message.isDuplicate() && session != null) {
+            session.updateLastActivity();
+            processMessage(message, session);
         }
     }
 
