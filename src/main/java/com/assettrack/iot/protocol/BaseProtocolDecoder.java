@@ -208,7 +208,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         short serialNumber = buffer.getShort();
 
         // Extract timestamp if available (bytes 10-15 in login packet)
-        LocalDateTime timestamp = null;
+        LocalDateTime timestamp = LocalDateTime.now();
         if (buffer.remaining() >= 6) {  // Check if there are enough bytes for timestamp
             try {
                 int year = 2000 + (buffer.get() & 0xFF);
