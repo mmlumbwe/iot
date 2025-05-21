@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -191,6 +192,16 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     private void handleLoginPacket(ByteBuffer buffer, DeviceMessage message,
                                    Map<String, Object> parsedData) {
+        // Log raw packet data
+        byte[] rawPacket = new byte[buffer.remaining()];
+        buffer.mark(); // Save current position
+        buffer.get(rawPacket);
+        buffer.reset(); // Return to original position
+
+        logger.info("Raw login packet received (hex): " + bytesToHex(rawPacket));
+        logger.info("Raw login packet received (decimal): " + Arrays.toString(rawPacket));
+
+        // Process the packet
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
         String imei = extractImei(imeiBytes);
@@ -215,17 +226,14 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             }
         }
 
-
         message.setImei(imei);
         message.setMessageType("LOGIN");
         message.setTimestamp(timestamp);  // Set timestamp (could be null)
-        logger.info("TIMESTAMP!!!!!!!!!!!!!!");
-        logger.info(String.valueOf(timestamp));
+        logger.info("TIMESTAMP: " + timestamp);
         parsedData.put("serialNumber", serialNumber);
         if (timestamp != null) {
             parsedData.put("timestamp", timestamp);
         }
-
 
         byte[] response = generateLoginResponse(serialNumber);
         message.setResponseData(response);
