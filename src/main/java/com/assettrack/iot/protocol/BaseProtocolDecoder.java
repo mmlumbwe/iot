@@ -41,12 +41,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         try {
-            if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
-                ProtocolDetector.ProtocolDetectionResult result = (ProtocolDetector.ProtocolDetectionResult) msg;
-                if ("GT06".equals(result.getProtocol())) {
-                    decodeGt06Message(ctx, result);
-                }
-            } else if (msg instanceof ByteBuf) {
+            if (msg instanceof ByteBuf) {
                 ByteBuf buf = (ByteBuf) msg;
                 if (buf.isReadable()) {
                     byte[] data = new byte[buf.readableBytes()];
@@ -56,8 +51,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     }
                 }
             }
-        } catch (Exception e) {
-            logger.error("Decoding error", e);
         } finally {
             if (msg instanceof ByteBuf) {
                 ((ByteBuf) msg).release();
@@ -202,14 +195,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         buffer.get(imeiBytes);
         String imei = extractImei(imeiBytes);
         short serialNumber = buffer.getShort();
-
-        // Check for existing session
-        DeviceSession session = sessionManager.getSessionByImei(imei);
-        if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
-            logger.info("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
-            message.setDuplicate(true);
-            return;
-        }
 
         // Extract timestamp if available (bytes 10-15 in login packet)
         LocalDateTime timestamp = null;
