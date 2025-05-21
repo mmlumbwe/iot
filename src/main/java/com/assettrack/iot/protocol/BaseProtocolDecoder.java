@@ -219,6 +219,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         message.setImei(imei);
         message.setMessageType("LOGIN");
         message.setTimestamp(timestamp);  // Set timestamp (could be null)
+        logger.info("TIMESTAMP!!!!!!!!!!!!!!");
+        logger.info(String.valueOf(timestamp));
         parsedData.put("serialNumber", serialNumber);
         if (timestamp != null) {
             parsedData.put("timestamp", timestamp);
