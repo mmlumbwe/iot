@@ -323,25 +323,34 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     public byte[] generateLoginResponse(short serialNumber) {
         byte[] response = new byte[11];
 
+        // Start bits
         response[0] = 0x78;
         response[1] = 0x78;
-        response[2] = 0x05;
-        response[3] = 0x01;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber & 0xFF);
-        response[6] = 0x01;
 
-        int checksum = 0;
-        for (int i = 2; i <= 6; i++) {
-            checksum ^= response[i] & 0xFF;
-        }
+        // Packet length (0x0005 for login response)
+        response[2] = 0x00;
+        response[3] = 0x05;
+
+        // Protocol number (0x01 for login)
+        response[4] = 0x01;
+
+        // Serial number (big-endian)
+        response[5] = (byte)(serialNumber >> 8);
+        response[6] = (byte)(serialNumber & 0xFF);
+
+        // Calculate CRC-16 (using the buffer approach you referenced)
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 4, 3); // Protocol + Serial (bytes 4-6)
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        // Insert CRC (bytes 7-8)
         response[7] = (byte)(checksum >> 8);
         response[8] = (byte)(checksum & 0xFF);
 
+        // End bits
         response[9] = 0x0D;
         response[10] = 0x0A;
 
-        logger.info("Generated XOR response: {}", bytesToHex(response));
+        logger.info("Generated login response: {}", bytesToHex(response));
         return response;
     }
 
