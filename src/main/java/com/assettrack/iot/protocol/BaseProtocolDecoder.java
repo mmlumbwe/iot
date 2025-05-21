@@ -211,13 +211,62 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             return;
         }*/
 
+        // Extract timestamp if available (bytes 10-15 in login packet)
+        LocalDateTime timestamp = null;
+        if (buffer.remaining() >= 6) {  // Check if there are enough bytes for timestamp
+            try {
+                int year = 2000 + (buffer.get() & 0xFF);
+                int month = buffer.get() & 0xFF;
+                int day = buffer.get() & 0xFF;
+                int hour = buffer.get() & 0xFF;
+                int minute = buffer.get() & 0xFF;
+                int second = buffer.get() & 0xFF;
+
+                if (isValidDateTime(year, month, day, hour, minute, second)) {
+                    timestamp = LocalDateTime.of(year, month, day, hour, minute, second);
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to parse timestamp in login packet", e);
+            }
+        }
+
+
         message.setImei(imei);
         message.setMessageType("LOGIN");
+        message.setTimestamp(timestamp);  // Set timestamp (could be null)
         parsedData.put("serialNumber", serialNumber);
+        if (timestamp != null) {
+            parsedData.put("timestamp", timestamp);
+        }
+
 
         byte[] response = generateLoginResponse(serialNumber);
         message.setResponseData(response);
         message.setResponseRequired(true);
+    }
+
+    private boolean isValidDateTime(int year, int month, int day, int hour, int minute, int second) {
+        try {
+            // Basic validation
+            if (year < 2000 || year > 2100) return false;
+            if (month < 1 || month > 12) return false;
+            if (day < 1 || day > 31) return false;
+            if (hour < 0 || hour > 23) return false;
+            if (minute < 0 || minute > 59) return false;
+            if (second < 0 || second > 59) return false;
+
+            // Additional validation for specific months
+            if (month == 4 || month == 6 || month == 9 || month == 11) {
+                return day <= 30;
+            }
+            if (month == 2) {
+                boolean isLeap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+                return day <= (isLeap ? 29 : 28);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void handleGpsPacket(ByteBuffer buffer, DeviceMessage message,

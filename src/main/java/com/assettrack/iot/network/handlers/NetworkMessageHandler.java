@@ -53,7 +53,6 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             if (session == null) {
                 // Create new session if none exists
                 Long deviceId = message.getDeviceId() != null ? message.getDeviceId() : generateDeviceId(imei);
-                session = createNewSession(message, ctx, deviceId, imei);
                 logger.info("Created new session for IMEI: {}", imei);
             } else {
                 // Check for duplicate login
