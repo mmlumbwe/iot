@@ -327,24 +327,24 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         response[0] = 0x78;
         response[1] = 0x78;
 
-        // Packet length (0x0005 for login response)
+        // Packet length: 5 bytes (protocol + serial number + CRC)
         response[2] = 0x00;
         response[3] = 0x05;
 
-        // Protocol number (0x01 for login)
+        // Protocol number: 0x01 for login
         response[4] = 0x01;
 
-        // Serial number (big-endian)
-        response[5] = (byte)(serialNumber >> 8);
-        response[6] = (byte)(serialNumber & 0xFF);
+        // Serial number (2 bytes, big-endian)
+        response[5] = (byte) (serialNumber >> 8);
+        response[6] = (byte) (serialNumber & 0xFF);
 
-        // Calculate CRC-16 (using the buffer approach you referenced)
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 4, 3); // Protocol + Serial (bytes 4-6)
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+        // Calculate CRC over bytes [4] to [6] (inclusive)
+        byte[] crcInput = new byte[] { response[4], response[5], response[6] };
+        int crc = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(crcInput));
 
-        // Insert CRC (bytes 7-8)
-        response[7] = (byte)(checksum >> 8);
-        response[8] = (byte)(checksum & 0xFF);
+        // Insert CRC (big-endian)
+        response[7] = (byte) (crc >> 8);
+        response[8] = (byte) (crc & 0xFF);
 
         // End bits
         response[9] = 0x0D;
@@ -353,6 +353,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         logger.info("Generated login response: {}", bytesToHex(response));
         return response;
     }
+
 
     private byte[] generateAckResponse() {
         byte[] response = new byte[11];
