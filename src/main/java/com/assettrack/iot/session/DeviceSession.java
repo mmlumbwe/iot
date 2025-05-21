@@ -203,6 +203,15 @@ public class DeviceSession {
                 '}';
     }
 
-    public void setLastActivity(long l) {
+    public void setLastActivity(long timestamp) {
+        this.lastUpdate = timestamp;
+    }
+
+    public synchronized void setLastSerialNumber(short serialNumber) {
+        this.lastSerialNumber = serialNumber;
+    }
+
+    public synchronized short getLastSerialNumber() {
+        return this.lastSerialNumber;
     }
 }

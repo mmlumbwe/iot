@@ -31,8 +31,8 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DeviceMessage message) {
-        if (message == null) {
-            logger.warn("Ignoring null message");
+        if (message == null || message.isDuplicate()) {
+            logger.warn("Ignoring null or duplicate message");
             return;
         }
 
@@ -60,6 +60,8 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
         DeviceSession session = sessionManager.getSessionByImei(imei);
 
         if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
+            Short serialNumber = (Short) message.getParsedData().get("serialNumber");
+
             if (session == null) {
                 // Create new session
                 session = new DeviceSession(
@@ -69,19 +71,21 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                         ctx.channel(),
                         ctx.channel().remoteAddress()
                 );
+                session.setLastSerialNumber(serialNumber);
                 sessionManager.addSession(session);
                 logger.info("Created new session for IMEI: {}", imei);
             } else {
                 // Check for duplicate login
-                Short serialNumber = (Short) message.getParsedData().get("serialNumber");
-                if (serialNumber != null && session.isDuplicateSerialNumber(serialNumber)) {
+                if (serialNumber != null && serialNumber.equals(session.getLastSerialNumber())) {
                     logger.warn("Duplicate login from IMEI: {} (Serial: {})", imei, serialNumber);
+                    message.setDuplicate(true);
                     return null;
                 }
 
                 // Update existing session
                 session.setChannel(ctx.channel());
                 session.setRemoteAddress(ctx.channel().remoteAddress());
+                session.setLastSerialNumber(serialNumber);
                 session.updateLastActivity();
                 logger.info("Updated existing session for IMEI: {}", imei);
             }
@@ -89,6 +93,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
         return session;
     }
+
 
 
     private DeviceSession createNewSession(DeviceMessage message, ChannelHandlerContext ctx, Long deviceId, String imei) {
@@ -129,8 +134,6 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                 default:
                     logger.warn("Unknown message type: {}", message.getMessageType());
             }
-
-            updateDeviceStatus(message, session);
         } catch (Exception e) {
             logger.error("Error processing message from {}", session.getDeviceId(), e);
         }
