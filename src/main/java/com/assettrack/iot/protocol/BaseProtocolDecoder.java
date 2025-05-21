@@ -165,7 +165,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             int length = buffer.get() & 0xFF;
             byte protocol = buffer.get();
 
-            logger.debug("Decoding GT06 packet - Type: 0x{}, Length: {}",
+            logger.info("Decoding GT06 packet - Type: 0x{}, Length: {}",
                     String.format("%02X", protocol), length);
 
             DeviceMessage message = new DeviceMessage();
@@ -204,12 +204,12 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         short serialNumber = buffer.getShort();
 
         // Check for existing session
-        DeviceSession session = sessionManager.getSessionByImei(imei);
+        /*DeviceSession session = sessionManager.getSessionByImei(imei);
         if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
             logger.info("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
             message.setDuplicate(true);
             return;
-        }
+        }*/
 
         message.setImei(imei);
         message.setMessageType("LOGIN");
