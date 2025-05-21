@@ -204,12 +204,12 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         short serialNumber = buffer.getShort();
 
         // Check for existing session
-        /*DeviceSession session = sessionManager.getSessionByImei(imei);
+        DeviceSession session = sessionManager.getSessionByImei(imei);
         if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
             logger.info("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
             message.setDuplicate(true);
             return;
-        }*/
+        }
 
         // Extract timestamp if available (bytes 10-15 in login packet)
         LocalDateTime timestamp = null;

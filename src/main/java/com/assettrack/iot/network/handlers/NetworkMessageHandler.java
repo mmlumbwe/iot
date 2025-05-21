@@ -2,32 +2,20 @@ package com.assettrack.iot.network.handlers;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
-import com.assettrack.iot.session.DeviceSession;
-import com.assettrack.iot.session.SessionManager;
-import com.assettrack.iot.session.cache.CacheManager;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.netty.channel.socket.SocketChannel;
 
 @Component
+@ChannelHandler.Sharable
 public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMessage> {
 
     private static final Logger logger = LoggerFactory.getLogger(NetworkMessageHandler.class);
-
-    private final SessionManager sessionManager;
-    private final CacheManager cacheManager;
-
-    @Autowired
-    public NetworkMessageHandler(SessionManager sessionManager, CacheManager cacheManager) {
-        this.sessionManager = sessionManager;
-        this.cacheManager = cacheManager;
-    }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DeviceMessage message) {
@@ -40,137 +28,79 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
         message.setChannel((SocketChannel) ctx.channel());
         message.setRemoteAddress(ctx.channel().remoteAddress());
 
-        String imei = message.getImei();
-        if (imei == null || imei.isEmpty()) {
+        if (message.getImei() == null || message.getImei().isEmpty()) {
             logger.error("Message missing IMEI");
             return;
         }
 
-        // Handle login messages
-        if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
-            DeviceSession session = sessionManager.getSessionByImei(imei);
-
-            if (session == null) {
-                // Create new session if none exists
-                Long deviceId = message.getDeviceId() != null ? message.getDeviceId() : generateDeviceId(imei);
-                logger.info("Created new session for IMEI: {}", imei);
-            } else {
-                // Check for duplicate login
-                Short serialNumber = (Short) message.getParsedData().get("serialNumber");
-                if (serialNumber != null && session.isDuplicateSerialNumber(serialNumber)) {
-                    logger.warn("Duplicate login from IMEI: {} (Serial: {})", imei, serialNumber);
-                    message.setDuplicate(true);
-                    return;
-                }
-
-                // Update existing session
-                session.setChannel(ctx.channel());
-                session.setRemoteAddress(ctx.channel().remoteAddress());
-                session.updateLastActivity();
-                logger.info("Updated existing session for IMEI: {}", imei);
-            }
-        }
-
-        // Process message if valid
-        DeviceSession session = sessionManager.getSessionByImei(imei);
-        if (session != null && !message.isDuplicate()) {
-            processMessage(message, session);
-        }
+        processMessage(message, ctx);
     }
 
-    private DeviceSession createNewSession(DeviceMessage message, ChannelHandlerContext ctx, Long deviceId, String imei) {
-        DeviceSession session = new DeviceSession(
-                deviceId != null ? deviceId : generateDeviceId(imei),
-                imei,
-                message.getProtocolType(),
-                ctx.channel(),
-                ctx.channel().remoteAddress()
-        );
-        sessionManager.addSession(session);
-        logger.info("Created new session for IMEI: {}", imei);
-        return session;
-    }
-
-    private long generateDeviceId(String imei) {
-        return imei.hashCode() & 0xffffffffL;
-    }
-
-    private void processMessage(DeviceMessage message, DeviceSession session) {
+    private void processMessage(DeviceMessage message, ChannelHandlerContext ctx) {
         try {
             switch (message.getMessageType()) {
                 case DeviceMessage.TYPE_LOGIN:
-                    handleLogin(message, session);
+                    handleLogin(message, ctx);
                     break;
                 case DeviceMessage.TYPE_LOCATION:
-                    handleGps(message, session);
+                    handleGps(message, ctx);
                     break;
                 case DeviceMessage.TYPE_HEARTBEAT:
-                    handleHeartbeat(message, session);
+                    handleHeartbeat(message, ctx);
                     break;
                 case DeviceMessage.TYPE_ALARM:
-                    handleAlarm(message, session);
+                    handleAlarm(message, ctx);
                     break;
                 case DeviceMessage.TYPE_ERROR:
-                    handleError(message, session);
+                    handleError(message);
                     break;
                 default:
                     logger.warn("Unknown message type: {}", message.getMessageType());
             }
-
-            updateDeviceStatus(message, session);
         } catch (Exception e) {
-            logger.error("Error processing message from {}", session.getDeviceId(), e);
+            logger.error("Error processing message from {}", message.getImei(), e);
         }
     }
 
-    private void updateDeviceStatus(DeviceMessage message, DeviceSession session) {
-        if (message.getBatteryLevel() > 0) {
-            //cacheManager.updateDeviceBattery(session.getDeviceId(), message.getBatteryLevel());
-        }
-        if (message.getSignalStrength() > 0) {
-            //cacheManager.updateDeviceSignal(session.getDeviceId(), message.getSignalStrength());
-        }
-    }
-
-    private void handleLogin(DeviceMessage message, DeviceSession session) {
+    private void handleLogin(DeviceMessage message, ChannelHandlerContext ctx) {
         if (message.getResponseData() != null) {
-            session.getChannel().writeAndFlush(message.getResponseData());
-            logger.info("Sent login acknowledgment for {}", session.getDeviceId());
+            ctx.writeAndFlush(message.getResponseData());
+            logger.info("Sent login acknowledgment for {}", message.getImei());
         }
     }
 
-    private void handleGps(DeviceMessage message, DeviceSession session) {
+    private void handleGps(DeviceMessage message, ChannelHandlerContext ctx) {
         Position position = (Position) message.getParsedData().get("position");
         if (position != null) {
-            logger.info("Received position for {}: {}", session.getDeviceId(), position);
+            logger.info("Received position for {}: {}", message.getImei(), position);
             if (message.getResponseData() != null) {
-                session.getChannel().writeAndFlush(message.getResponseData());
+                ctx.writeAndFlush(message.getResponseData());
             }
         }
     }
 
-    private void handleHeartbeat(DeviceMessage message, DeviceSession session) {
-        logger.info("Heartbeat received from {}", session.getDeviceId());
+    private void handleHeartbeat(DeviceMessage message, ChannelHandlerContext ctx) {
+        logger.info("Heartbeat received from {}", message.getImei());
         if (message.getResponseData() != null) {
-            session.getChannel().writeAndFlush(message.getResponseData());
+            ctx.writeAndFlush(message.getResponseData());
         }
     }
 
-    private void handleAlarm(DeviceMessage message, DeviceSession session) {
+    private void handleAlarm(DeviceMessage message, ChannelHandlerContext ctx) {
         Position position = (Position) message.getParsedData().get("position");
         if (position != null) {
             logger.warn("ALARM for {}: {} at {}",
-                    session.getDeviceId(),
+                    message.getImei(),
                     position.getAlarmType(),
                     position);
             if (message.getResponseData() != null) {
-                session.getChannel().writeAndFlush(message.getResponseData());
+                ctx.writeAndFlush(message.getResponseData());
             }
         }
     }
 
-    private void handleError(DeviceMessage message, DeviceSession session) {
-        logger.error("Error message from {}: {}", session.getDeviceId(), message.getError());
+    private void handleError(DeviceMessage message) {
+        logger.error("Error message from {}: {}", message.getImei(), message.getError());
     }
 
     @Override
@@ -181,11 +111,7 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        try {
-            sessionManager.removeSession(ctx.channel());
-            logger.info("Channel closed, session removed");
-        } finally {
-            ctx.close();
-        }
+        logger.info("Channel closed: {}", ctx.channel());
+        ctx.close();
     }
 }
