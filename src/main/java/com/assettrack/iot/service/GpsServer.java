@@ -458,7 +458,7 @@ public class GpsServer {
         DeviceSession session = null;
 
         try {
-            // Get or create session without passing the channel
+            // Get or create session - using overloaded method without channel
             session = sessionManager.getOrCreateSession(imei, protocol, remoteAddress);
 
             // Protocol-specific handling
@@ -480,8 +480,8 @@ public class GpsServer {
                 session.updateSerialNumber(serialNumber);
                 session.updateLastActivity();
 
-                // Generate response
-                byte[] response = (byte[]) message.getParsedData().get("response");
+                // Generate response (use message response if available, otherwise generate default)
+                byte[] response = message.getResponseData();
                 if (response == null) {
                     response = generateStandardGt06Response(PROTOCOL_LOGIN, serialNumber, (byte)0x01);
                 }
@@ -493,7 +493,7 @@ public class GpsServer {
 
                 // Update connection state
                 session.setConnected(true);
-                // Removed the channel setting since we're not using Netty in this context
+                session.setLastActivity(System.currentTimeMillis());
             } else {
                 // Handle other protocols
                 logger.debug("Processing login for protocol {}", protocol);
@@ -502,6 +502,7 @@ public class GpsServer {
                     output.flush();
                 }
                 session.setConnected(true);
+                session.setLastActivity(System.currentTimeMillis());
             }
         } catch (IOException e) {
             logger.error("IO error during login for IMEI {}: {}", imei, e.getMessage());

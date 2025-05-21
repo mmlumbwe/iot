@@ -31,8 +31,8 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DeviceMessage message) {
-        if (message == null) {
-            logger.warn("Received null message");
+        if (message == null || message.isDuplicate()) {
+            logger.warn("Ignoring null or duplicate message");
             return;
         }
 
@@ -60,19 +60,21 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                 Short serialNumber = (Short) message.getParsedData().get("serialNumber");
                 if (serialNumber != null && session.isDuplicateSerialNumber(serialNumber)) {
                     logger.warn("Duplicate login from IMEI: {} (Serial: {})", imei, serialNumber);
-                    return; // Skip processing duplicate
+                    message.setDuplicate(true);
+                    return;
                 }
 
                 // Update existing session
                 session.setChannel(ctx.channel());
+                session.setRemoteAddress(ctx.channel().remoteAddress());
                 session.updateLastActivity();
                 logger.info("Updated existing session for IMEI: {}", imei);
             }
         }
 
-        // Process the message
+        // Process message if valid
         DeviceSession session = sessionManager.getSessionByImei(imei);
-        if (session != null) {
+        if (session != null && !message.isDuplicate()) {
             processMessage(message, session);
         }
     }

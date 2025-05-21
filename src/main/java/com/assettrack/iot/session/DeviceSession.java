@@ -202,4 +202,7 @@ public class DeviceSession {
                 ", duplicate=" + duplicate +
                 '}';
     }
+
+    public void setLastActivity(long l) {
+    }
 }

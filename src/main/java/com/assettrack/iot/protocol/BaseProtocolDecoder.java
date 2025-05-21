@@ -206,7 +206,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         // Check for existing session
         DeviceSession session = sessionManager.getSessionByImei(imei);
         if (session != null && session.isDuplicateSerialNumber(serialNumber)) {
-            logger.debug("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
+            logger.info("Duplicate login packet (IMEI: {}, Serial: {})", imei, serialNumber);
+            message.setDuplicate(true);
             return;
         }
 
