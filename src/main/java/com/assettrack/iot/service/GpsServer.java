@@ -145,7 +145,7 @@ public class GpsServer {
 
         startNettyTcpServer();
         //startLegacyTcpServer();
-        startUdpServer();
+        //startUdpServer();
 
         logger.info("GPS Server successfully started (TCP:{}, UDP:{})", tcpPort, udpPort);
         trafficLogger.info("SERVER_STARTED ports={},{}", tcpPort, udpPort);
