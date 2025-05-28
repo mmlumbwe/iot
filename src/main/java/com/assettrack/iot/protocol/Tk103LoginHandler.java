@@ -2,6 +2,7 @@ package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import io.netty.channel.ChannelHandlerContext;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,13 @@ public class Tk103LoginHandler implements ProtocolHandler {
     @Override
     public boolean supports(String protocolType) {
         return PROTOCOL_TYPE.equalsIgnoreCase(protocolType);
+    }
+
+
+    @Override
+    public DeviceMessage handle(byte[] data,  ChannelHandlerContext ctx) throws ProtocolException {
+        // Implement BaseProtocolDecoder's abstract method by delegating to context-aware version
+        return handle(data, null);
     }
 
     @Override

@@ -3,6 +3,7 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import io.netty.channel.ChannelHandlerContext;
 import org.apache.coyote.ProtocolException;
 import org.springframework.stereotype.Component;
 
@@ -119,6 +120,12 @@ public class Tk102Handler implements ProtocolHandler {
     @Override
     public boolean canHandle(String protocol, String version) {
         return supports(protocol);
+    }
+
+    @Override
+    public DeviceMessage handle(byte[] data,  ChannelHandlerContext ctx) throws ProtocolException {
+        // Implement BaseProtocolDecoder's abstract method by delegating to context-aware version
+        return handle(data, null);
     }
 
     @Override

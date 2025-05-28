@@ -223,9 +223,12 @@ public class DeviceSession {
     public void setSerialNumber(short serialNumber) {
         this.serialNumber = serialNumber;
         this.lastUpdate = System.currentTimeMillis();
+        updateLastActivity();
     }
 
     public boolean hasSameSerialNumber(short serialNumber) {
         return this.serialNumber == serialNumber;
     }
+
+
 }

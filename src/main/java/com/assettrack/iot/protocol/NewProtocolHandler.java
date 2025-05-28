@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 
 @Component
 @Protocol(value = "NEW_PROTOCOL", version = "1.0")
-public class NewProtocolHandler implements ProtocolHandler {
+public abstract class NewProtocolHandler implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(NewProtocolHandler.class);
     private static final int HEADER_SIZE = 8;
     private static final byte[] SIGNATURE = {0x00, 0x00, 0x00, 0x33};

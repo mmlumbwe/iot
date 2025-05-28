@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.SocketChannel;
@@ -120,6 +121,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
+        // Implement BaseProtocolDecoder's abstract method by delegating to context-aware version
+        return handle(data, null);
+    }
+
+
+    @Override
+    public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
         logger.debug("Processing GT06 packet: {}", Hex.encodeHexString(data));
         DeviceMessage message = new DeviceMessage();
         message.setProtocolType("GT06");
@@ -147,11 +155,10 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
             switch (protocol) {
                 case PROTOCOL_LOGIN:
-                    //return handleLogin(buffer, message, parsedData, variant);
-                        message = handleLogin(buffer, message, parsedData, variant);
-                        logger.info("Full message exchange - Sent: {}, Received: {}",
-                        bytesToHex(message.getResponseData()), bytesToHex(data));
-                return message;
+                    message = handleLogin(buffer, message, parsedData, variant, ctx);
+                    logger.info("Full message exchange - Sent: {}, Received: {}",
+                            bytesToHex(message.getResponseData()), bytesToHex(data));
+                    return message;
                 case PROTOCOL_GPS:
                     return handleGps(buffer, message, parsedData, variant);
                 case VL03_PROTOCOL_EXTENDED:
@@ -236,7 +243,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
-                                      Map<String, Object> parsedData, Variant variant) throws Exception {
+                                      Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) throws Exception {
         // Read IMEI (8 bytes in packed BCD format)
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
@@ -254,16 +261,16 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         lastValidImei.set(imei);
 
         // Read serial number (2 bytes) as unsigned value but store as Short
-        int unsignedSerial = buffer.getShort() & 0xFFFF; // First read as unsigned int
-        short serialNumber = (short) unsignedSerial; // Then cast to short
+        short serialNumber = buffer.getShort();
+        int unsignedSerial = serialNumber & 0xFFFF;
+
+        logger.info("Serial number - Hex: 0x{}, Signed: {}, Unsigned: {}",
+                String.format("%04X", unsignedSerial),
+                serialNumber,
+                unsignedSerial);
 
         parsedData.put("serialNumber", serialNumber);
         message.setSerialNumber(serialNumber);
-
-        logger.info("Extracted serial number (hex: 0x{}, unsigned: {}, signed: {})",
-                String.format("%04X", unsignedSerial),
-                unsignedSerial,
-                serialNumber);
 
         logger.info("Extracted serial number: {}", serialNumber);
         logger.info("Message parsedData contents: {}", parsedData);
@@ -272,7 +279,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
         // Manage device session
-        DeviceSession session = manageDeviceSession(imei, serialNumber);
+        DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
 
         // Generate response
         byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
@@ -292,27 +299,36 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return message;
     }
 
-    private DeviceSession manageDeviceSession(String imei, short serialNumber) {
+    private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
+        if (imei == null) {
+            throw new IllegalArgumentException("IMEI cannot be null");
+        }
+
+        String remoteAddress = ctx != null && ctx.channel() != null && ctx.channel().remoteAddress() != null
+                ? ctx.channel().remoteAddress().toString()
+                : "unknown";
+
         DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
-            if (existing != null && !existing.isExpired()) {
-                if (!existing.hasSameSerialNumber(serialNumber)) {
-                    existing.setSerialNumber(serialNumber);
-                    logger.info("Updated serial number to {} for IMEI: {}", serialNumber, imei);
-                }
-                existing.updateLastActivity();
+            if (existing != null) {
+                // Update existing session
+                existing.setSerialNumber(serialNumber);
+                existing.setRemoteAddress(ctx.channel().remoteAddress());
+                existing.setChannel(ctx.channel());
+                logger.debug("Updated existing session for IMEI: {}", imei);
                 return existing;
             }
-            // Create new session with null values for unspecified parameters
-            logger.info("Creating new session for IMEI: {} with serial: {}", imei, serialNumber);
+
+            logger.info("Creating new session for IMEI: {}", imei);
             return new DeviceSession(
-                    generateDeviceId(imei), // deviceId
-                    imei,                  // imei
-                    "GT06",                // protocol
-                    null,                  // ipAddress (or provide appropriate value)
-                    null                   // port (or provide appropriate value)
+                    generateDeviceId(imei),
+                    imei,
+                    "GT06",
+                    ctx != null ? ctx.channel() : null,
+                    ctx != null ? ctx.channel().remoteAddress() : null
             );
         });
-        session.setSerialNumber(serialNumber);
+
+        session.updateLastActivity();
         return session;
     }
 
