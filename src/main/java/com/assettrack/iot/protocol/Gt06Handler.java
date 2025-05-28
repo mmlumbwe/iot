@@ -280,9 +280,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
         // Manage device session
-        //DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
+        DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
         // Check for duplicate serial numbers
-        DeviceSession session = activeSessions.get(imei);
+        //DeviceSession session = activeSessions.get(imei);
         if (session != null && session.hasSameSerialNumber(serialNumber)) {
             logger.debug("Duplicate login packet with same serial number: {}", serialNumber);
             message.setDuplicate(true);
