@@ -42,10 +42,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             if (msg instanceof ByteBuf) {
                 ByteBuf buf = (ByteBuf) msg;
                 if (buf.isReadable()) {
-                    ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(buf.array());
-                    Object decoded = decode(ctx, buf, result);
-                    if (decoded != null) {
-                        ctx.fireChannelRead(decoded);
+                    byte[] data = new byte[buf.readableBytes()];
+                    buf.getBytes(buf.readerIndex(), data);
+
+                    // Let the child class handle the decoding
+                    Object result = decode(ctx, buf, protocolDetector.detect(data));
+                    if (result != null) {
+                        ctx.fireChannelRead(result);
                     }
                 }
             }
