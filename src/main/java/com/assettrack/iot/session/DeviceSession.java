@@ -21,6 +21,7 @@ public class DeviceSession {
     private volatile boolean duplicate = false;  // Added duplicate flag
     private Channel nettyChannel;
     private Socket javaSocket;
+    private short serialNumber;
 
     public DeviceSession(long deviceId, String uniqueId, String protocolType,
                          Channel channel, SocketAddress remoteAddress) {
@@ -213,5 +214,18 @@ public class DeviceSession {
 
     public synchronized short getLastSerialNumber() {
         return this.lastSerialNumber;
+    }
+
+    public short getSerialNumber() {
+        return serialNumber;
+    }
+
+    public void setSerialNumber(short serialNumber) {
+        this.serialNumber = serialNumber;
+        this.lastUpdate = System.currentTimeMillis();
+    }
+
+    public boolean hasSameSerialNumber(short serialNumber) {
+        return this.serialNumber == serialNumber;
     }
 }

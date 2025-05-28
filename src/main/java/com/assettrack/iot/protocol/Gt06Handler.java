@@ -253,10 +253,17 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         // Store the validated IMEI
         lastValidImei.set(imei);
 
-        // Read serial number (2 bytes)
-        short serialNumber = buffer.getShort();
+        // Read serial number (2 bytes) as unsigned value but store as Short
+        int unsignedSerial = buffer.getShort() & 0xFFFF; // First read as unsigned int
+        short serialNumber = (short) unsignedSerial; // Then cast to short
+
         parsedData.put("serialNumber", serialNumber);
         message.setSerialNumber(serialNumber);
+
+        logger.info("Extracted serial number (hex: 0x{}, unsigned: {}, signed: {})",
+                String.format("%04X", unsignedSerial),
+                unsignedSerial,
+                serialNumber);
 
         logger.info("Extracted serial number: {}", serialNumber);
         logger.info("Message parsedData contents: {}", parsedData);
@@ -288,14 +295,24 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private DeviceSession manageDeviceSession(String imei, short serialNumber) {
         DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
             if (existing != null && !existing.isExpired()) {
-                if (!existing.isDuplicateSerialNumber(serialNumber)) {
-                    existing.updateSerialNumber(serialNumber);
+                if (!existing.hasSameSerialNumber(serialNumber)) {
+                    existing.setSerialNumber(serialNumber);
+                    logger.info("Updated serial number to {} for IMEI: {}", serialNumber, imei);
                 }
+                existing.updateLastActivity();
                 return existing;
             }
-            return new DeviceSession(generateDeviceId(imei), imei, "GT06", null, null);
+            // Create new session with null values for unspecified parameters
+            logger.info("Creating new session for IMEI: {} with serial: {}", imei, serialNumber);
+            return new DeviceSession(
+                    generateDeviceId(imei), // deviceId
+                    imei,                  // imei
+                    "GT06",                // protocol
+                    null,                  // ipAddress (or provide appropriate value)
+                    null                   // port (or provide appropriate value)
+            );
         });
-        session.setConnected(true);
+        session.setSerialNumber(serialNumber);
         return session;
     }
 
