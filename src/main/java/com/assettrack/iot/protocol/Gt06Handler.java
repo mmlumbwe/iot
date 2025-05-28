@@ -307,6 +307,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             acknowledgementHandler.write(ctx, new AcknowledgementHandler.EventHandled(response), null);
         }
 
+        logger.info("Processed login for IMEI: {}", imei);
         return message;
     }
 
@@ -315,12 +316,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new IllegalArgumentException("IMEI cannot be null");
         }
 
-        // Get channel and address info if context exists
         Channel channel = ctx != null ? ctx.channel() : null;
         SocketAddress remoteAddress = ctx != null && ctx.channel() != null ?
                 ctx.channel().remoteAddress() : null;
 
-        return activeSessions.compute(imei, (key, existing) -> {
+        DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
             if (existing != null) {
                 // Update existing session
                 if (channel != null) {
@@ -332,17 +332,21 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 return existing;
             }
 
-            // Create new session with available information
-            // Even if channel is null, we still want to track the device
+            // Create new session
             logger.info("Creating new session for IMEI: {}", imei);
-            return new DeviceSession(
+            DeviceSession newSession = new DeviceSession(
                     generateDeviceId(imei),
                     imei,
                     "GT06",
                     channel,
                     remoteAddress
             );
+            newSession.setSerialNumber(serialNumber);
+            return newSession;
         });
+
+        session.updateLastActivity();
+        return session;
     }
 
     private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
@@ -679,6 +683,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
     public String bytesToHex(byte[] bytes) {
+        if (bytes == null) {
+            return "null";
+        }
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
             sb.append(String.format("%02X ", b));
