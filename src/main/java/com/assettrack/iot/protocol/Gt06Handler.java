@@ -8,6 +8,7 @@ import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import org.apache.commons.codec.binary.Hex;
@@ -304,16 +305,28 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new IllegalArgumentException("IMEI cannot be null");
         }
 
-        String remoteAddress = ctx != null && ctx.channel() != null && ctx.channel().remoteAddress() != null
-                ? ctx.channel().remoteAddress().toString()
-                : "unknown";
+        // Safely get remote address
+        String remoteAddress = "unknown";
+        Channel channel;
+        SocketAddress socketAddress;
+
+        if (ctx != null && ctx.channel() != null) {
+            channel = ctx.channel();
+            socketAddress = ctx.channel().remoteAddress();
+            remoteAddress = socketAddress != null ? socketAddress.toString() : "unknown";
+        } else {
+            socketAddress = null;
+            channel = null;
+        }
 
         DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
             if (existing != null) {
-                // Update existing session
+                // Only update channel/address if we have a context
+                if (ctx != null) {
+                    existing.setChannel(channel);
+                    existing.setRemoteAddress(socketAddress);
+                }
                 existing.setSerialNumber(serialNumber);
-                existing.setRemoteAddress(ctx.channel().remoteAddress());
-                existing.setChannel(ctx.channel());
                 logger.debug("Updated existing session for IMEI: {}", imei);
                 return existing;
             }
@@ -323,8 +336,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     generateDeviceId(imei),
                     imei,
                     "GT06",
-                    ctx != null ? ctx.channel() : null,
-                    ctx != null ? ctx.channel().remoteAddress() : null
+                    channel,
+                    socketAddress
             );
         });
 
