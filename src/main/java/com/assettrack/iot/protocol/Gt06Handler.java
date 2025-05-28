@@ -140,6 +140,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     String.format("%02X", protocol), length);
 
             Variant variant = detectVariant(buffer);
+            logger.debug("Detected device variant: {}", variant);
             logger.info("Processing protocol: 0x{}, length: {}, variant: {}",
                     String.format("%02X", protocol), length, variant);
 
@@ -147,7 +148,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
             switch (protocol) {
                 case PROTOCOL_LOGIN:
-                    return handleLogin(buffer, message, parsedData, variant);
+                    //return handleLogin(buffer, message, parsedData, variant);
+                        message = handleLogin(buffer, message, parsedData, variant);
+                        logger.info("Full message exchange - Sent: {}, Received: {}",
+                        bytesToHex(message.getResponseData()), bytesToHex(data));
+                return message;
                 case PROTOCOL_GPS:
                     return handleGps(buffer, message, parsedData, variant);
                 case VL03_PROTOCOL_EXTENDED:
@@ -174,8 +179,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private Variant detectVariant(ByteBuffer buffer) {
-        if (buffer.remaining() > 10 && buffer.get(buffer.position() + 3) == VL03_PROTOCOL_EXTENDED) {
-            return Variant.VL03;
+        // Check for VL03 specific markers
+        if (buffer.remaining() > 10) {
+            int pos = buffer.position();
+            // VL03 often has specific patterns in the login packet
+            if (buffer.get(pos + 10) == 0x01) {  // VL03 marker
+                return Variant.VL03;
+            }
         }
         return Variant.STANDARD;
     }
@@ -287,8 +297,29 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
         if (variant == Variant.VL03) {
-            return generateVl03LoginResponse(serialNumber, vl03Extension);
+            // Extended response for VL03 devices
+            byte[] response = new byte[14];
+            response[0] = PROTOCOL_HEADER_1;
+            response[1] = PROTOCOL_HEADER_2;
+            response[2] = 0x09;  // Length (9 bytes following)
+            response[3] = PROTOCOL_LOGIN;
+            response[4] = (byte)(serialNumber >> 8);
+            response[5] = (byte)(serialNumber);
+            response[6] = 0x01;  // Success status
+            response[7] = 0x01;  // VL03-specific extension byte (important change)
+
+            // Calculate checksum
+            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
+            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+            response[8] = (byte)(checksum >> 8);
+            response[9] = (byte)(checksum);
+            response[10] = 0x0D;
+            response[11] = 0x0A;
+
+            return response;
         }
+        // Standard GT06 response
         return generateStandardLoginResponse(serialNumber);
     }
 
