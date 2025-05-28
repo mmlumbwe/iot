@@ -61,6 +61,10 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
         if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
             Short serialNumber = (Short) message.getParsedData().get("serialNumber");
+            if (serialNumber == null) {
+                logger.warn("No serial number in message from {}", message.getImei());
+                //return; // Or handle appropriately
+            }
 
             if (session == null) {
                 // Create new session

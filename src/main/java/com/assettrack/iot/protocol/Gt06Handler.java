@@ -101,11 +101,12 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 byte[] data = new byte[buf.readableBytes()];
                 buf.readBytes(data);
 
-                logger.debug("Processing GT06 message: {}", Hex.encodeHexString(data));
+                logger.info("Processing GT06 message: {}", Hex.encodeHexString(data));
 
                 DeviceMessage message = handle(data);
                 if (message != null) {
                     ctx.fireChannelRead(message);
+                    logger.info("Forwarding message with serialNumber: {}", message.getSerialNumber());
                 }
             } catch (Exception e) {
                 logger.error("Error processing message", e);
@@ -255,6 +256,10 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         // Read serial number (2 bytes)
         short serialNumber = buffer.getShort();
         parsedData.put("serialNumber", serialNumber);
+        message.setSerialNumber(serialNumber);
+
+        logger.info("Extracted serial number: {}", serialNumber);
+        logger.info("Message parsedData contents: {}", parsedData);
 
         // Handle VL03 extension if present
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
@@ -388,7 +393,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return message;
     }
 
-    private Position parseGpsData(ByteBuffer buffer) {
+    public Position parseGpsData(ByteBuffer buffer) {
         Position position = new Position();
         Device device = new Device();
         device.setImei(lastValidImei.get());
@@ -556,7 +561,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return response;
     }
 
-    private String extractImei(byte[] imeiBytes) throws ProtocolException {
+    public String extractImei(byte[] imeiBytes) throws ProtocolException {
         // Convert packed BCD to string
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
@@ -625,11 +630,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return (byte)0xFF;
     }
 
-    /*private long generateDeviceId(String imei) {
-        return imei.hashCode() & 0xffffffffL;
-    }*/
 
-    private String bytesToHex(byte[] bytes) {
+
+    public String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
             sb.append(String.format("%02X ", b));

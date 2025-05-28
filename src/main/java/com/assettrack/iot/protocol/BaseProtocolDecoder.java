@@ -3,15 +3,13 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
-import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.buffer.ByteBuf;
-import io.netty.util.ReferenceCountUtil;
 import io.netty.channel.socket.SocketChannel;
+import io.netty.util.ReferenceCountUtil;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +19,6 @@ import org.springframework.stereotype.Component;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -45,19 +42,18 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             if (msg instanceof ByteBuf) {
                 ByteBuf buf = (ByteBuf) msg;
                 if (buf.isReadable()) {
-                    byte[] data = new byte[buf.readableBytes()];
-                    buf.getBytes(buf.readerIndex(), data);
-
-                    // Let the child class handle the decoding
-                    Object result = decode(ctx, buf, protocolDetector.detect(data));
-                    if (result != null) {
-                        ctx.fireChannelRead(result);
+                    ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(buf.array());
+                    Object decoded = decode(ctx, buf, result);
+                    if (decoded != null) {
+                        ctx.fireChannelRead(decoded);
                     }
                 }
             }
         } catch (Exception e) {
             logger.error("Error in protocol decoding", e);
             ctx.close();
+        } finally {
+            ReferenceCountUtil.release(msg);
         }
     }
 
@@ -67,14 +63,11 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                             ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
         try {
-            if (result == null || !"GT06".equals(result.getProtocol())) {
-                return null;
-            }
-
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
-            if ((result == null || !"GT06".equals(result.getProtocol()))) {
+            // Fallback detection if initial detection failed
+            if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
                     logger.info("Manually detected GT06 packet");
@@ -100,10 +93,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         } catch (Exception e) {
             logger.error("Decoding error", e);
             return null;
-        } finally {
-            if (buf.refCnt() > 0) {
-                buf.release();
-            }
         }
     }
 
@@ -111,20 +100,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         return imei != null ? imei.hashCode() & 0xffffffffL : 0L;
     }
 
-    private void logDetectionResult(ProtocolDetector.ProtocolDetectionResult result, byte[] data) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Detected protocol: {}, Type: {}, Version: {}",
-                    result.getProtocol(), result.getPacketType(), result.getVersion());
-            logger.debug("Raw data ({} bytes): {}", data.length, bytesToHex(data));
-        }
-        if (result == null) {
-            logger.warn("Protocol detection failed for data: {}", bytesToHex(data));
-        } else {
-            logger.info("Detected protocol: {}", result.getProtocol());
-        }
-    }
-
-    private String bytesToHex(byte[] bytes) {
+    protected String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
             sb.append(String.format("%02X ", b));
@@ -132,150 +108,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         return sb.toString().trim();
     }
 
-    private boolean isPotentialGt06Packet(byte[] data) {
-        return data != null &&
-                data.length >= 12 &&
-                data[0] == 0x78 &&
-                data[1] == 0x78;
-    }
-
-    private void decodeGt06Message(ChannelHandlerContext ctx, ProtocolDetector.ProtocolDetectionResult result) {
-        try {
-            byte[] data = (byte[]) result.getMetadata().get("rawData");
-            if (data == null) {
-                logger.warn("No raw data in protocol detection result");
-                return;
-            }
-            decodeGt06Message(ctx, data);
-        } catch (Exception e) {
-            logger.error("GT06 decoding error", e);
-        }
-    }
-
-    private void decodeGt06Message(ChannelHandlerContext ctx, byte[] data) {
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-
-            buffer.position(2);
-
-            int length = buffer.get() & 0xFF;
-            byte protocol = buffer.get();
-
-            logger.info("Decoding GT06 packet - Type: 0x{}, Length: {}",
-                    String.format("%02X", protocol), length);
-
-            DeviceMessage message = new DeviceMessage();
-            message.setProtocolType("GT06");
-            Map<String, Object> parsedData = new HashMap<>();
-
-            switch (protocol) {
-                case 0x01:
-                    handleLoginPacket(buffer, message, parsedData);
-                    break;
-                case 0x12:
-                    handleGpsPacket(buffer, message, parsedData);
-                    break;
-                case 0x13:
-                    handleHeartbeatPacket(buffer, message, parsedData);
-                    break;
-                default:
-                    logger.warn("Unsupported GT06 protocol type: 0x{}",
-                            String.format("%02X", protocol));
-                    return;
-            }
-
-            message.setParsedData(parsedData);
-            ctx.fireChannelRead(message);
-
-        } catch (Exception e) {
-            logger.error("GT06 message decoding failed", e);
-        }
-    }
-
-    private void handleLoginPacket(ByteBuffer buffer, DeviceMessage message,
-                                   Map<String, Object> parsedData) {
-        // Log raw packet data
-        byte[] rawPacket = new byte[buffer.remaining()];
-        buffer.mark(); // Save current position
-        buffer.get(rawPacket);
-        buffer.reset(); // Return to original position
-
-        logger.info("Raw login packet received (hex): " + bytesToHex(rawPacket));
-        logger.info("Raw login packet received (decimal): " + Arrays.toString(rawPacket));
-
-        // Process the packet
-        byte[] imeiBytes = new byte[8];
-        buffer.get(imeiBytes);
-        String imei = extractImei(imeiBytes);
-        short serialNumber = buffer.getShort();
-
-        // Extract timestamp if available (bytes 10-15 in login packet)
-        LocalDateTime timestamp = LocalDateTime.now();
-        if (buffer.remaining() >= 6) {  // Check if there are enough bytes for timestamp
-            try {
-                int year = 2000 + (buffer.get() & 0xFF);
-                int month = buffer.get() & 0xFF;
-                int day = buffer.get() & 0xFF;
-                int hour = buffer.get() & 0xFF;
-                int minute = buffer.get() & 0xFF;
-                int second = buffer.get() & 0xFF;
-
-                if (isValidDateTime(year, month, day, hour, minute, second)) {
-                    timestamp = LocalDateTime.of(year, month, day, hour, minute, second);
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to parse timestamp in login packet", e);
-            }
-        }
-
-        message.setImei(imei);
-        message.setMessageType("LOGIN");
-        message.setTimestamp(timestamp);  // Set timestamp (could be null)
-        logger.info("TIMESTAMP: " + timestamp);
-        parsedData.put("serialNumber", serialNumber);
-        if (timestamp != null) {
-            parsedData.put("timestamp", timestamp);
-        }
-
-        byte[] response = generateLoginResponse(serialNumber);
-        message.setResponseData(response);
-        message.setResponseRequired(true);
-    }
-
-    private boolean isValidDateTime(int year, int month, int day, int hour, int minute, int second) {
-        try {
-            // Basic validation
-            if (year < 2000 || year > 2100) return false;
-            if (month < 1 || month > 12) return false;
-            if (day < 1 || day > 31) return false;
-            if (hour < 0 || hour > 23) return false;
-            if (minute < 0 || minute > 59) return false;
-            if (second < 0 || second > 59) return false;
-
-            // Additional validation for specific months
-            if (month == 4 || month == 6 || month == 9 || month == 11) {
-                return day <= 30;
-            }
-            if (month == 2) {
-                boolean isLeap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-                return day <= (isLeap ? 29 : 28);
-            }
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private void handleGpsPacket(ByteBuffer buffer, DeviceMessage message,
-                                 Map<String, Object> parsedData) {
-        Position position = parseGpsData(buffer);
-        parsedData.put("position", position);
-
-        message.setMessageType("GPS");
-        message.setResponseData(generateAckResponse());
-    }
-
-    private String extractImei(byte[] imeiBytes) {
+    protected String extractImei(byte[] imeiBytes) {
         StringBuilder imei = new StringBuilder();
         for (byte b : imeiBytes) {
             imei.append(String.format("%02X", b));
@@ -286,7 +119,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         return imei.toString();
     }
 
-    private Position parseGpsData(ByteBuffer buffer) {
+    protected Position parseGpsData(ByteBuffer buffer) {
         Position position = new Position();
 
         position.setTimestamp(LocalDateTime.of(
@@ -309,20 +142,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         return position;
     }
 
-    private void handleHeartbeatPacket(ByteBuffer buffer, DeviceMessage message,
-                                       Map<String, Object> parsedData) {
-        message.setMessageType("HEARTBEAT");
-
-        if (buffer.remaining() >= 2) {
-            int voltageLevel = buffer.get() & 0xFF;
-            parsedData.put("battery", voltageLevel);
-        }
-
-        message.setResponseData(generateAckResponse());
-        message.setResponseRequired(true);
-    }
-
-    public byte[] generateLoginResponse(short serialNumber) {
+    protected byte[] generateLoginResponse(short serialNumber) {
         byte[] response = new byte[11];
 
         // Start bits
@@ -341,7 +161,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         response[6] = (byte) (serialNumber & 0xFF);
 
         // Calculate CRC over bytes [4] to [6] (inclusive)
-        byte[] crcInput = new byte[] { response[4], response[5], response[6] };
+        byte[] crcInput = new byte[]{response[4], response[5], response[6]};
         int crc = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(crcInput));
 
         // Insert CRC (big-endian)
@@ -356,8 +176,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         return response;
     }
 
-
-    private byte[] generateAckResponse() {
+    protected byte[] generateAckResponse() {
         byte[] response = new byte[11];
 
         response[0] = (byte) 0x78;

@@ -22,6 +22,7 @@ public class DeviceMessage {
     // Message metadata
     private String messageType;
     private String imei;
+    private Short serialNumber;  // Added proper serialNumber field
     private byte[] rawData;
     private String error;
     private final Map<String, Object> parsedData;
@@ -48,6 +49,20 @@ public class DeviceMessage {
 
     public DeviceMessage() {
         this.parsedData = Collections.synchronizedMap(new HashMap<>());
+    }
+
+    // Serial Number Accessors (Added)
+    public synchronized Short getSerialNumber() {
+        return serialNumber;
+    }
+
+    public synchronized void setSerialNumber(Short serialNumber) {
+        this.serialNumber = serialNumber;
+        if (serialNumber != null) {
+            this.parsedData.put("serialNumber", serialNumber);
+        } else {
+            this.parsedData.remove("serialNumber");
+        }
     }
 
     // Protocol Accessors
@@ -129,11 +144,26 @@ public class DeviceMessage {
         this.parsedData.clear();
         if (parsedData != null) {
             this.parsedData.putAll(parsedData);
+            // Maintain serialNumber field consistency
+            Object sn = parsedData.get("serialNumber");
+            if (sn instanceof Short) {
+                this.serialNumber = (Short) sn;
+            } else if (sn instanceof Number) {
+                this.serialNumber = ((Number) sn).shortValue();
+            }
         }
     }
 
     public synchronized void addParsedData(String key, Object value) {
         this.parsedData.put(key, value);
+        // Maintain serialNumber field consistency
+        if ("serialNumber".equals(key)) {
+            if (value instanceof Short) {
+                this.serialNumber = (Short) value;
+            } else if (value instanceof Number) {
+                this.serialNumber = ((Number) value).shortValue();
+            }
+        }
     }
 
     // Device Status Accessors
@@ -225,6 +255,7 @@ public class DeviceMessage {
                 "protocol='" + protocol + '\'' +
                 ", messageType='" + messageType + '\'' +
                 ", imei='" + imei + '\'' +
+                ", serialNumber=" + serialNumber +  // Added serialNumber to toString
                 ", timestamp=" + timestamp +
                 ", duplicate=" + duplicate +
                 ", parsedData=" + parsedData.keySet() +
@@ -261,6 +292,11 @@ public class DeviceMessage {
 
         public Builder imei(String imei) {
             message.setImei(imei);
+            return this;
+        }
+
+        public Builder serialNumber(Short serialNumber) {  // Added to Builder
+            message.setSerialNumber(serialNumber);
             return this;
         }
 
