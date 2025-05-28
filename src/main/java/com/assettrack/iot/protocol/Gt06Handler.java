@@ -280,7 +280,14 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
         // Manage device session
-        DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
+        //DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
+        // Check for duplicate serial numbers
+        DeviceSession session = activeSessions.get(imei);
+        if (session != null && session.hasSameSerialNumber(serialNumber)) {
+            logger.debug("Duplicate login packet with same serial number: {}", serialNumber);
+            message.setDuplicate(true);
+            return message;
+        }
 
         // Generate response
         byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
@@ -305,30 +312,27 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new IllegalArgumentException("IMEI cannot be null");
         }
 
-        // Safely get remote address
-        String remoteAddress = "unknown";
-        Channel channel;
-        SocketAddress socketAddress;
+        // Get channel and address info if context exists
+        Channel channel = ctx != null ? ctx.channel() : null;
+        SocketAddress remoteAddress = ctx != null && ctx.channel() != null ?
+                ctx.channel().remoteAddress() : null;
 
-        if (ctx != null && ctx.channel() != null) {
-            channel = ctx.channel();
-            socketAddress = ctx.channel().remoteAddress();
-            remoteAddress = socketAddress != null ? socketAddress.toString() : "unknown";
-        } else {
-            socketAddress = null;
-            channel = null;
-        }
-
-        DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
+        return activeSessions.compute(imei, (key, existing) -> {
             if (existing != null) {
-                // Only update channel/address if we have a context
-                if (ctx != null) {
+                // Update existing session
+                if (channel != null) {
                     existing.setChannel(channel);
-                    existing.setRemoteAddress(socketAddress);
+                    existing.setRemoteAddress(remoteAddress);
                 }
                 existing.setSerialNumber(serialNumber);
-                logger.debug("Updated existing session for IMEI: {}", imei);
+                logger.debug("Updated session for IMEI: {}", imei);
                 return existing;
+            }
+
+            // Create new session only if we have a channel context
+            if (channel == null) {
+                logger.warn("Cannot create session without channel context for IMEI: {}", imei);
+                return null;
             }
 
             logger.info("Creating new session for IMEI: {}", imei);
@@ -337,12 +341,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     imei,
                     "GT06",
                     channel,
-                    socketAddress
+                    remoteAddress
             );
         });
-
-        session.updateLastActivity();
-        return session;
     }
 
     private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
