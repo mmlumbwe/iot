@@ -280,17 +280,29 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
 
         // Manage device session
-        DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
-        // Check for duplicate serial numbers
-        //DeviceSession session = activeSessions.get(imei);
-        if (session != null && session.hasSameSerialNumber(serialNumber)) {
-            logger.debug("Duplicate login packet with same serial number: {}", serialNumber);
-            message.setDuplicate(true);
-            return message;
-        }
+        DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
+            if (existing != null) {
+                if (!existing.hasSameSerialNumber(serialNumber)) {
+                    existing.setSerialNumber(serialNumber);
+                    logger.debug("Updated serial number for IMEI: {}", imei);
+                }
+                return existing;
+            }
+            logger.info("Creating new session for IMEI: {}", imei);
+            return new DeviceSession(
+                    generateDeviceId(imei),
+                    imei,
+                    "GT06",
+                    ctx != null ? ctx.channel() : null,
+                    ctx != null ? ctx.channel().remoteAddress() : null
+            );
+        });
 
         // Generate response
         byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
+        if (response == null) {
+            throw new ProtocolException("Failed to generate login response");
+        }
 
         // Populate message
         parsedData.put("response", response);
@@ -299,6 +311,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setImei(imei);
         message.setMessageType("LOGIN");
         message.getParsedData().put("sessionId", session.getSessionId());
+        message.getParsedData().put("deviceId", generateDeviceId(imei));
 
         // Update session and send acknowledgement
         session.updateLastActivity();
@@ -350,6 +363,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
+        try {
         if (variant == Variant.VL03) {
             // Extended response for VL03 devices
             byte[] response = new byte[14];
@@ -372,9 +386,32 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             response[11] = 0x0A;
 
             return response;
+        }else {
+            // Standard GT06 response
+            byte[] response = new byte[10];
+            response[0] = PROTOCOL_HEADER_1;
+            response[1] = PROTOCOL_HEADER_2;
+            response[2] = 0x05; // Length
+            response[3] = PROTOCOL_LOGIN;
+            response[4] = (byte)(serialNumber >> 8);
+            response[5] = (byte)(serialNumber);
+            response[6] = 0x01; // Success status
+
+            // Calculate checksum
+            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+            response[7] = (byte)(checksum >> 8);
+            response[8] = (byte)(checksum);
+            response[9] = 0x0A; // Termination byte
+
+            logger.debug("Generated login response: {}", bytesToHex(response));
+            return response;
         }
-        // Standard GT06 response
-        return generateStandardLoginResponse(serialNumber);
+        } catch (Exception e) {
+            logger.error("Failed to generate login response", e);
+            return null;
+        }
     }
 
     private byte[] generateVl03LoginResponse(short serialNumber, byte vl03Extension) {

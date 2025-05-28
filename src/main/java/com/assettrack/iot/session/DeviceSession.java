@@ -7,6 +7,7 @@ import java.net.SocketAddress;
 
 public class DeviceSession {
     private final long deviceId;
+    private String imei;
     private final String uniqueId; // IMEI
     private final String protocolType;
     private Channel channel;  // Changed from final to allow updates
@@ -230,5 +231,9 @@ public class DeviceSession {
         return this.serialNumber == serialNumber;
     }
 
-
+    public void validateSession() {
+        if (this.imei == null) {
+            throw new IllegalStateException("Session has null IMEI");
+        }
+    }
 }
