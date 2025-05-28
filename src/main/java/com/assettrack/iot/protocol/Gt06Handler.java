@@ -302,7 +302,10 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         // Update session and send acknowledgement
         session.updateLastActivity();
-        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
+        //acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
+        if (ctx != null) {
+            acknowledgementHandler.write(ctx, new AcknowledgementHandler.EventHandled(response), null);
+        }
 
         return message;
     }
@@ -329,12 +332,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 return existing;
             }
 
-            // Create new session only if we have a channel context
-            if (channel == null) {
-                logger.warn("Cannot create session without channel context for IMEI: {}", imei);
-                return null;
-            }
-
+            // Create new session with available information
+            // Even if channel is null, we still want to track the device
             logger.info("Creating new session for IMEI: {}", imei);
             return new DeviceSession(
                     generateDeviceId(imei),
