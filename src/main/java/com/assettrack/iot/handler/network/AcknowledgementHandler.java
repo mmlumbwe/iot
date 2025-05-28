@@ -4,6 +4,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Set;
 
 @Slf4j
+@Component
 public class AcknowledgementHandler extends ChannelOutboundHandlerAdapter {
 
     public interface Event {
