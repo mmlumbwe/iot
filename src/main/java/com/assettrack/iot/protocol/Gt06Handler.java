@@ -67,9 +67,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     @Override
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
-        byte[] data = null;
+        //byte[] data = null;
         try {
-            data = new byte[buf.readableBytes()];
+            byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
             // Fallback detection if initial detection failed
@@ -88,10 +88,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             }
             return message;
         } catch (Exception e) {
-            logger.error("Decoding error for packet: {}", Hex.encodeHexString(data), e);
+            logger.error("Decoding error for packet: {}", e);
             return null;
-        } finally {
-            buf.release();
         }
     }
 
@@ -256,6 +254,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         // Read serial number (2 bytes)
         short serialNumber = buffer.getShort();
+        parsedData.put("serialNumber", serialNumber);
 
         // Handle VL03 extension if present
         byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);

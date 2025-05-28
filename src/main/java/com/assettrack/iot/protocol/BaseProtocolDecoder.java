@@ -55,8 +55,9 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     }
                 }
             }
-        } finally {
-            ReferenceCountUtil.release(msg);
+        } catch (Exception e) {
+            logger.error("Error in protocol decoding", e);
+            ctx.close();
         }
     }
 
