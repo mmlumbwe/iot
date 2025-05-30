@@ -290,15 +290,14 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 response[1] = PROTOCOL_HEADER_2;
                 response[2] = 0x09;  // Length (9 bytes following)
                 response[3] = PROTOCOL_LOGIN;
-                // Use unsigned serial number in response
-                response[4] = (byte)((serialNumber >> 8) & 0xFF);
-                response[5] = (byte)(serialNumber & 0xFF);
+                response[4] = (byte)(serialNumber >> 8);
+                response[5] = (byte)(serialNumber);
                 response[6] = 0x01;  // Success status
                 response[7] = 0x01;  // VL03-specific extension byte
 
                 // Calculate checksum
                 ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
-                int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+                int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer) ^ 0xFFFF;
 
                 response[8] = (byte)(checksum >> 8);
                 response[9] = (byte)(checksum);
@@ -309,23 +308,22 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             } else {
                 // Standard GT06 response
                 byte[] response = new byte[10];
-
-                response[0] = 0x78;
-                response[1] = 0x78;
-                response[2] = 0x05;
-                response[3] = 0x01;
+                response[0] = PROTOCOL_HEADER_1;
+                response[1] = PROTOCOL_HEADER_2;
+                response[2] = 0x05; // Length
+                response[3] = PROTOCOL_LOGIN;
                 response[4] = (byte)(serialNumber >> 8);
-                response[5] = (byte)(serialNumber & 0xFF);
+                response[5] = (byte)(serialNumber);
+                response[6] = 0x01; // Success status
 
-                ByteBuffer crcBuf = ByteBuffer.wrap(response, 2, 4); // 0x05 0x01 [serialHigh] [serialLow]
-                int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuf);
+                // Calculate checksum
+                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+                int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer) ^ 0xFFFF;
 
-                response[6] = (byte)(crc >> 8);
-                response[7] = (byte)(crc & 0xFF);
-                response[8] = 0x0D;
-                response[9] = 0x0A;
+                response[7] = (byte)(checksum >> 8);
+                response[8] = (byte)(checksum);
+                response[9] = 0x0A; // Termination byte
 
-                logger.info("Generated login response XXX: {}", Hex.encodeHexString(response));
                 return response;
             }
         } catch (Exception e) {
@@ -390,33 +388,36 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     data[0], data[1]));
         }
 
-        // Handle multi-packet messages
-        int pos = 0;
-        while (pos < data.length) {
-            if (pos + 2 >= data.length) break;
+        int declaredLength = data[2] & 0xFF;
+        int expectedPacketLength = declaredLength + 5; // header(2) + length(1) + data + checksum(2)
 
-            int declaredLength = data[pos + 2] & 0xFF;
-            int packetLength = declaredLength + 5; // 2 header + 1 length + 2 tail
+        if (data.length != expectedPacketLength) {
+            throw new ProtocolException(String.format(
+                    "Packet length mismatch. Declared: %d, actual: %d",
+                    expectedPacketLength, data.length));
+        }
 
-            if (pos + packetLength > data.length) {
-                throw new ProtocolException(String.format(
-                        "Packet length mismatch at position %d. Declared: %d, remaining: %d",
-                        pos, packetLength, data.length - pos));
-            }
+        // Verify checksum (CRC-16/X25)
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
-            // Verify checksum for this packet
-            int receivedChecksum = ((data[pos + packetLength - 4] & 0xFF) << 8) |
-                    (data[pos + packetLength - 3] & 0xFF);
-            ByteBuffer checksumBuffer = ByteBuffer.wrap(data, pos + 2, declaredLength + 1);
-            int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+        // Calculate checksum over bytes from length (index 2) to end of data (before checksum)
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, declaredLength + 1);
+        int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-            if (receivedChecksum != calculatedChecksum) {
-                throw new ProtocolException(String.format(
-                        "Checksum mismatch at position %d (received: 0x%04X, calculated: 0x%04X)",
-                        pos, receivedChecksum, calculatedChecksum));
-            }
+        // Invert the calculated checksum (GT06 protocol specific)
+        calculatedChecksum ^= 0xFFFF;
 
-            pos += packetLength;
+        if (receivedChecksum != calculatedChecksum) {
+            throw new ProtocolException(String.format(
+                    "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
+                    receivedChecksum, calculatedChecksum));
+        }
+
+        // Verify termination bytes
+        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+            throw new ProtocolException(String.format(
+                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
+                    data[data.length - 2], data[data.length - 1]));
         }
     }
 
