@@ -178,7 +178,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
 
         // Generate response using unsigned serial number
-        byte[] response = generateLoginResponse(variant, (short)unsignedSerial, vl03Extension);
+        byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
+        //byte[] response = generateLoginResponse(variant, (short)unsignedSerial, vl03Extension);
         if (response == null) {
             throw new ProtocolException("Failed to generate login response");
         }
