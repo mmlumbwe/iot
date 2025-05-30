@@ -27,6 +27,13 @@ import java.util.Map;
 public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(BaseProtocolDecoder.class);
 
+    // Protocol constants
+    protected static final byte PROTOCOL_HEADER_1 = 0x78;
+    protected static final byte PROTOCOL_HEADER_2 = 0x78;
+    protected static final byte PROTOCOL_LOGIN = 0x01;
+    protected static final byte PROTOCOL_TERMINATOR_1 = 0x0D;
+    protected static final byte PROTOCOL_TERMINATOR_2 = 0x0A;
+
     protected final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
 
@@ -44,16 +51,21 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 if (buf.isReadable()) {
                     byte[] data = new byte[buf.readableBytes()];
                     buf.getBytes(buf.readerIndex(), data);
+                    logger.debug("Received raw data: {}", bytesToHex(data));
 
-                    // Let the child class handle the decoding
-                    Object result = decode(ctx, buf, protocolDetector.detect(data));
-                    if (result != null) {
-                        ctx.fireChannelRead(result);
+                    ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
+                    Object decodedMessage = decode(ctx, buf, result);
+
+                    if (decodedMessage != null) {
+                        ctx.fireChannelRead(decodedMessage);
+                        logger.info("Successfully decoded message of type: {}",
+                                decodedMessage instanceof DeviceMessage ?
+                                        ((DeviceMessage) decodedMessage).getMessageType() : "Unknown");
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Error in protocol decoding", e);
+            logger.error("Error in protocol decoding: {}", e.getMessage(), e);
             ctx.close();
         } finally {
             ReferenceCountUtil.release(msg);
@@ -71,31 +83,44 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
             // Fallback detection if initial detection failed
             if (result == null || !"GT06".equals(result.getProtocol())) {
-                if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+                if (isValidGT06Header(data)) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
                     logger.info("Manually detected GT06 packet");
                 } else {
+                    logger.debug("Packet doesn't match GT06 protocol");
                     return null;
                 }
             }
 
             DeviceMessage message = handle(data);
-
             if (message != null) {
-                message.setProtocolType("GT06");
-                if (ctx.channel() instanceof SocketChannel) {
-                    message.setChannel((SocketChannel) ctx.channel());
-                }
-                message.setRemoteAddress(ctx.channel().remoteAddress());
-
-                if (message.getImei() != null) {
-                    message.addParsedData("deviceId", generateDeviceId(message.getImei()));
-                }
+                enrichMessageWithContext(ctx, message);
+                logger.debug("Decoded message for IMEI: {}", message.getImei());
             }
             return message;
         } catch (Exception e) {
-            logger.error("Decoding error", e);
+            logger.error("Decoding error for packet: {}", e.getMessage(), e);
             return null;
+        }
+    }
+
+    private boolean isValidGT06Header(byte[] data) {
+        return data.length >= 2 &&
+                data[0] == PROTOCOL_HEADER_1 &&
+                data[1] == PROTOCOL_HEADER_2;
+    }
+
+    private void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
+        message.setProtocolType("GT06");
+        if (ctx.channel() instanceof SocketChannel) {
+            message.setChannel((SocketChannel) ctx.channel());
+        }
+        message.setRemoteAddress(ctx.channel().remoteAddress());
+
+        if (message.getImei() != null) {
+            long deviceId = generateDeviceId(message.getImei());
+            message.addParsedData("deviceId", deviceId);
+            logger.debug("Generated device ID {} for IMEI {}", deviceId, message.getImei());
         }
     }
 
@@ -104,99 +129,126 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     }
 
     protected String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
+        if (bytes == null) {
+            return "null";
+        }
+        StringBuilder sb = new StringBuilder(bytes.length * 3);
         for (byte b : bytes) {
             sb.append(String.format("%02X ", b));
         }
         return sb.toString().trim();
     }
 
-    protected String extractImei(byte[] imeiBytes) {
-        StringBuilder imei = new StringBuilder();
+    protected String extractImei(byte[] imeiBytes) throws ProtocolException {
+        if (imeiBytes == null || imeiBytes.length != 8) {
+            throw new ProtocolException("Invalid IMEI bytes length");
+        }
+
+        StringBuilder imei = new StringBuilder(16);
         for (byte b : imeiBytes) {
             imei.append(String.format("%02X", b));
         }
+
+        // Remove leading zeros while maintaining 15 digits
         while (imei.length() > 15 && imei.charAt(0) == '0') {
             imei.deleteCharAt(0);
         }
+
+        if (imei.length() != 15) {
+            throw new ProtocolException("Invalid IMEI length: " + imei.length());
+        }
+
+        logger.debug("Extracted IMEI: {}", imei);
         return imei.toString();
     }
 
     protected Position parseGpsData(ByteBuffer buffer) {
         Position position = new Position();
 
+        // Parse timestamp (6 bytes: YY MM DD HH mm ss)
         position.setTimestamp(LocalDateTime.of(
-                2000 + (buffer.get() & 0xFF),
-                buffer.get() & 0xFF,
-                buffer.get() & 0xFF,
-                buffer.get() & 0xFF,
-                buffer.get() & 0xFF,
-                buffer.get() & 0xFF
+                2000 + (buffer.get() & 0xFF),  // Year
+                buffer.get() & 0xFF,            // Month
+                buffer.get() & 0xFF,            // Day
+                buffer.get() & 0xFF,            // Hour
+                buffer.get() & 0xFF,            // Minute
+                buffer.get() & 0xFF             // Second
         ));
 
         position.setSatellites(buffer.get() & 0xFF);
         position.setLatitude(buffer.getInt() / 1800000.0);
         position.setLongitude(buffer.getInt() / 1800000.0);
-        position.setSpeed((buffer.get() & 0xFF) * 1.852);
+        position.setSpeed((buffer.get() & 0xFF) * 1.852);  // Convert knots to km/h
+        position.setCourse((double) (buffer.getShort() & 0xFFFF));
 
-        int course = buffer.getShort() & 0xFFFF;
-        position.setCourse((double) course);
-
+        logger.debug("Parsed GPS position: {}", position);
         return position;
     }
 
     protected byte[] generateLoginResponse(short serialNumber) {
         byte[] response = new byte[11];
 
-        // Start bits
-        response[0] = 0x78;
-        response[1] = 0x78;
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
 
-        // Packet length: 5 bytes (protocol + serial number + CRC)
-        response[2] = 0x00;
-        response[3] = 0x05;
+        // Packet length (5 bytes: protocol + serial + status)
+        response[2] = 0x05;
 
-        // Protocol number: 0x01 for login
-        response[4] = 0x01;
+        // Protocol number (login)
+        response[3] = PROTOCOL_LOGIN;
 
-        // Serial number (2 bytes, big-endian)
-        response[5] = (byte) (serialNumber >> 8);
-        response[6] = (byte) (serialNumber & 0xFF);
+        // Serial number (big-endian)
+        response[4] = (byte) (serialNumber >> 8);
+        response[5] = (byte) (serialNumber & 0xFF);
 
-        // Calculate CRC over bytes [4] to [6] (inclusive)
-        byte[] crcInput = new byte[]{response[4], response[5], response[6]};
-        int crc = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(crcInput));
+        // Status (success)
+        response[6] = 0x01;
 
-        // Insert CRC (big-endian)
+        // Calculate CRC
+        ByteBuffer crcBuffer = ByteBuffer.wrap(response, 2, 5);
+        int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuffer);
+
+        // Add CRC (big-endian)
         response[7] = (byte) (crc >> 8);
         response[8] = (byte) (crc & 0xFF);
 
-        // End bits
-        response[9] = 0x0D;
-        response[10] = 0x0A;
+        // Terminator
+        response[9] = PROTOCOL_TERMINATOR_1;
+        response[10] = PROTOCOL_TERMINATOR_2;
 
-        logger.info("Generated login response: {}", bytesToHex(response));
+        logger.info("Generated login response for serial {}: {}", serialNumber, bytesToHex(response));
         return response;
     }
 
     protected byte[] generateAckResponse() {
-        byte[] response = new byte[11];
+        byte[] response = new byte[10];
 
-        response[0] = (byte) 0x78;
-        response[1] = (byte) 0x78;
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+
+        // Packet length (5 bytes)
         response[2] = 0x05;
-        response[3] = 0x01;
+
+        // Protocol number (login)
+        response[3] = PROTOCOL_LOGIN;
+
+        // Empty serial number
         response[4] = 0x00;
         response[5] = 0x00;
 
+        // Calculate CRC
         ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
+        // Add CRC
         response[6] = (byte) (checksum >> 8);
         response[7] = (byte) (checksum & 0xFF);
 
-        response[8] = 0x0D;
-        response[9] = 0x0A;
+        // Terminator
+        response[8] = PROTOCOL_TERMINATOR_1;
+        response[9] = PROTOCOL_TERMINATOR_2;
 
         logger.debug("Generated ACK response: {}", bytesToHex(response));
         return response;

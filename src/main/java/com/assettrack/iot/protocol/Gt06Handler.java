@@ -24,13 +24,13 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.SocketChannel;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Component
+@ChannelHandler.Sharable
 public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler {
     private static final Logger logger = LoggerFactory.getLogger(Gt06Handler.class);
 
@@ -62,14 +62,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     public Gt06Handler(SessionManager sessionManager,
                        ProtocolDetector protocolDetector,
                        AcknowledgementHandler acknowledgementHandler) {
-        super(sessionManager, protocolDetector);  // Pass both required parameters
+        super(sessionManager, protocolDetector);
         this.acknowledgementHandler = acknowledgementHandler;
     }
 
     @Override
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
-        //byte[] data = null;
         try {
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
@@ -84,16 +83,208 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 }
             }
 
-            DeviceMessage message = handle(data);
+            DeviceMessage message = handle(data, ctx);
             if (message != null && message.getImei() != null) {
                 message.addParsedData("deviceId", generateDeviceId(message.getImei()));
             }
             return message;
         } catch (Exception e) {
-            logger.error("Decoding error for packet: {}", e);
+            logger.error("Decoding error for packet: {}", e.getMessage());
             return null;
         }
     }
+
+    @Override
+    public DeviceMessage handle(byte[] data) throws ProtocolException {
+        return handle(data, null);
+    }
+
+    @Override
+    public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
+        logger.debug("Processing GT06 packet: {}", Hex.encodeHexString(data));
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocolType("GT06");
+        Map<String, Object> parsedData = new HashMap<>();
+        message.setParsedData(parsedData);
+
+        try {
+            logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
+            validatePacket(data);
+
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+            buffer.position(2); // Skip header
+            int length = buffer.get() & 0xFF;
+            byte protocol = buffer.get();
+
+            logger.info("Detected GT06 packet - Protocol: 0x{}, Length: {}",
+                    String.format("%02X", protocol), length);
+
+            Variant variant = detectVariant(buffer);
+            logger.debug("Detected device variant: {}", variant);
+
+            switch (protocol) {
+                case PROTOCOL_LOGIN:
+                    return handleLogin(buffer, message, parsedData, variant, ctx);
+                case PROTOCOL_GPS:
+                    return handleGps(buffer, message, parsedData, variant);
+                case VL03_PROTOCOL_EXTENDED:
+                    return handleVl03Extended(buffer, message, parsedData);
+                case PROTOCOL_HEARTBEAT:
+                    return handleHeartbeat(buffer, message, parsedData);
+                case PROTOCOL_ALARM:
+                    return handleAlarm(buffer, message, parsedData, variant);
+                default:
+                    throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
+            }
+        } catch (Exception e) {
+            logger.error("Error processing packet: {}", Hex.encodeHexString(data), e);
+            message.setError(e.getMessage());
+            message.setResponseData(generateErrorResponse(e));
+            message.setResponseRequired(true);
+            return message;
+        }
+    }
+
+    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
+                                      Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) throws Exception {
+        // Read IMEI (8 bytes in packed BCD format)
+        byte[] imeiBytes = new byte[8];
+        buffer.get(imeiBytes);
+
+        String imei = extractImei(imeiBytes);
+        lastValidImei.set(imei);
+
+        // Read serial number (2 bytes)
+        short serialNumber = buffer.getShort();
+        int unsignedSerial = serialNumber & 0xFFFF;
+
+        logger.info("Login request - IMEI: {}, Serial: {}", imei, serialNumber);
+
+        parsedData.put("serialNumber", serialNumber);
+        message.setSerialNumber(serialNumber);
+
+        // Handle VL03 extension if present
+        byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
+
+        // Manage device session
+        DeviceSession session = manageDeviceSession(imei, serialNumber, ctx);
+        if (session == null) {
+            throw new ProtocolException("Failed to create session for IMEI: " + imei);
+        }
+
+        // Generate response
+        byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
+        if (response == null) {
+            throw new ProtocolException("Failed to generate login response");
+        }
+
+        // Populate message
+        message.setResponseData(response);
+        message.setResponseRequired(true);
+        message.setImei(imei);
+        message.setMessageType("LOGIN");
+        message.getParsedData().put("sessionId", session.getSessionId());
+        message.getParsedData().put("deviceId", generateDeviceId(imei));
+
+        logger.info("Processed login for IMEI: {}", imei);
+        return message;
+    }
+
+    private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
+        Channel channel = ctx != null ? ctx.channel() : null;
+        SocketAddress remoteAddress = ctx != null ? ctx.channel().remoteAddress() : null;
+
+        return activeSessions.compute(imei, (key, existing) -> {
+            if (existing != null) {
+                if (channel != null) {
+                    existing.setChannel(channel);
+                    existing.setRemoteAddress(remoteAddress);
+                }
+                if (!existing.hasSameSerialNumber(serialNumber)) {
+                    existing.setSerialNumber(serialNumber);
+                    logger.info("Updated serial number for IMEI: {}", imei);
+                }
+                existing.updateLastActivity();
+                return existing;
+            }
+
+            if (channel == null) {
+                logger.warn("Cannot create session without channel for IMEI: {}", imei);
+                return null;
+            }
+
+            logger.info("Creating new session for IMEI: {}", imei);
+            DeviceSession newSession = new DeviceSession(
+                    generateDeviceId(imei),
+                    imei,
+                    "GT06",
+                    channel,
+                    remoteAddress
+            );
+            newSession.setSerialNumber(serialNumber);
+            return newSession;
+        });
+    }
+
+    protected String extractImei(byte[] imeiBytes) throws ProtocolException {
+        StringBuilder imei = new StringBuilder();
+        for (byte b : imeiBytes) {
+            imei.append(String.format("%02d", ((b >> 4) & 0x0F) * 10 + (b & 0x0F)));
+        }
+
+        String imeiStr = imei.toString();
+        if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
+            throw new ProtocolException("Invalid IMEI format: " + imeiStr);
+        }
+
+        return imeiStr;
+    }
+
+    private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
+        if (variant == Variant.VL03) {
+            byte[] response = new byte[14];
+            response[0] = PROTOCOL_HEADER_1;
+            response[1] = PROTOCOL_HEADER_2;
+            response[2] = 0x09;
+            response[3] = PROTOCOL_LOGIN;
+            response[4] = (byte)(serialNumber >> 8);
+            response[5] = (byte)(serialNumber);
+            response[6] = 0x01;
+            response[7] = vl03Extension;
+
+            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
+            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+            response[8] = (byte)(checksum >> 8);
+            response[9] = (byte)(checksum);
+            response[10] = 0x0D;
+            response[11] = 0x0A;
+
+            return response;
+        } else {
+            byte[] response = new byte[10];
+            response[0] = PROTOCOL_HEADER_1;
+            response[1] = PROTOCOL_HEADER_2;
+            response[2] = 0x05;
+            response[3] = PROTOCOL_LOGIN;
+            response[4] = (byte)(serialNumber >> 8);
+            response[5] = (byte)(serialNumber);
+            response[6] = 0x01;
+
+            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+            response[7] = (byte)(checksum >> 8);
+            response[8] = (byte)(checksum);
+            response[9] = 0x0A;
+
+            return response;
+        }
+    }
+    private enum Variant {
+        STANDARD, VL03, UNKNOWN
+    }
+
 
     //@Override
     protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
@@ -118,71 +309,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         } else {
             ctx.fireChannelRead(msg);
         }
-    }
-
-    @Override
-    public DeviceMessage handle(byte[] data) throws ProtocolException {
-        // Implement BaseProtocolDecoder's abstract method by delegating to context-aware version
-        return handle(data, null);
-    }
-
-
-    @Override
-    public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
-        logger.debug("Processing GT06 packet: {}", Hex.encodeHexString(data));
-        DeviceMessage message = new DeviceMessage();
-        message.setProtocolType("GT06");
-        Map<String, Object> parsedData = new HashMap<>();
-        message.setParsedData(parsedData);
-
-        try {
-            logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
-            validatePacket(data);
-
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-            buffer.position(2); // Skip header
-            int length = buffer.get() & 0xFF;
-            byte protocol = buffer.get();
-
-            logger.info("Detected GT06 packet - Protocol: 0x{}, Length: {}",
-                    String.format("%02X", protocol), length);
-
-            Variant variant = detectVariant(buffer);
-            logger.debug("Detected device variant: {}", variant);
-            logger.info("Processing protocol: 0x{}, length: {}, variant: {}",
-                    String.format("%02X", protocol), length, variant);
-
-            acknowledgementHandler.write(null, new AcknowledgementHandler.EventReceived(), null);
-
-            switch (protocol) {
-                case PROTOCOL_LOGIN:
-                    message = handleLogin(buffer, message, parsedData, variant, ctx);
-                    logger.info("Full message exchange - Sent: {}, Received: {}",
-                            bytesToHex(message.getResponseData()), bytesToHex(data));
-                    return message;
-                case PROTOCOL_GPS:
-                    return handleGps(buffer, message, parsedData, variant);
-                case VL03_PROTOCOL_EXTENDED:
-                    return handleVl03Extended(buffer, message, parsedData);
-                case PROTOCOL_HEARTBEAT:
-                    return handleHeartbeat(buffer, message, parsedData);
-                case PROTOCOL_ALARM:
-                    return handleAlarm(buffer, message, parsedData, variant);
-                default:
-                    throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
-            }
-        } catch (Exception e) {
-            logger.info("GT06 processing error", e);
-            logger.info("Error processing packet: {}", Hex.encodeHexString(data), e);
-            message.setError(e.getMessage());
-            message.setResponseData(generateErrorResponse(e));
-            message.setResponseRequired(true);
-            return message;
-        }
-    }
-
-    private enum Variant {
-        STANDARD, VL03, UNKNOWN
     }
 
     private Variant detectVariant(ByteBuffer buffer) {
@@ -243,176 +369,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
     }
 
-    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
-                                      Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) throws Exception {
-        // Read IMEI (8 bytes in packed BCD format)
-        byte[] imeiBytes = new byte[8];
-        buffer.get(imeiBytes);
-
-        // Extract and validate IMEI
-        String imei;
-        try {
-            imei = extractImei(imeiBytes);
-        } catch (ProtocolException e) {
-            logger.error("IMEI validation failed: {}", e.getMessage());
-            throw e;
-        }
-
-        // Store the validated IMEI
-        lastValidImei.set(imei);
-
-        // Read serial number (2 bytes) as unsigned value but store as Short
-        short serialNumber = buffer.getShort();
-        int unsignedSerial = serialNumber & 0xFFFF;
-
-        logger.info("Serial number - Hex: 0x{}, Signed: {}, Unsigned: {}",
-                String.format("%04X", unsignedSerial),
-                serialNumber,
-                unsignedSerial);
-
-        parsedData.put("serialNumber", serialNumber);
-        message.setSerialNumber(serialNumber);
-
-        logger.info("Extracted serial number: {}", serialNumber);
-        logger.info("Message parsedData contents: {}", parsedData);
-
-        // Handle VL03 extension if present
-        byte vl03Extension = handleVl03Extension(buffer, variant, parsedData);
-
-        // Manage device session
-        DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
-            if (existing != null) {
-                if (!existing.hasSameSerialNumber(serialNumber)) {
-                    existing.setSerialNumber(serialNumber);
-                    logger.debug("Updated serial number for IMEI: {}", imei);
-                }
-                return existing;
-            }
-            logger.info("Creating new session for IMEI: {}", imei);
-            return new DeviceSession(
-                    generateDeviceId(imei),
-                    imei,
-                    "GT06",
-                    ctx != null ? ctx.channel() : null,
-                    ctx != null ? ctx.channel().remoteAddress() : null
-            );
-        });
-
-        // Generate response
-        byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
-        if (response == null) {
-            throw new ProtocolException("Failed to generate login response");
-        }
-
-        // Populate message
-        parsedData.put("response", response);
-        message.setResponseData(response);
-        message.setResponseRequired(true);
-        message.setImei(imei);
-        message.setMessageType("LOGIN");
-        message.getParsedData().put("sessionId", session.getSessionId());
-        message.getParsedData().put("deviceId", generateDeviceId(imei));
-
-        // Update session and send acknowledgement
-        session.updateLastActivity();
-        //acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
-        if (ctx != null) {
-            acknowledgementHandler.write(ctx, new AcknowledgementHandler.EventHandled(response), null);
-        }
-
-        logger.info("Processed login for IMEI: {}", imei);
-        return message;
-    }
-
-    private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
-        if (imei == null) {
-            throw new IllegalArgumentException("IMEI cannot be null");
-        }
-
-        Channel channel = ctx != null ? ctx.channel() : null;
-        SocketAddress remoteAddress = ctx != null && ctx.channel() != null ?
-                ctx.channel().remoteAddress() : null;
-
-        DeviceSession session = activeSessions.compute(imei, (key, existing) -> {
-            if (existing != null) {
-                // Update existing session
-                if (channel != null) {
-                    existing.setChannel(channel);
-                    existing.setRemoteAddress(remoteAddress);
-                }
-                existing.setSerialNumber(serialNumber);
-                logger.debug("Updated session for IMEI: {}", imei);
-                return existing;
-            }
-
-            // Create new session
-            logger.info("Creating new session for IMEI: {}", imei);
-            DeviceSession newSession = new DeviceSession(
-                    generateDeviceId(imei),
-                    imei,
-                    "GT06",
-                    channel,
-                    remoteAddress
-            );
-            newSession.setSerialNumber(serialNumber);
-            return newSession;
-        });
-
-        session.updateLastActivity();
-        return session;
-    }
-
-    private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
-        try {
-        if (variant == Variant.VL03) {
-            // Extended response for VL03 devices
-            byte[] response = new byte[14];
-            response[0] = PROTOCOL_HEADER_1;
-            response[1] = PROTOCOL_HEADER_2;
-            response[2] = 0x09;  // Length (9 bytes following)
-            response[3] = PROTOCOL_LOGIN;
-            response[4] = (byte)(serialNumber >> 8);
-            response[5] = (byte)(serialNumber);
-            response[6] = 0x01;  // Success status
-            response[7] = 0x01;  // VL03-specific extension byte (important change)
-
-            // Calculate checksum
-            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
-            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-            response[8] = (byte)(checksum >> 8);
-            response[9] = (byte)(checksum);
-            response[10] = 0x0D;
-            response[11] = 0x0A;
-
-            return response;
-        }else {
-            // Standard GT06 response
-            byte[] response = new byte[10];
-            response[0] = PROTOCOL_HEADER_1;
-            response[1] = PROTOCOL_HEADER_2;
-            response[2] = 0x05; // Length
-            response[3] = PROTOCOL_LOGIN;
-            response[4] = (byte)(serialNumber >> 8);
-            response[5] = (byte)(serialNumber);
-            response[6] = 0x01; // Success status
-
-            // Calculate checksum
-            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-            response[7] = (byte)(checksum >> 8);
-            response[8] = (byte)(checksum);
-            response[9] = 0x0A; // Termination byte
-
-            logger.debug("Generated login response: {}", bytesToHex(response));
-            return response;
-        }
-        } catch (Exception e) {
-            logger.error("Failed to generate login response", e);
-            return null;
-        }
-    }
 
     private byte[] generateVl03LoginResponse(short serialNumber, byte vl03Extension) {
         byte[] response = new byte[14];
@@ -646,35 +602,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         response[16] = 0x0A;
 
         return response;
-    }
-
-    public String extractImei(byte[] imeiBytes) throws ProtocolException {
-        // Convert packed BCD to string
-        StringBuilder imei = new StringBuilder();
-        for (byte b : imeiBytes) {
-            // Each byte contains two BCD digits
-            imei.append(String.format("%02d", ((b >> 4) & 0x0F) * 10 + (b & 0x0F)));
-        }
-
-        // The IMEI should be exactly 15 digits
-        String imeiStr = imei.toString();
-
-        // Remove any leading zeros that would make it too short
-        while (imeiStr.length() > 15 && imeiStr.startsWith("0")) {
-            imeiStr = imeiStr.substring(1);
-        }
-
-        // Validate length and format
-        if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
-            throw new ProtocolException("Invalid IMEI format: " + imeiStr);
-        }
-
-        // Specific validation for expected IMEI
-        if (!imeiStr.equals("862476051124146")) {
-            throw new ProtocolException("Unauthorized IMEI: " + imeiStr);
-        }
-
-        return imeiStr;
     }
 
     private byte handleVl03Extension(ByteBuffer buffer, Variant variant, Map<String, Object> parsedData) {

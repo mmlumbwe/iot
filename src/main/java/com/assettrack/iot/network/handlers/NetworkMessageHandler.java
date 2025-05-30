@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import io.netty.channel.socket.SocketChannel;
 
 @Component
+@ChannelHandler.Sharable
 public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMessage> {
 
     private static final Logger logger = LoggerFactory.getLogger(NetworkMessageHandler.class);
@@ -36,7 +37,6 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             return;
         }
 
-        // Set channel information
         message.setChannel((SocketChannel) ctx.channel());
         message.setRemoteAddress(ctx.channel().remoteAddress());
 
@@ -46,28 +46,25 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
             return;
         }
 
-        // Handle session management
         DeviceSession session = manageSession(ctx, message, imei);
         if (session == null) {
-            return; // Duplicate or invalid session
+            return;
         }
 
-        // Process message
         processMessage(message, session);
     }
 
     private DeviceSession manageSession(ChannelHandlerContext ctx, DeviceMessage message, String imei) {
         DeviceSession session = sessionManager.getSessionByImei(imei);
 
-        if (DeviceMessage.TYPE_LOGIN.equals(message.getMessageType())) {
-            Short serialNumber = (Short) message.getParsedData().get("serialNumber");
+        if ("LOGIN".equals(message.getMessageType())) {
+            Short serialNumber = message.getSerialNumber();
             if (serialNumber == null) {
-                logger.warn("No serial number in message from {}", message.getImei());
-                //return; // Or handle appropriately
+                logger.warn("No serial number in login message from {}", imei);
+                return null;
             }
 
             if (session == null) {
-                // Create new session
                 session = new DeviceSession(
                         generateDeviceId(imei),
                         imei,
@@ -79,14 +76,11 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                 sessionManager.addSession(session);
                 logger.info("Created new session for IMEI: {}", imei);
             } else {
-                // Check for duplicate login
-                if (serialNumber != null && serialNumber.equals(session.getLastSerialNumber())) {
+                if (serialNumber.equals(session.getLastSerialNumber())) {
                     logger.warn("Duplicate login from IMEI: {} (Serial: {})", imei, serialNumber);
-                    message.setDuplicate(true);
                     return null;
                 }
 
-                // Update existing session
                 session.setChannel(ctx.channel());
                 session.setRemoteAddress(ctx.channel().remoteAddress());
                 session.setLastSerialNumber(serialNumber);
@@ -98,41 +92,22 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
         return session;
     }
 
-
-
-    private DeviceSession createNewSession(DeviceMessage message, ChannelHandlerContext ctx, Long deviceId, String imei) {
-        DeviceSession session = new DeviceSession(
-                deviceId != null ? deviceId : generateDeviceId(imei),
-                imei,
-                message.getProtocolType(),
-                ctx.channel(),
-                ctx.channel().remoteAddress()
-        );
-        sessionManager.addSession(session);
-        logger.info("Created new session for IMEI: {}", imei);
-        return session;
-    }
-
-    private long generateDeviceId(String imei) {
-        return imei.hashCode() & 0xffffffffL;
-    }
-
     private void processMessage(DeviceMessage message, DeviceSession session) {
         try {
             switch (message.getMessageType()) {
-                case DeviceMessage.TYPE_LOGIN:
+                case "LOGIN":
                     handleLogin(message, session);
                     break;
-                case DeviceMessage.TYPE_LOCATION:
+                case "GPS":
                     handleGps(message, session);
                     break;
-                case DeviceMessage.TYPE_HEARTBEAT:
+                case "HEARTBEAT":
                     handleHeartbeat(message, session);
                     break;
-                case DeviceMessage.TYPE_ALARM:
+                case "ALARM":
                     handleAlarm(message, session);
                     break;
-                case DeviceMessage.TYPE_ERROR:
+                case "ERROR":
                     handleError(message, session);
                     break;
                 default:
@@ -143,19 +118,10 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
         }
     }
 
-    private void updateDeviceStatus(DeviceMessage message, DeviceSession session) {
-        if (message.getBatteryLevel() > 0) {
-            //cacheManager.updateDeviceBattery(session.getDeviceId(), message.getBatteryLevel());
-        }
-        if (message.getSignalStrength() > 0) {
-            //cacheManager.updateDeviceSignal(session.getDeviceId(), message.getSignalStrength());
-        }
-    }
-
     private void handleLogin(DeviceMessage message, DeviceSession session) {
         if (message.getResponseData() != null) {
             session.getChannel().writeAndFlush(message.getResponseData());
-            logger.info("Sent login acknowledgment for {}", session.getDeviceId());
+            logger.info("Sent login acknowledgment for device {}", session.getDeviceId());
         }
     }
 
@@ -191,6 +157,10 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     private void handleError(DeviceMessage message, DeviceSession session) {
         logger.error("Error message from {}: {}", session.getDeviceId(), message.getError());
+    }
+
+    private long generateDeviceId(String imei) {
+        return imei.hashCode() & 0xffffffffL;
     }
 
     @Override
