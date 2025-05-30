@@ -76,11 +76,14 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
                 sessionManager.addSession(session);
                 logger.info("Created new session for IMEI: {}", imei);
             } else {
+                // Check if this is a duplicate login from the same device
                 if (serialNumber.equals(session.getLastSerialNumber())) {
                     logger.warn("Duplicate login from IMEI: {} (Serial: {})", imei, serialNumber);
+                    message.setDuplicate(true);
                     return null;
                 }
 
+                // Update existing session with new connection information
                 session.setChannel(ctx.channel());
                 session.setRemoteAddress(ctx.channel().remoteAddress());
                 session.setLastSerialNumber(serialNumber);

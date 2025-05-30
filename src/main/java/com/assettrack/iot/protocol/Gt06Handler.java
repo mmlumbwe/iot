@@ -146,7 +146,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
-                                      Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) throws Exception {
+                                      Map<String, Object> parsedData, Variant variant,
+                                      ChannelHandlerContext ctx) throws Exception {
         // Read IMEI (8 bytes in packed BCD format)
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
@@ -154,13 +155,15 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         String imei = extractImei(imeiBytes);
         lastValidImei.set(imei);
 
-        // Read serial number (2 bytes)
+        // Read serial number (2 bytes) and convert to unsigned
         short serialNumber = buffer.getShort();
         int unsignedSerial = serialNumber & 0xFFFF;
 
-        logger.info("Login request - IMEI: {}, Serial: {}", imei, serialNumber);
+        logger.info("Login request - IMEI: {}, Serial (unsigned): {}", imei, unsignedSerial);
 
+        // Store both signed and unsigned versions
         parsedData.put("serialNumber", serialNumber);
+        parsedData.put("unsignedSerial", unsignedSerial);
         message.setSerialNumber(serialNumber);
 
         // Handle VL03 extension if present
@@ -172,11 +175,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new ProtocolException("Failed to create session for IMEI: " + imei);
         }
 
-        // Generate response
-        byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
+        // Generate response using unsigned serial number
+        byte[] response = generateLoginResponse(variant, (short)unsignedSerial, vl03Extension);
         if (response == null) {
             throw new ProtocolException("Failed to generate login response");
         }
+
+        logger.info("Sending login response: {}", Hex.encodeHexString(response));
 
         // Populate message
         message.setResponseData(response);
@@ -191,23 +196,31 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
+        if (imei == null) {
+            throw new IllegalArgumentException("IMEI cannot be null");
+        }
+
         Channel channel = ctx != null ? ctx.channel() : null;
         SocketAddress remoteAddress = ctx != null ? ctx.channel().remoteAddress() : null;
 
         return activeSessions.compute(imei, (key, existing) -> {
             if (existing != null) {
+                // Update existing session with new channel info
                 if (channel != null) {
                     existing.setChannel(channel);
                     existing.setRemoteAddress(remoteAddress);
                 }
+                // Only update serial number if it's different
                 if (!existing.hasSameSerialNumber(serialNumber)) {
                     existing.setSerialNumber(serialNumber);
-                    logger.info("Updated serial number for IMEI: {}", imei);
+                    logger.info("Updated serial number for existing session IMEI: {}", imei);
                 }
                 existing.updateLastActivity();
+                logger.info("Using existing session for IMEI: {}", imei);
                 return existing;
             }
 
+            // Only create new session if we have a channel
             if (channel == null) {
                 logger.warn("Cannot create session without channel for IMEI: {}", imei);
                 return null;
@@ -263,7 +276,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return imeiStr;
     }
 
-    private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
+    private byte[] generateLoginResponse(Variant variant, short unsignedSerial, byte vl03Extension) {
         try {
             if (variant == Variant.VL03) {
                 byte[] response = new byte[14];
@@ -271,8 +284,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 response[1] = PROTOCOL_HEADER_2;
                 response[2] = 0x09;  // Length (9 bytes following)
                 response[3] = PROTOCOL_LOGIN;
-                response[4] = (byte)(serialNumber >> 8);
-                response[5] = (byte)(serialNumber);
+                // Use unsigned serial number in response
+                response[4] = (byte)((unsignedSerial >> 8) & 0xFF);
+                response[5] = (byte)(unsignedSerial & 0xFF);
                 response[6] = 0x01;  // Success status
                 response[7] = 0x01;  // VL03-specific extension byte
 
@@ -293,8 +307,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 response[1] = PROTOCOL_HEADER_2;
                 response[2] = 0x05; // Length
                 response[3] = PROTOCOL_LOGIN;
-                response[4] = (byte)(serialNumber >> 8);
-                response[5] = (byte)(serialNumber);
+                // Use unsigned serial number in response
+                response[4] = (byte)((unsignedSerial >> 8) & 0xFF);
+                response[5] = (byte)(unsignedSerial & 0xFF);
                 response[6] = 0x01; // Success status
 
                 // Calculate checksum
