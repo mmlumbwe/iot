@@ -174,11 +174,13 @@ public class NetworkMessageHandler extends SimpleChannelInboundHandler<DeviceMes
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        try {
-            sessionManager.removeSession(ctx.channel());
-            logger.info("Channel closed, session removed");
-        } finally {
-            ctx.close();
+        // Don't remove the session completely, just clear the channel info
+        DeviceSession session = sessionManager.getSessionByChannel(ctx.channel());
+        if (session != null) {
+            session.setChannel(null);
+            session.setRemoteAddress(null);
+            logger.info("Channel closed for IMEI: {}, session kept", session.getImei());
         }
+        ctx.close();
     }
 }

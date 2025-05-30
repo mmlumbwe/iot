@@ -179,7 +179,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         // Generate response using unsigned serial number
         byte[] response = generateLoginResponse(variant, serialNumber, vl03Extension);
-        //byte[] response = generateLoginResponse(variant, (short)unsignedSerial, vl03Extension);
         if (response == null) {
             throw new ProtocolException("Failed to generate login response");
         }
@@ -378,11 +377,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private void validatePacket(byte[] data) throws ProtocolException {
-        // Add explicit length check for login packets
-        if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
-            throw new ProtocolException("Invalid login packet length");
-        }
-
         if (data.length < MIN_PACKET_LENGTH) {
             throw new ProtocolException(String.format(
                     "Packet too short (%d bytes), minimum required %d",
@@ -396,30 +390,33 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     data[0], data[1]));
         }
 
-        // Verify length matches actual packet size
-        int declaredLength = data[2] & 0xFF;
-        if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 tail
-            throw new ProtocolException(String.format(
-                    "Packet length mismatch. Declared: %d, actual: %d",
-                    declaredLength, data.length - 5));
-        }
+        // Handle multi-packet messages
+        int pos = 0;
+        while (pos < data.length) {
+            if (pos + 2 >= data.length) break;
 
-        // Verify checksum using CRC-16/X25
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
-        int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+            int declaredLength = data[pos + 2] & 0xFF;
+            int packetLength = declaredLength + 5; // 2 header + 1 length + 2 tail
 
-        if (receivedChecksum != calculatedChecksum) {
-            throw new ProtocolException(String.format(
-                    "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
-                    receivedChecksum, calculatedChecksum));
-        }
+            if (pos + packetLength > data.length) {
+                throw new ProtocolException(String.format(
+                        "Packet length mismatch at position %d. Declared: %d, remaining: %d",
+                        pos, packetLength, data.length - pos));
+            }
 
-        // Verify termination bytes
-        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-            throw new ProtocolException(String.format(
-                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
-                    data[data.length - 2], data[data.length - 1]));
+            // Verify checksum for this packet
+            int receivedChecksum = ((data[pos + packetLength - 4] & 0xFF) << 8) |
+                    (data[pos + packetLength - 3] & 0xFF);
+            ByteBuffer checksumBuffer = ByteBuffer.wrap(data, pos + 2, declaredLength + 1);
+            int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+            if (receivedChecksum != calculatedChecksum) {
+                throw new ProtocolException(String.format(
+                        "Checksum mismatch at position %d (received: 0x%04X, calculated: 0x%04X)",
+                        pos, receivedChecksum, calculatedChecksum));
+            }
+
+            pos += packetLength;
         }
     }
 
@@ -525,12 +522,32 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
-        byte[] response = generateStandardResponse(PROTOCOL_HEARTBEAT, (short)0, (byte)0x01);
-        parsedData.put("response", response);
+        // Parse heartbeat info if needed
+        byte[] infoBytes = new byte[buffer.remaining()];
+        buffer.get(infoBytes);
 
+        // Generate response
+        byte[] response = new byte[10];
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+        response[2] = 0x05;
+        response[3] = PROTOCOL_HEARTBEAT;
+        response[4] = infoBytes.length > 0 ? infoBytes[0] : 0x00;
+        response[5] = infoBytes.length > 1 ? infoBytes[1] : 0x00;
+
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        response[6] = (byte)(checksum >> 8);
+        response[7] = (byte)(checksum);
+        response[8] = 0x0D;
+        response[9] = 0x0A;
+
+        parsedData.put("response", response);
+        message.setResponseData(response);
+        message.setResponseRequired(true);
         message.setImei(imei);
         message.setMessageType("HEARTBEAT");
-        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
         return message;
     }
