@@ -227,60 +227,93 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     protected String extractImei(byte[] imeiBytes) throws ProtocolException {
-        StringBuilder imei = new StringBuilder();
-        for (byte b : imeiBytes) {
-            imei.append(String.format("%02d", ((b >> 4) & 0x0F) * 10 + (b & 0x0F)));
+        if (imeiBytes == null || imeiBytes.length != 8) {
+            throw new ProtocolException("Invalid IMEI bytes length");
         }
 
+        // Convert packed BCD to string
+        StringBuilder imei = new StringBuilder(16);
+        for (byte b : imeiBytes) {
+            // Each byte contains two BCD digits
+            int highNibble = (b >> 4) & 0x0F;
+            int lowNibble = b & 0x0F;
+
+            // Validate each nibble is a valid BCD digit (0-9)
+            if (highNibble > 9 || lowNibble > 9) {
+                throw new ProtocolException("Invalid BCD digit in IMEI");
+            }
+
+            imei.append(highNibble).append(lowNibble);
+        }
+
+        // The IMEI should be exactly 15 digits
         String imeiStr = imei.toString();
+
+        // Remove any leading zeros that would make it too short
+        while (imeiStr.length() > 15 && imeiStr.startsWith("0")) {
+            imeiStr = imeiStr.substring(1);
+        }
+
+        // Validate length and format
         if (imeiStr.length() != 15 || !imeiStr.matches("^\\d{15}$")) {
             throw new ProtocolException("Invalid IMEI format: " + imeiStr);
         }
 
+        logger.info("Extracted valid IMEI: {}", imeiStr);
         return imeiStr;
     }
 
     private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
-        if (variant == Variant.VL03) {
-            byte[] response = new byte[14];
-            response[0] = PROTOCOL_HEADER_1;
-            response[1] = PROTOCOL_HEADER_2;
-            response[2] = 0x09;
-            response[3] = PROTOCOL_LOGIN;
-            response[4] = (byte)(serialNumber >> 8);
-            response[5] = (byte)(serialNumber);
-            response[6] = 0x01;
-            response[7] = vl03Extension;
+        try {
+            if (variant == Variant.VL03) {
+                byte[] response = new byte[14];
+                response[0] = PROTOCOL_HEADER_1;
+                response[1] = PROTOCOL_HEADER_2;
+                response[2] = 0x09;  // Length (9 bytes following)
+                response[3] = PROTOCOL_LOGIN;
+                response[4] = (byte)(serialNumber >> 8);
+                response[5] = (byte)(serialNumber);
+                response[6] = 0x01;  // Success status
+                response[7] = 0x01;  // VL03-specific extension byte
 
-            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
-            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+                // Calculate checksum
+                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
+                int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-            response[8] = (byte)(checksum >> 8);
-            response[9] = (byte)(checksum);
-            response[10] = 0x0D;
-            response[11] = 0x0A;
+                response[8] = (byte)(checksum >> 8);
+                response[9] = (byte)(checksum);
+                response[10] = 0x0D;
+                response[11] = 0x0A;
 
-            return response;
-        } else {
-            byte[] response = new byte[10];
-            response[0] = PROTOCOL_HEADER_1;
-            response[1] = PROTOCOL_HEADER_2;
-            response[2] = 0x05;
-            response[3] = PROTOCOL_LOGIN;
-            response[4] = (byte)(serialNumber >> 8);
-            response[5] = (byte)(serialNumber);
-            response[6] = 0x01;
+                return response;
+            } else {
+                // Standard GT06 response
+                byte[] response = new byte[10];
+                response[0] = PROTOCOL_HEADER_1;
+                response[1] = PROTOCOL_HEADER_2;
+                response[2] = 0x05; // Length
+                response[3] = PROTOCOL_LOGIN;
+                response[4] = (byte)(serialNumber >> 8);
+                response[5] = (byte)(serialNumber);
+                response[6] = 0x01; // Success status
 
-            ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-            int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+                // Calculate checksum
+                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+                int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-            response[7] = (byte)(checksum >> 8);
-            response[8] = (byte)(checksum);
-            response[9] = 0x0A;
+                response[7] = (byte)(checksum >> 8);
+                response[8] = (byte)(checksum);
+                response[9] = 0x0A; // Termination byte
 
-            return response;
+                logger.debug("Generated login response: {}", bytesToHex(response));
+                return response;
+            }
+        } catch (Exception e) {
+            logger.error("Failed to generate login response", e);
+            return null;
         }
     }
+
     private enum Variant {
         STANDARD, VL03, UNKNOWN
     }
