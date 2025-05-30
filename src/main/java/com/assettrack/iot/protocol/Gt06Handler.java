@@ -302,23 +302,25 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 return response;
             } else {
                 // Standard GT06 response
-                byte[] response = new byte[10];
-                response[0] = PROTOCOL_HEADER_1;
-                response[1] = PROTOCOL_HEADER_2;
-                response[2] = 0x05; // Length
-                response[3] = PROTOCOL_LOGIN;
-                // Use unsigned serial number in response
-                response[4] = (byte)((unsignedSerial >> 8) & 0xFF);
-                response[5] = (byte)(unsignedSerial & 0xFF);
-                response[6] = 0x01; // Success status
+                byte[] response = new byte[11]; // GT06 login ack must be 11 bytes
+                response[0] = PROTOCOL_HEADER_1;  // 0x78
+                response[1] = PROTOCOL_HEADER_2;  // 0x78
+                response[2] = 0x05;               // Length
+                response[3] = PROTOCOL_LOGIN;     // 0x01
+                response[4] = (byte)((unsignedSerial >> 8) & 0xFF); // Serial hi
+                response[5] = (byte)(unsignedSerial & 0xFF);        // Serial lo
 
-                // Calculate checksum
-                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
+                // Calculate CRC over bytes 3-5: [0x01, serial_hi, serial_lo]
+                ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 3, 3);
                 int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-                response[7] = (byte)(checksum >> 8);
-                response[8] = (byte)(checksum);
-                response[9] = 0x0A; // Termination byte
+                // Add checksum
+                response[6] = (byte)(checksum >> 8);
+                response[7] = (byte)(checksum & 0xFF);
+
+                // Proper end markers
+                response[8] = 0x0D;
+                response[9] = 0x0A;
 
                 logger.debug("Generated login response: {}", bytesToHex(response));
                 return response;
