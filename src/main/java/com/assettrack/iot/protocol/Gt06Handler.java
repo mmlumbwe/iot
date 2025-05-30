@@ -185,7 +185,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         logger.info("Sending login response: {}", Hex.encodeHexString(response));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
-        logger.debug("Raw bytes sent: {}", Hex.encodeHexString(response));
+        logger.info("Raw bytes sent: {}", Hex.encodeHexString(response));
 
 
 
