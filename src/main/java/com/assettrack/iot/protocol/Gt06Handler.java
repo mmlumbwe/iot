@@ -283,7 +283,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return imeiStr;
     }
 
-    private byte[] generateLoginResponse(Variant variant, short unsignedSerial, byte vl03Extension) {
+    private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
         try {
             if (variant == Variant.VL03) {
                 byte[] response = new byte[14];
@@ -292,8 +292,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 response[2] = 0x09;  // Length (9 bytes following)
                 response[3] = PROTOCOL_LOGIN;
                 // Use unsigned serial number in response
-                response[4] = (byte)((unsignedSerial >> 8) & 0xFF);
-                response[5] = (byte)(unsignedSerial & 0xFF);
+                response[4] = (byte)((serialNumber >> 8) & 0xFF);
+                response[5] = (byte)(serialNumber & 0xFF);
                 response[6] = 0x01;  // Success status
                 response[7] = 0x01;  // VL03-specific extension byte
 
@@ -309,26 +309,24 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 return response;
             } else {
                 // Standard GT06 response
-                byte[] response = new byte[11];
+                byte[] response = new byte[10];
                 response[0] = 0x78;
                 response[1] = 0x78;
-                response[2] = 0x05;              // Length
-                response[3] = 0x01;              // Login protocol
-                response[4] = (byte)(unsignedSerial >> 8);
-                response[5] = (byte)(unsignedSerial & 0xFF);
+                response[2] = 0x05;
+                response[3] = 0x01; // Protocol: Login
+                response[4] = (byte) (serialNumber >> 8);
+                response[5] = (byte) (serialNumber & 0xFF);
+                response[6] = 0x01; // Success status
 
-                // Calculate CRC over bytes [3] to [5]
-                ByteBuffer buffer = ByteBuffer.wrap(response, 3, 3);
-                int crc = Checksum.crc16(Checksum.CRC16_X25, buffer);
+                ByteBuffer crcBuf = ByteBuffer.wrap(response, 2, 5);
+                int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuf);
 
-                response[6] = (byte)(crc >> 8);
-                response[7] = (byte)(crc & 0xFF);
-
-                response[8] = 0x0D;
+                response[7] = (byte) (crc >> 8);
+                response[8] = (byte) (crc);
                 response[9] = 0x0A;
 
-                // Just to make sure no trailing garbage
-                return Arrays.copyOf(response, 10); // Or make array size 10 directly
+                logger.info("Sending login response ZZZ: {}", Hex.encodeHexString(response));
+                return response;
             }
         } catch (Exception e) {
             logger.error("Failed to generate login response", e);
