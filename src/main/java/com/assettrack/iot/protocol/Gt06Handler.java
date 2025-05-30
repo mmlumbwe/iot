@@ -8,6 +8,7 @@ import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -183,6 +184,10 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
 
         logger.info("Sending login response: {}", Hex.encodeHexString(response));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+        logger.debug("Raw bytes sent: {}", Hex.encodeHexString(response));
+
+
 
         // Populate message
         message.setResponseData(response);
