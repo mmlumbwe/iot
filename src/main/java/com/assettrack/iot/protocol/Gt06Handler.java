@@ -147,7 +147,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
     /**********NEW***********/
-    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) {
+    /*private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) {
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
         String imei = extractImei(imeiBytes);
@@ -159,7 +159,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setResponseRequired(true);
         message.setResponseData(generateLoginResponse(variant, serial, (byte) 0x01));
         return message;
-    }
+    }*/
 
     private DeviceMessage handleGpsShort(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData) {
         buffer.get(); // Skip data type
@@ -203,7 +203,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
     /**********NEW***********/
 
-    /*private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
+    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
                                       Map<String, Object> parsedData, Variant variant,
                                       ChannelHandlerContext ctx) throws Exception {
         // Read IMEI (8 bytes in packed BCD format)
@@ -255,7 +255,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         logger.info("Processed login for IMEI: {}", imei);
         return message;
-    }*/
+    }
 
     private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
         if (imei == null) {
