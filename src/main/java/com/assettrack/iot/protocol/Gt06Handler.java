@@ -125,16 +125,14 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             logger.debug("Detected device variant: {}", variant);
 
             switch (protocol) {
-                case PROTOCOL_LOGIN:
+                case 0x01: // Login
                     return handleLogin(buffer, message, parsedData, variant, ctx);
-                case PROTOCOL_GPS:
-                    return handleGps(buffer, message, parsedData, variant);
-                case VL03_PROTOCOL_EXTENDED:
-                    return handleVl03Extended(buffer, message, parsedData);
-                case PROTOCOL_HEARTBEAT:
+                case 0x13: // GPS short
+                    return handleGpsShort(buffer, message, parsedData);
+                case (byte) 0x8A: // Heartbeat/config response
                     return handleHeartbeat(buffer, message, parsedData);
-                case PROTOCOL_ALARM:
-                    return handleAlarm(buffer, message, parsedData, variant);
+                case (byte) 0xA0: // GPS extended
+                    return handleGpsExtended(buffer, message, parsedData);
                 default:
                     throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
             }
@@ -147,7 +145,65 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
     }
 
-    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
+
+    /**********NEW***********/
+    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) {
+        byte[] imeiBytes = new byte[8];
+        buffer.get(imeiBytes);
+        String imei = extractImei(imeiBytes);
+        short serial = buffer.getShort();
+        parsedData.put("serialNumber", serial);
+        message.setImei(imei);
+        message.setMessageType("LOGIN");
+        message.setSerialNumber(serial);
+        message.setResponseRequired(true);
+        message.setResponseData(generateLoginResponse(variant, serial, (byte) 0x01));
+        return message;
+    }
+
+    private DeviceMessage handleGpsShort(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData) {
+        buffer.get(); // Skip data type
+        int rawLat = buffer.getInt();
+        int rawLng = buffer.getInt();
+        double latitude = rawLat / 1800000.0;
+        double longitude = rawLng / 1800000.0;
+        //message.setLatitude(latitude);
+        //message.setLongitude(longitude);
+        message.setMessageType("GPS");
+        return message;
+    }
+
+    private DeviceMessage handleHeartbeat(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData) {
+        short serial = buffer.getShort();
+        parsedData.put("serialNumber", serial);
+        message.setMessageType("HEARTBEAT");
+        message.setResponseRequired(true);
+        message.setResponseData(generateHeartbeatResponse(serial));
+        return message;
+    }
+
+    private DeviceMessage handleGpsExtended(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData) {
+        byte[] gpsData = new byte[28];
+        buffer.get(gpsData);
+        parsedData.put("gpsExtended", Hex.encodeHexString(gpsData));
+        message.setMessageType("GPS_EXTENDED");
+        return message;
+    }
+
+    private byte[] generateLoginResponse(Variant variant, short serial, byte extension) {
+        byte[] response = new byte[] { 0x78, 0x78, 0x05, 0x01,
+                (byte)(serial >> 8), (byte)(serial & 0xFF), 0x01, 0x00, 0x00, 0x0D, 0x0A };
+        return response;
+    }
+
+    private byte[] generateHeartbeatResponse(short serial) {
+        byte[] response = new byte[] { 0x78, 0x78, 0x05, 0x13,
+                (byte)(serial >> 8), (byte)(serial & 0xFF), 0x00, 0x00, 0x00, 0x0D, 0x0A };
+        return response;
+    }
+    /**********NEW***********/
+
+    /*private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
                                       Map<String, Object> parsedData, Variant variant,
                                       ChannelHandlerContext ctx) throws Exception {
         // Read IMEI (8 bytes in packed BCD format)
@@ -199,7 +255,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         logger.info("Processed login for IMEI: {}", imei);
         return message;
-    }
+    }*/
 
     private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
         if (imei == null) {
@@ -282,7 +338,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return imeiStr;
     }
 
-    private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
+    /*private byte[] generateLoginResponse(Variant variant, short serialNumber, byte vl03Extension) {
         try {
             if (variant == Variant.VL03) {
                 byte[] response = new byte[14];
@@ -330,7 +386,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             logger.error("Failed to generate login response", e);
             return null;
         }
-    }
+    }*/
 
     private enum Variant {
         STANDARD, VL03, UNKNOWN
@@ -516,7 +572,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return position;
     }
 
-    private DeviceMessage handleHeartbeat(ByteBuffer buffer, DeviceMessage message,
+    /*private DeviceMessage handleHeartbeat(ByteBuffer buffer, DeviceMessage message,
                                           Map<String, Object> parsedData) throws Exception {
         String imei = lastValidImei.get();
         if (imei == null) {
@@ -551,7 +607,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setMessageType("HEARTBEAT");
 
         return message;
-    }
+    }*/
 
     private DeviceMessage handleAlarm(ByteBuffer buffer, DeviceMessage message,
                                       Map<String, Object> parsedData, Variant variant) throws Exception {
