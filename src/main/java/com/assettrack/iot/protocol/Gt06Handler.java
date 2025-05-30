@@ -310,22 +310,23 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             } else {
                 // Standard GT06 response
                 byte[] response = new byte[10];
+
                 response[0] = 0x78;
                 response[1] = 0x78;
                 response[2] = 0x05;
-                response[3] = 0x01; // Protocol: Login
-                response[4] = (byte) (serialNumber >> 8);
-                response[5] = (byte) (serialNumber & 0xFF);
-                response[6] = 0x01; // Success status
+                response[3] = 0x01;
+                response[4] = (byte)(serialNumber >> 8);
+                response[5] = (byte)(serialNumber & 0xFF);
 
-                ByteBuffer crcBuf = ByteBuffer.wrap(response, 2, 5);
+                ByteBuffer crcBuf = ByteBuffer.wrap(response, 2, 4); // 0x05 0x01 [serialHigh] [serialLow]
                 int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuf);
 
-                response[7] = (byte) (crc >> 8);
-                response[8] = (byte) (crc);
+                response[6] = (byte)(crc >> 8);
+                response[7] = (byte)(crc & 0xFF);
+                response[8] = 0x0D;
                 response[9] = 0x0A;
 
-                logger.info("Sending login response ZZZ: {}", Hex.encodeHexString(response));
+                logger.info("Generated login response XXX: {}", Hex.encodeHexString(response));
                 return response;
             }
         } catch (Exception e) {
