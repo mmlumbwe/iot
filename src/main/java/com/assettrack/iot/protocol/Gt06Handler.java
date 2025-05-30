@@ -445,7 +445,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
 
         int declaredLength = data[2] & 0xFF;
-        int expectedLength = declaredLength + 5; // 2(header) + 1(length) + data + 2(checksum) + 2(end)
+        int expectedLength = declaredLength + 5; // header(2) + length(1) + data + checksum(2)
 
         if (data.length != expectedLength) {
             throw new ProtocolException(String.format(
@@ -453,21 +453,34 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     expectedLength, data.length));
         }
 
-        // Check termination bytes (last two bytes)
+        // Verify termination bytes
         if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
             throw new ProtocolException(String.format(
                     "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
                     data[data.length - 2], data[data.length - 1]));
         }
 
-        // Extract received checksum
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
+        // Extract received checksum (big-endian)
+        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8 | (data[data.length - 3] & 0xFF));
 
-        // Calculate checksum over protocol number and data (start from index 2, length = declaredLength)
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, declaredLength);
+        // Calculate checksum - includes length byte and protocol/data bytes
+        // GT06 protocol uses CRC-16/X25 with these parameters:
+        // Polynomial: 0x1021, Initial value: 0xFFFF, Final XOR: 0xFFFF
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, declaredLength + 1); // include length and data
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
+        // For GT06 protocol, we need to invert the checksum (XOR with 0xFFFF)
+        calculatedChecksum ^= 0xFFFF;
+
         if (receivedChecksum != calculatedChecksum) {
+            // For debugging - log the exact bytes used in checksum calculation
+            byte[] checksumBytes = new byte[declaredLength + 1];
+            System.arraycopy(data, 2, checksumBytes, 0, declaredLength + 1);
+            logger.error("Checksum calculation details - Bytes: {}, Calculated: 0x{}, Received: 0x{}",
+                    Hex.encodeHexString(checksumBytes),
+                    Integer.toHexString(calculatedChecksum).toUpperCase(),
+                    Integer.toHexString(receivedChecksum).toUpperCase());
+
             throw new ProtocolException(String.format(
                     "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
                     receivedChecksum, calculatedChecksum));
