@@ -147,7 +147,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
     /**********NEW***********/
-    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) {
+    /*private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData, Variant variant, ChannelHandlerContext ctx) {
         byte[] imeiBytes = new byte[8];
         buffer.get(imeiBytes);
         String imei = extractImei(imeiBytes);
@@ -159,7 +159,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setResponseRequired(true);
         message.setResponseData(generateLoginResponse(variant, serial, (byte) 0x01));
         return message;
-    }
+    }*/
 
     private DeviceMessage handleGpsShort(ByteBuffer buffer, DeviceMessage message, Map<String, Object> parsedData) {
         buffer.get(); // Skip data type
@@ -203,7 +203,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
     /**********NEW***********/
 
-    /*private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
+    private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
                                       Map<String, Object> parsedData, Variant variant,
                                       ChannelHandlerContext ctx) throws Exception {
         // Read IMEI (8 bytes in packed BCD format)
@@ -255,7 +255,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         logger.info("Processed login for IMEI: {}", imei);
         return message;
-    }*/
+    }
 
     private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
         if (imei == null) {
@@ -431,141 +431,57 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private void validatePacket(byte[] data) throws ProtocolException {
-
-
-
-
-        // Add explicit length check for login packets
-
-
-        if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
-
-
-            throw new ProtocolException("Invalid login packet length");
-
-
-        }
-
-
-
-
-
-        if (data.length < MIN_PACKET_LENGTH) {
-
-
+        // Basic sanity check
+        if (data == null || data.length < MIN_PACKET_LENGTH) {
             throw new ProtocolException(String.format(
-
-
                     "Packet too short (%d bytes), minimum required %d",
-
-
-                    data.length, MIN_PACKET_LENGTH));
-
-
+                    data != null ? data.length : 0, MIN_PACKET_LENGTH));
         }
 
-
-
-
-
-        // Verify header
-
-
+        // Verify packet header (0x78 0x78)
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-
-
             throw new ProtocolException(String.format(
-
-
                     "Invalid protocol header: 0x%02X 0x%02X (expected 0x78 0x78)",
-
-
                     data[0], data[1]));
-
-
         }
 
-
-
-
-
-        // Verify length matches actual packet size
-
-
+        // Read declared length
         int declaredLength = data[2] & 0xFF;
 
-
-        if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 tail
-
-
+        // Expected total packet length = header(2) + length(1) + payload(declaredLength) + checksum(2) + ending(2)
+        int expectedLength = 2 + 1 + declaredLength + 2 + 2;
+        if (data.length != expectedLength) {
             throw new ProtocolException(String.format(
-
-
-                    "Packet length mismatch. Declared: %d, actual: %d",
-
-
-                    declaredLength, data.length - 5));
-
-
+                    "Packet length mismatch. Declared: %d, expected: %d, actual: %d",
+                    declaredLength, expectedLength, data.length));
         }
 
+        // Optional: Explicit check for login packet length (if login is always a fixed size)
+        byte protocol = data[3];
+        if (protocol == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
+            throw new ProtocolException(String.format(
+                    "Invalid login packet length: expected %d, actual %d",
+                    LOGIN_PACKET_LENGTH, data.length));
+        }
 
-
-
-
-        // Verify checksum using CRC-16/X25Add commentMore actions
-
-
+        // Validate checksum: calculated over [length (byte 2) to last byte before checksum]
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-
-
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
-
-
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, declaredLength);
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-
-
-
-
         if (receivedChecksum != calculatedChecksum) {
-
-
             throw new ProtocolException(String.format(
-
-
                     "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
-
-
                     receivedChecksum, calculatedChecksum));
-
-
         }
 
-
-
-
-
-        // Verify termination bytes
-
-
+        // Validate termination bytes
         if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-
-
             throw new ProtocolException(String.format(
-
-
                     "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
-
-
                     data[data.length - 2], data[data.length - 1]));
-
-
         }
-
-
     }
-
 
 
     private byte[] generateVl03LoginResponse(short serialNumber, byte vl03Extension) {
