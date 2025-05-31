@@ -55,12 +55,13 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
         // ✅ 3. Frame decoder to extract full GT06 packets
         pipeline.addLast("frameDecoder", new LengthFieldBasedFrameDecoder(
-                1024,    // max frame length
-                2,       // offset of length field (after 0x78 0x78)
-                1,       // length of length field
-                3,       // length adjustment (2 checksum + 2 end bytes)
-                0        // no initial bytes to strip
+                1024, // maxFrameLength (safe upper bound)
+                2,    // lengthFieldOffset: byte index where length is stored
+                1,    // lengthFieldLength: one byte
+                2,    // lengthAdjustment: for checksum and tail (2 bytes CRC + 2 bytes tail = 4, minus 2 already read in header)
+                0     // initialBytesToStrip: keep full packet including header for GT06Handler
         ));
+
 
         // 4. GT06 protocol-specific handler
         pipeline.addLast("gt06Handler", new Gt06Handler(

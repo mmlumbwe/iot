@@ -472,7 +472,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     receivedChecksum, calculatedChecksum));
         }
     }
-    
+
 
 
     private byte[] generateVl03LoginResponse(short serialNumber, byte vl03Extension) {
