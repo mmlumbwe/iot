@@ -430,137 +430,75 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return Variant.STANDARD;
     }
 
+    /**
+     * Validates a GT06 protocol packet according to the protocol specifications.
+     *
+     * @param data The raw packet bytes to validate
+     * @throws ProtocolException if the packet fails any validation checks
+     */
     private void validatePacket(byte[] data) throws ProtocolException {
-
-        // Add explicit length check for login packets
-
-
-        if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
-
-
-            throw new ProtocolException("Invalid login packet length");
-
-
+        // 1. Basic packet structure validation
+        if (data == null) {
+            throw new ProtocolException("Packet data cannot be null");
         }
 
-
-
-
-
+        // 2. Validate minimum packet length
         if (data.length < MIN_PACKET_LENGTH) {
-
-
             throw new ProtocolException(String.format(
-
-
                     "Packet too short (%d bytes), minimum required %d",
-
-
                     data.length, MIN_PACKET_LENGTH));
-
-
         }
 
+        // 3. Special case: Login packets must be exact length
+        if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
+            throw new ProtocolException(String.format(
+                    "Invalid login packet length (%d bytes), expected %d",
+                    data.length, LOGIN_PACKET_LENGTH));
+        }
 
-
-
-
-        // Verify header
-
-
+        // 4. Verify protocol header (0x78 0x78)
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-
-
             throw new ProtocolException(String.format(
-
-
-                    "Invalid protocol header: 0x%02X 0x%02X (expected 0x78 0x78)",
-
-
+                    "Invalid protocol header: 0x%02X%02X (expected 0x7878)",
                     data[0], data[1]));
-
-
         }
 
-
-
-
-
-        // Verify length matches actual packet size
-
-
+        // 5. Verify declared length matches actual packet size
         int declaredLength = data[2] & 0xFF;
+        int expectedLength = declaredLength + 5; // header(2) + length(1) + checksum(2)
 
-
-        if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 tail
-
-
+        if (data.length != expectedLength) {
             throw new ProtocolException(String.format(
-
-
-                    "Packet length mismatch. Declared: %d, actual: %d",
-
-
-                    declaredLength, data.length - 5));
-
-
+                    "Packet length mismatch. Declared: %d, actual: %d (expected %d)",
+                    declaredLength, data.length - 5, expectedLength - 5));
         }
 
+        // 6. Verify packet termination (0x0D 0x0A)
+        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+            throw new ProtocolException(String.format(
+                    "Invalid packet termination: 0x%02X%02X (expected 0x0D0A)",
+                    data[data.length - 2], data[data.length - 1]));
+        }
 
-
-
-
-        // Verify checksum using CRC-16/X25
-
-
+        // 7. Verify checksum using CRC-16/X25
         int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
 
-
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
-
-
+        // Calculate checksum over: length byte + protocol byte + data bytes
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, declaredLength + 1);
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
-
-
-
+        // GT06 requires final XOR with 0xFFFF
+        calculatedChecksum ^= 0xFFFF;
 
         if (receivedChecksum != calculatedChecksum) {
-
+            // Enhanced error details for debugging
+            String checksumRange = Hex.encodeHexString(Arrays.copyOfRange(data, 2, 2 + declaredLength + 1));
+            logger.error("Checksum validation failed for bytes: {}", checksumRange);
 
             throw new ProtocolException(String.format(
-
-
                     "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
-
-
                     receivedChecksum, calculatedChecksum));
-
-
         }
-
-
-
-
-
-        // Verify termination bytes
-
-
-        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-
-
-            throw new ProtocolException(String.format(
-
-
-                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
-
-
-                    data[data.length - 2], data[data.length - 1]));
-
-
-        }
-
-
     }
 
 
