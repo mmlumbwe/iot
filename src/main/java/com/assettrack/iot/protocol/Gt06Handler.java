@@ -437,23 +437,33 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     data.length, MIN_PACKET_LENGTH));
         }
 
-        // Verify header
+        // Verify start header
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException(String.format(
                     "Invalid protocol header: 0x%02X 0x%02X (expected 0x78 0x78)",
                     data[0], data[1]));
         }
 
-        // Extract length and compute checksum over proper range
         int declaredLength = data[2] & 0xFF;
-        if (data.length < declaredLength + 5) {
+        int expectedLength = declaredLength + 5; // 2 (header) + 1 (length) + length + 2 (CRC) + 2 (tail)
+
+        if (data.length != expectedLength) {
             throw new ProtocolException(String.format(
-                    "Packet length mismatch. Declared: %d, actual: %d",
-                    declaredLength, data.length - 5));
+                    "Packet length mismatch. Declared: %d, expected: %d, actual: %d",
+                    declaredLength, expectedLength, data.length));
         }
 
-        int receivedChecksum = ((data[data.length - 4] & 0xFF) << 8) | (data[data.length - 3] & 0xFF);
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, data.length - 6);
+        // Check termination bytes
+        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+            throw new ProtocolException(String.format(
+                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
+                    data[data.length - 2], data[data.length - 1]));
+        }
+
+        // Compute checksum over [2] to [2 + declaredLength - 1]
+        int checksumIndex = 2 + declaredLength;
+        int receivedChecksum = ((data[checksumIndex] & 0xFF) << 8) | (data[checksumIndex + 1] & 0xFF);
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(data, 2, declaredLength);
         int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         if (receivedChecksum != calculatedChecksum) {
@@ -461,15 +471,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     "Checksum mismatch (received: 0x%04X, calculated: 0x%04X)",
                     receivedChecksum, calculatedChecksum));
         }
-
-        // Verify termination bytes
-        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
-            throw new ProtocolException(String.format(
-                    "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
-                    data[data.length - 2], data[data.length - 1]));
-        }
     }
-
+    
 
 
     private byte[] generateVl03LoginResponse(short serialNumber, byte vl03Extension) {
