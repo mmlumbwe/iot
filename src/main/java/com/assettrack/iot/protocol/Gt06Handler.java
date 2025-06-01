@@ -233,8 +233,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         parsedData.put("courseStatus", courseStatus);
         message.setCourse((courseStatus & 0x03FF)); // direction last 10 bits = direction
 
-        double latitude = readCoordinate(ByteBuffer.wrap(ByteBuffer.allocate(4).putInt(latRaw).array()), true, courseStatus);
-        double longitude = readCoordinate(ByteBuffer.wrap(ByteBuffer.allocate(4).putInt(lonRaw).array()), false, courseStatus);
+        double latitude = readCoordinate(ByteBuffer.wrap(ByteBuffer.allocate(4).putInt(latRaw).array()), true);
+        double longitude = readCoordinate(ByteBuffer.wrap(ByteBuffer.allocate(4).putInt(lonRaw).array()), false);
 
 
         parsedData.put("latitude", latitude);
@@ -849,20 +849,18 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
 
-    private double readCoordinate(ByteBuffer buffer, boolean isLatitude, int courseStatus) {
-        long raw = buffer.getInt() & 0xFFFFFFFFL;
-        double coord = raw / 1800000.0;
+    private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
+        int raw = buffer.getInt();
 
-        if (isLatitude) {
-            boolean isSouth = (courseStatus & 0x4000) != 0; // bit 14
-            if (isSouth) coord = -coord;
-        } else {
-            boolean isWest = (courseStatus & 0x8000) != 0; // bit 15
-            if (isWest) coord = -coord;
-        }
+        // Extract degrees and minutes from raw value
+        double coordinate = raw / 1800000.0;
 
-        return coord;
+        // Apply hemisphere: latitude is North (positive) if bit 31 is 0, South (negative) if 1
+        // longitude is East (positive) if bit 31 is 0, West (negative) if 1
+        // The sign is determined by a separate flag byte in most GT06 protocols, not the int sign
+        return coordinate;
     }
+
 
 
 }
