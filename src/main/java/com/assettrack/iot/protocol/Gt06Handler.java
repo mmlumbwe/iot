@@ -219,12 +219,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         parsedData.put("timestamp", timestamp);
         message.setTimestamp(timestamp);                // directly set
 
-        // Read latitude and longitude
-        double latitude = readCoordinate(buffer, true);
-        double longitude = readCoordinate(buffer, false);
-
-        parsedData.put("latitude", latitude);
-        parsedData.put("longitude", longitude);
+        // Read coordinates as raw unsigned int
+        int latRaw = buffer.getInt();
+        int lonRaw = buffer.getInt();
 
         // Read speed (km/h)
         int speed = buffer.get() & 0xFF;
@@ -234,7 +231,14 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         // Read course and status
         int courseStatus = buffer.getShort() & 0xFFFF;
         parsedData.put("courseStatus", courseStatus);
-        message.setCourse((courseStatus & 0x03FF)); // last 10 bits = direction
+        message.setCourse((courseStatus & 0x03FF)); // direction last 10 bits = direction
+
+        double latitude = readCoordinate(ByteBuffer.wrap(ByteBuffer.allocate(4).putInt(latRaw).array()), true, courseStatus);
+        double longitude = readCoordinate(ByteBuffer.wrap(ByteBuffer.allocate(4).putInt(lonRaw).array()), false, courseStatus);
+
+
+        parsedData.put("latitude", latitude);
+        parsedData.put("longitude", longitude);
 
         // Read network info (optional)
         int mcc = buffer.getShort() & 0xFFFF;
@@ -845,23 +849,20 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
 
-    private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
-        int raw = buffer.getInt();
-        // Handle two's complement negative values
-        if ((raw & 0x80000000) != 0) {
-            raw = -((~raw + 1) & 0x7FFFFFFF);
-        }
+    private double readCoordinate(ByteBuffer buffer, boolean isLatitude, int courseStatus) {
+        long raw = buffer.getInt() & 0xFFFFFFFFL;
         double coord = raw / 1800000.0;
 
-        // Validate range
-        if (isLatitude && (coord < -90 || coord > 90)) {
-            logger.warn("Invalid latitude value: {}, clamping to valid range", coord);
-            coord = Math.max(-90, Math.min(90, coord));
-        } else if (!isLatitude && (coord < -180 || coord > 180)) {
-            logger.warn("Invalid longitude value: {}, clamping to valid range", coord);
-            coord = Math.max(-180, Math.min(180, coord));
+        if (isLatitude) {
+            boolean isSouth = (courseStatus & 0x4000) != 0; // bit 14
+            if (isSouth) coord = -coord;
+        } else {
+            boolean isWest = (courseStatus & 0x8000) != 0; // bit 15
+            if (isWest) coord = -coord;
         }
+
         return coord;
     }
+
 
 }
