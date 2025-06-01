@@ -23,9 +23,9 @@ import org.springframework.stereotype.Component;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.channels.SocketChannel;
 import java.time.LocalDateTime;
-import java.util.Arrays;
+import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,20 +124,25 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             Variant variant = detectVariant(buffer);
             logger.debug("Detected device variant: {}", variant);
 
-            switch (protocol) {
-                case PROTOCOL_LOGIN:
+            switch (protocol & 0xFF) {
+                case 0x01:
                     return handleLogin(buffer, message, parsedData, variant, ctx);
-                case PROTOCOL_GPS:
+                case 0x12:
                     return handleGps(buffer, message, parsedData, variant);
-                case VL03_PROTOCOL_EXTENDED:
-                    return handleVl03Extended(buffer, message, parsedData);
-                case PROTOCOL_HEARTBEAT:
+                case 0x13:
                     return handleHeartbeat(buffer, message, parsedData);
-                case PROTOCOL_ALARM:
+                case 0x8A:
+                    return handleHeartbeat(buffer, message, parsedData); // you can alias 0x8A to heartbeat
+                case 0xA0:
+                    return handleGpsExtended(buffer, message, parsedData, variant);
+                case 0x26:
+                    return handleVl03Extended(buffer, message, parsedData);
+                case 0x16:
                     return handleAlarm(buffer, message, parsedData, variant);
                 default:
-                    throw new ProtocolException("Unsupported GT06 protocol type: " + protocol);
+                    throw new ProtocolException("Unsupported GT06 protocol type: 0x" + String.format("%02X", protocol));
             }
+
         } catch (Exception e) {
             logger.error("Error processing packet: {}", Hex.encodeHexString(data), e);
             message.setError(e.getMessage());
@@ -201,6 +206,63 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         logger.info("Processed login for IMEI: {}", imei);
         return message;
     }
+
+    private DeviceMessage handleGpsExtended(ByteBuffer buffer, DeviceMessage message,
+                                            Map<String, Object> parsedData, Variant variant) throws Exception {
+        // Example GT06 Extended GPS packet structure:
+        // 0xA0 [DateTime(6)] [Latitude(4)] [Longitude(4)] [Speed(1)] [CourseStatus(2)] [MCC(2)] [MNC(1)]
+        // [LAC(2)] [CellId(3)] [SignalStrength(1)] [SerialNumber(2)]
+
+        // Read timestamp
+        LocalDateTime timestamp = readDateTime(buffer);
+        parsedData.put("timestamp", timestamp);
+        message.setTimestamp(timestamp);                // directly set
+
+        // Read latitude and longitude
+        double latitude = readCoordinate(buffer, true);
+        double longitude = readCoordinate(buffer, false);
+
+        parsedData.put("latitude", latitude);
+        parsedData.put("longitude", longitude);
+
+        // Read speed (km/h)
+        int speed = buffer.get() & 0xFF;
+        parsedData.put("speed", speed);
+        message.setSpeed(speed);
+
+        // Read course and status
+        int courseStatus = buffer.getShort() & 0xFFFF;
+        parsedData.put("courseStatus", courseStatus);
+        message.setCourse((courseStatus & 0x03FF)); // last 10 bits = direction
+
+        // Read network info (optional)
+        int mcc = buffer.getShort() & 0xFFFF;
+        int mnc = buffer.get() & 0xFF;
+        int lac = buffer.getShort() & 0xFFFF;
+        int cellId = ((buffer.get() & 0xFF) << 16) | ((buffer.get() & 0xFF) << 8) | (buffer.get() & 0xFF);
+        int signalStrength = buffer.get() & 0xFF;
+
+        parsedData.put("mcc", mcc);
+        parsedData.put("mnc", mnc);
+        parsedData.put("lac", lac);
+        parsedData.put("cellId", cellId);
+        parsedData.put("signalStrength", signalStrength);
+
+        // Serial number
+        short serialNumber = buffer.getShort();
+        parsedData.put("serialNumber", serialNumber);
+        message.setSerialNumber(serialNumber);
+
+        message.setMessageType("GPS_EXTENDED");
+        message.setImei(lastValidImei.get());
+        parsedData.put("deviceId", generateDeviceId(message.getImei()));
+
+        logger.info("Parsed extended GPS - Lat: {}, Lon: {}, Speed: {}, Time: {}",
+                latitude, longitude, speed, timestamp);
+
+        return message;
+    }
+
 
     private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
         if (imei == null) {
@@ -756,5 +818,29 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     @Override
     public byte[] generateResponse(Position position) {
         return generateStandardResponse(PROTOCOL_LOGIN, (short)0, (byte)0x01);
+    }
+
+
+    private LocalDateTime readDateTime(ByteBuffer buffer) {
+        int year = bcdToInt(buffer.get()) + 2000;
+        int month = bcdToInt(buffer.get());
+        int day = bcdToInt(buffer.get());
+        int hour = bcdToInt(buffer.get());
+        int minute = bcdToInt(buffer.get());
+        int second = bcdToInt(buffer.get());
+
+        return LocalDateTime.of(year, month, day, hour, minute, second);
+    }
+
+    private int bcdToInt(byte b) {
+        return ((b >> 4) & 0x0F) * 10 + (b & 0x0F);
+    }
+
+
+
+    private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
+        int raw = buffer.getInt();
+        double value = raw / 1800000.0;
+        return isLatitude ? value : value;
     }
 }

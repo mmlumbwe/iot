@@ -22,7 +22,7 @@ public class DeviceMessage {
     // Message metadata
     private String messageType;
     private String imei;
-    private Short serialNumber;  // Added proper serialNumber field
+    private Short serialNumber;
     private byte[] rawData;
     private String error;
     private final Map<String, Object> parsedData;
@@ -39,6 +39,9 @@ public class DeviceMessage {
     private byte[] responseData;
     private boolean responseRequired;
 
+    // Position information
+    private Position position;
+
     // Standard message types
     public static final String TYPE_LOGIN = "LOGIN";
     public static final String TYPE_LOCATION = "LOCATION";
@@ -46,12 +49,14 @@ public class DeviceMessage {
     public static final String TYPE_ALARM = "ALARM";
     public static final String TYPE_ERROR = "ERROR";
     public static final String TYPE_CONFIGURATION = "CONFIGURATION";
+    public static final String TYPE_EXTENDED = "EXTENDED";
 
     public DeviceMessage() {
         this.parsedData = Collections.synchronizedMap(new HashMap<>());
+        this.timestamp = LocalDateTime.now();
     }
 
-    // Serial Number Accessors (Added)
+    // Serial Number Accessors
     public synchronized Short getSerialNumber() {
         return serialNumber;
     }
@@ -192,7 +197,7 @@ public class DeviceMessage {
     }
 
     // Channel Management
-    public synchronized SocketChannel getSocketChannel() {
+    public synchronized SocketChannel getChannel() {
         return channel;
     }
 
@@ -225,6 +230,20 @@ public class DeviceMessage {
         this.responseRequired = responseRequired;
     }
 
+    // Position Accessors
+    public synchronized Position getPosition() {
+        return position;
+    }
+
+    public synchronized void setPosition(Position position) {
+        this.position = position;
+        if (position != null) {
+            this.parsedData.put("position", position);
+        } else {
+            this.parsedData.remove("position");
+        }
+    }
+
     // Duplicate Handling
     public synchronized boolean isDuplicate() {
         return duplicate;
@@ -249,17 +268,52 @@ public class DeviceMessage {
         return null;
     }
 
+    public synchronized void setSpeed(double speed) {
+        if (this.position == null) {
+            this.position = new Position();
+        }
+        this.position.setSpeed(speed);
+    }
+
+    public synchronized void setCourse(double course) {
+        if (this.position == null) {
+            this.position = new Position();
+        }
+        this.position.setCourse(course);
+    }
+
     @Override
     public synchronized String toString() {
         return "DeviceMessage{" +
                 "protocol='" + protocol + '\'' +
+                ", protocolType='" + protocolType + '\'' +
                 ", messageType='" + messageType + '\'' +
                 ", imei='" + imei + '\'' +
-                ", serialNumber=" + serialNumber +  // Added serialNumber to toString
+                ", serialNumber=" + serialNumber +
                 ", timestamp=" + timestamp +
                 ", duplicate=" + duplicate +
-                ", parsedData=" + parsedData.keySet() +
+                ", responseRequired=" + responseRequired +
+                ", position=" + (position != null ? position.toString() : "null") +
+                ", parsedDataKeys=" + parsedData.keySet() +
                 '}';
+    }
+
+    @Override
+    public synchronized boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        DeviceMessage that = (DeviceMessage) o;
+        return duplicate == that.duplicate &&
+                Objects.equals(protocol, that.protocol) &&
+                Objects.equals(messageType, that.messageType) &&
+                Objects.equals(imei, that.imei) &&
+                Objects.equals(serialNumber, that.serialNumber) &&
+                Objects.equals(timestamp, that.timestamp);
+    }
+
+    @Override
+    public synchronized int hashCode() {
+        return Objects.hash(protocol, messageType, imei, serialNumber, timestamp, duplicate);
     }
 
     // Builder Pattern
@@ -267,7 +321,7 @@ public class DeviceMessage {
         return new Builder();
     }
 
-    public static class Builder {
+    public static final class Builder {
         private final DeviceMessage message = new DeviceMessage();
 
         public Builder protocol(String protocol) {
@@ -295,7 +349,7 @@ public class DeviceMessage {
             return this;
         }
 
-        public Builder serialNumber(Short serialNumber) {  // Added to Builder
+        public Builder serialNumber(Short serialNumber) {
             message.setSerialNumber(serialNumber);
             return this;
         }
@@ -305,13 +359,58 @@ public class DeviceMessage {
             return this;
         }
 
-        public Builder addParsedData(String key, Object value) {
-            message.addParsedData(key, value);
+        public Builder error(String error) {
+            message.setError(error);
+            return this;
+        }
+
+        public Builder timestamp(LocalDateTime timestamp) {
+            message.setTimestamp(timestamp);
+            return this;
+        }
+
+        public Builder signalStrength(int signalStrength) {
+            message.setSignalStrength(signalStrength);
+            return this;
+        }
+
+        public Builder batteryLevel(int batteryLevel) {
+            message.setBatteryLevel(batteryLevel);
+            return this;
+        }
+
+        public Builder channel(SocketChannel channel) {
+            message.setChannel(channel);
+            return this;
+        }
+
+        public Builder remoteAddress(SocketAddress remoteAddress) {
+            message.setRemoteAddress(remoteAddress);
+            return this;
+        }
+
+        public Builder responseData(byte[] responseData) {
+            message.setResponseData(responseData);
+            return this;
+        }
+
+        public Builder responseRequired(boolean responseRequired) {
+            message.setResponseRequired(responseRequired);
+            return this;
+        }
+
+        public Builder position(Position position) {
+            message.setPosition(position);
             return this;
         }
 
         public Builder duplicate(boolean duplicate) {
             message.setDuplicate(duplicate);
+            return this;
+        }
+
+        public Builder addParsedData(String key, Object value) {
+            message.addParsedData(key, value);
             return this;
         }
 
