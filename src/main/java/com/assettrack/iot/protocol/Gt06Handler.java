@@ -445,7 +445,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new ProtocolException("Invalid login packet length");
         }
 
-        if (data.length < MIN_PACKET_LENGTH) {
+        if (data.length < 10) {
             throw new ProtocolException(String.format(
                     "Packet too short (%d bytes), minimum required %d",
                     data.length, MIN_PACKET_LENGTH));
@@ -840,7 +840,19 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
         int raw = buffer.getInt();
-        double value = raw / 1800000.0;
-        return isLatitude ? value : value;
+
+        // Check sign: if highest bit is set, it's a negative value (two's complement)
+        double coord = raw / 1800000.0;
+
+        // Latitude should be within -90 to +90
+        // Longitude should be within -180 to +180
+        if (isLatitude && (coord < -90 || coord > 90)) {
+            logger.warn("Suspicious latitude value: {}", coord);
+        } else if (!isLatitude && (coord < -180 || coord > 180)) {
+            logger.warn("Suspicious longitude value: {}", coord);
+        }
+
+        return coord;
     }
+
 }
