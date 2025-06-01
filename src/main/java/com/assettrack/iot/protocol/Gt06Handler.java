@@ -850,14 +850,16 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
     private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
-        int raw = buffer.getInt();
+        long raw = buffer.getInt() & 0xFFFFFFFFL; // Get as unsigned
 
-        // Extract degrees and minutes from raw value
-        double coordinate = raw / 1800000.0;
+        // GT06 extended protocol uses (raw / 30000) / 60
+        double coordinate = (raw / 30000.0) / 60.0;
 
-        // Apply hemisphere: latitude is North (positive) if bit 31 is 0, South (negative) if 1
-        // longitude is East (positive) if bit 31 is 0, West (negative) if 1
-        // The sign is determined by a separate flag byte in most GT06 protocols, not the int sign
+        // Apply sign (if MSB of original int was set)
+        if ((buffer.getInt(buffer.position()-4) & 0x80000000) != 0) {
+            coordinate = -coordinate;
+        }
+
         return coordinate;
     }
 
