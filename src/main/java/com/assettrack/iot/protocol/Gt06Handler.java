@@ -45,6 +45,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private static final byte PROTOCOL_ALARM = 0x16;
     private static final byte PROTOCOL_ERROR = 0x7F;
     private static final byte PROTOCOL_FOOTER = 0x0A;
+    private static final byte PROTOCOL_GPS_EXTENDED = (byte) 0xA0;
 
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
@@ -259,6 +260,12 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         logger.info("Parsed extended GPS - Lat: {}, Lon: {}, Speed: {}, Time: {}",
                 latitude, longitude, speed, timestamp);
+
+        // Generate and send response
+        byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte)0x01);
+        parsedData.put("response", response);
+        message.setResponseData(response);
+        message.setResponseRequired(true);
 
         return message;
     }
@@ -840,18 +847,20 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
         int raw = buffer.getInt();
-
-        // Check sign: if highest bit is set, it's a negative value (two's complement)
+        // Handle two's complement negative values
+        if ((raw & 0x80000000) != 0) {
+            raw = -((~raw + 1) & 0x7FFFFFFF);
+        }
         double coord = raw / 1800000.0;
 
-        // Latitude should be within -90 to +90
-        // Longitude should be within -180 to +180
+        // Validate range
         if (isLatitude && (coord < -90 || coord > 90)) {
-            logger.warn("Suspicious latitude value: {}", coord);
+            logger.warn("Invalid latitude value: {}, clamping to valid range", coord);
+            coord = Math.max(-90, Math.min(90, coord));
         } else if (!isLatitude && (coord < -180 || coord > 180)) {
-            logger.warn("Suspicious longitude value: {}", coord);
+            logger.warn("Invalid longitude value: {}, clamping to valid range", coord);
+            coord = Math.max(-180, Math.min(180, coord));
         }
-
         return coord;
     }
 
