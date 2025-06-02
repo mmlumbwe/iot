@@ -40,7 +40,7 @@ public class DeviceMessage {
     private boolean responseRequired;
 
     // Position information
-    private Position position;
+    private Position position = new Position();
 
     // Standard message types
     public static final String TYPE_LOGIN = "LOGIN";

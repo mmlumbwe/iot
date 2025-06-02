@@ -231,6 +231,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private DeviceMessage handleGpsExtended(ByteBuffer buffer, DeviceMessage message,
                                             Map<String, Object> parsedData, Variant variant) throws Exception {
         try {
+            // Ensure Position is initialized
+            if (message.getPosition() == null) {
+                message.setPosition(new Position());
+            }
+
             // Read timestamp
             LocalDateTime timestamp = readDateTime(buffer);
             parsedData.put("timestamp", timestamp);
