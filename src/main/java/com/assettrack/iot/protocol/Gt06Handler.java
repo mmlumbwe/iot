@@ -223,6 +223,14 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         int latRaw = buffer.getInt();
         int lonRaw = buffer.getInt();
 
+        // Apply correct scaling factor (as verified with Traccar)
+        double latitude1 = latRaw / 1000000.0;
+        double longitude1 = lonRaw / 1000000.0;
+
+        // Log raw and converted values
+        logger.info("Parsed extended GPS - Raw Lat: {}, Raw Lon: {}, Lat: {}, Lon: {}",
+                latRaw, lonRaw, latitude1, longitude1);
+
         // Read speed (km/h)
         int speed = buffer.get() & 0xFF;
         parsedData.put("speed", speed);
@@ -849,7 +857,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
 
-    private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
+    /*private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
         long raw = buffer.getInt() & 0xFFFFFFFFL; // Get as unsigned
 
         // GT06 extended protocol uses (raw / 30000) / 60
@@ -861,6 +869,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
 
         return coordinate;
+    }*/
+
+    private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
+        int raw = buffer.getInt(); // signed
+        return raw / 1000000.0; // matches Traccar decoding
     }
 
 
