@@ -873,7 +873,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
         int raw = buffer.getInt(); // signed
-        return raw / 1000000.0; // matches Traccar decoding
+        return raw / 1800000.0; // matches Traccar decoding
     }
 
 
