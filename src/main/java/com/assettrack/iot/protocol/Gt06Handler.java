@@ -240,27 +240,29 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             int latRaw = buffer.getInt();
             int lonRaw = buffer.getInt();
 
-            // Convert to degrees (divide by 1e6 for extended protocol)
-            double latitude = latRaw / 1_000_000.0;
-            double longitude = lonRaw / 1_000_000.0;
+            // Convert to degrees (divide by 3e6 for GT06 extended protocol)
+            double latitude = latRaw / 3_000_000.0;
+            double longitude = lonRaw / 3_000_000.0;
 
-            // Log raw values for debugging
+            // Debug logging
             logger.debug("Raw coordinates - Lat: {} (0x{}), Lon: {} (0x{})",
                     latRaw, Integer.toHexString(latRaw),
                     lonRaw, Integer.toHexString(lonRaw));
 
             // Validate coordinate ranges
             if (latitude < -90 || latitude > 90) {
-                logger.warn("Invalid latitude: {}, clamping to valid range", latitude);
-                latitude = Math.max(-90, Math.min(90, latitude));
+                logger.warn("Potentially invalid latitude: {} (raw: 0x{})", latitude, Integer.toHexString(latRaw));
+                // Don't clamp - instead mark as invalid
+                message.getPosition().setValid(false);
             }
             if (longitude < -180 || longitude > 180) {
-                logger.warn("Invalid longitude: {}, clamping to valid range", longitude);
-                longitude = Math.max(-180, Math.min(180, longitude));
+                logger.warn("Potentially invalid longitude: {} (raw: 0x{})", longitude, Integer.toHexString(lonRaw));
+                message.getPosition().setValid(false);
             }
 
             parsedData.put("latitude", latitude);
             parsedData.put("longitude", longitude);
+            message.getPosition().setValid(true); // Default to valid if checks pass
 
             // Read speed (km/h)
             int speed = buffer.get() & 0xFF;
@@ -296,8 +298,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setImei(lastValidImei.get());
             parsedData.put("deviceId", generateDeviceId(message.getImei()));
 
-            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Time: {}",
-                    latitude, longitude, speed, timestamp);
+            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Valid: {}, Time: {}",
+                    latitude, longitude, speed, message.getPosition().isValid(), timestamp);
 
             // Generate response
             byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte)0x01);
