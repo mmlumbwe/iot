@@ -241,9 +241,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             parsedData.put("timestamp", timestamp);
             message.setTimestamp(timestamp);
 
-            // Read coordinates (big-endian format)
-            int latRaw = buffer.getInt();
-            int lonRaw = buffer.getInt();
+            // Correct signed little-endian lat/lon for JM-VL03
+            int latRaw = Integer.reverseBytes(buffer.getInt());
+            int lonRaw = Integer.reverseBytes(buffer.getInt());
 
             // Convert to degrees (divide by 3e6 for GT06 extended protocol)
             double latitude = latRaw / 3_000_000.0;
