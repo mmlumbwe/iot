@@ -210,54 +210,52 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private DeviceMessage handleGpsExtended(ByteBuffer buffer, DeviceMessage message,
                                             Map<String, Object> parsedData, Variant variant) throws Exception {
-        // Read timestamp (6 bytes BCD)
+        // Read timestamp
         LocalDateTime timestamp = readDateTime(buffer);
         parsedData.put("timestamp", timestamp);
         message.setTimestamp(timestamp);
 
-        // Read raw coordinates as signed 32-bit integers
-        int latRaw = buffer.getInt();  // signed
-        int lonRaw = buffer.getInt();  // signed
+        // Read raw coordinates
+        int latRaw = buffer.getInt();
+        int lonRaw = buffer.getInt();
 
-        // Convert to degrees
+        // Apply correct scaling: coordinates are in 1e-6 degrees
         double latitude = latRaw / 1_000_000.0;
         double longitude = lonRaw / 1_000_000.0;
 
+        // Log raw and scaled coordinates
         logger.info("Parsed extended GPS - Raw Lat: {}, Raw Lon: {}, Lat: {}, Lon: {}",
                 latRaw, lonRaw, latitude, longitude);
 
-        // Validate range
+        // Clamp invalid values
         if (latitude < -90 || latitude > 90) {
-            logger.warn("Invalid latitude: {}, clamping", latitude);
+            logger.warn("Invalid latitude value: {}, clamping to valid range", latitude);
             latitude = Math.max(-90, Math.min(90, latitude));
         }
         if (longitude < -180 || longitude > 180) {
-            logger.warn("Invalid longitude: {}, clamping", longitude);
+            logger.warn("Invalid longitude value: {}, clamping to valid range", longitude);
             longitude = Math.max(-180, Math.min(180, longitude));
         }
 
+        // Save coordinates
         parsedData.put("latitude", latitude);
         parsedData.put("longitude", longitude);
-        //message.setLatitude(latitude);
-        //message.setLongitude(longitude);
 
-        // Speed (1 byte, unsigned)
+        // Speed (km/h)
         int speed = buffer.get() & 0xFF;
         parsedData.put("speed", speed);
         message.setSpeed(speed);
 
-        // Course and status (2 bytes)
+        // Course and status
         int courseStatus = buffer.getShort() & 0xFFFF;
         parsedData.put("courseStatus", courseStatus);
-        message.setCourse(courseStatus & 0x03FF);  // Lower 10 bits
+        message.setCourse(courseStatus & 0x03FF);  // Direction (lower 10 bits)
 
         // Network info
         int mcc = buffer.getShort() & 0xFFFF;
         int mnc = buffer.get() & 0xFF;
         int lac = buffer.getShort() & 0xFFFF;
-        int cellId = ((buffer.get() & 0xFF) << 16) |
-                ((buffer.get() & 0xFF) << 8) |
-                (buffer.get() & 0xFF);
+        int cellId = ((buffer.get() & 0xFF) << 16) | ((buffer.get() & 0xFF) << 8) | (buffer.get() & 0xFF);
         int signalStrength = buffer.get() & 0xFF;
 
         parsedData.put("mcc", mcc);
@@ -266,7 +264,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         parsedData.put("cellId", cellId);
         parsedData.put("signalStrength", signalStrength);
 
-        // Serial number (2 bytes)
+        // Serial number
         short serialNumber = buffer.getShort();
         parsedData.put("serialNumber", serialNumber);
         message.setSerialNumber(serialNumber);
@@ -278,7 +276,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         logger.info("Parsed extended GPS - Lat: {}, Lon: {}, Speed: {}, Time: {}",
                 latitude, longitude, speed, timestamp);
 
-        // Response
+        // Generate response
         byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte) 0x01);
         parsedData.put("response", response);
         message.setResponseData(response);
@@ -286,7 +284,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         return message;
     }
-
 
 
 
