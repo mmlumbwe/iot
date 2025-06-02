@@ -71,50 +71,29 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     @Override
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
-        List<DeviceMessage> messages = new ArrayList<>();
+        try {
+            byte[] data = new byte[buf.readableBytes()];
+            buf.readBytes(data);
 
-        while (buf.readableBytes() >= MIN_PACKET_LENGTH) {
-            try {
-                // Mark the current read index
-                buf.markReaderIndex();
-
-                // Check for GT06 header
-                if (buf.readByte() != PROTOCOL_HEADER_1 || buf.readByte() != PROTOCOL_HEADER_2) {
-                    buf.resetReaderIndex();
-                    break; // Not a GT06 packet
+            // Fallback detection if initial detection failed
+            if (result == null || !"GT06".equals(result.getProtocol())) {
+                if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
+                    result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
+                    logger.info("Manually detected GT06 packet");
+                } else {
+                    return null;
                 }
-
-                // Read length and protocol
-                int length = buf.readByte() & 0xFF;
-                byte protocol = buf.readByte();
-
-                // Calculate complete packet size
-                int packetSize = length + 5; // header(2) + length(1) + protocol(1) + checksum(2) + footer(2)
-
-                // Verify we have enough bytes
-                if (buf.readableBytes() < packetSize - 4) { // -4 because we already read 4 bytes
-                    buf.resetReaderIndex();
-                    break; // Not enough data yet
-                }
-
-                // Extract the complete packet
-                byte[] data = new byte[packetSize];
-                buf.resetReaderIndex();
-                buf.readBytes(data);
-
-                // Process the packet
-                DeviceMessage message = handle(data, ctx);
-                if (message != null && message.getImei() != null) {
-                    message.addParsedData("deviceId", generateDeviceId(message.getImei()));
-                    messages.add(message);
-                }
-            } catch (Exception e) {
-                logger.error("Error decoding packet", e);
-                buf.skipBytes(buf.readableBytes()); // Skip problematic data
             }
-        }
 
-        return messages.isEmpty() ? null : (messages.size() == 1 ? messages.get(0) : messages);
+            DeviceMessage message = handle(data, ctx);
+            if (message != null && message.getImei() != null) {
+                message.addParsedData("deviceId", generateDeviceId(message.getImei()));
+            }
+            return message;
+        } catch (Exception e) {
+            logger.error("Decoding error for packet: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Override
