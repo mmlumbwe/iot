@@ -21,6 +21,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.net.SocketAddress;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
@@ -210,83 +211,84 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private DeviceMessage handleGpsExtended(ByteBuffer buffer, DeviceMessage message,
                                             Map<String, Object> parsedData, Variant variant) throws Exception {
-        // Read timestamp
-        LocalDateTime timestamp = readDateTime(buffer);
-        parsedData.put("timestamp", timestamp);
-        message.setTimestamp(timestamp);
+        try {
+            // Read timestamp
+            LocalDateTime timestamp = readDateTime(buffer);
+            parsedData.put("timestamp", timestamp);
+            message.setTimestamp(timestamp);
 
-        // Read raw coordinates
-        int latRaw = Integer.reverseBytes(buffer.getInt());
-        int lonRaw = Integer.reverseBytes(buffer.getInt());
+            // Read coordinates (big-endian format)
+            int latRaw = buffer.getInt();
+            int lonRaw = buffer.getInt();
 
-        // Apply correct scaling: coordinates are in 1e-6 degrees
-        double latitude = latRaw / 1_000_000.0;
-        double longitude = lonRaw / 1_000_000.0;
+            // Convert to degrees (divide by 1e6 for extended protocol)
+            double latitude = latRaw / 1_000_000.0;
+            double longitude = lonRaw / 1_000_000.0;
 
-        logger.info("Raw bytes (lat): {}", Integer.toHexString(latRaw));
-        logger.info("Raw bytes (lon): {}", Integer.toHexString(lonRaw));
+            // Log raw values for debugging
+            logger.debug("Raw coordinates - Lat: {} (0x{}), Lon: {} (0x{})",
+                    latRaw, Integer.toHexString(latRaw),
+                    lonRaw, Integer.toHexString(lonRaw));
 
+            // Validate coordinate ranges
+            if (latitude < -90 || latitude > 90) {
+                logger.warn("Invalid latitude: {}, clamping to valid range", latitude);
+                latitude = Math.max(-90, Math.min(90, latitude));
+            }
+            if (longitude < -180 || longitude > 180) {
+                logger.warn("Invalid longitude: {}, clamping to valid range", longitude);
+                longitude = Math.max(-180, Math.min(180, longitude));
+            }
 
-        // Log raw and scaled coordinates
-        logger.info("Parsed extended GPS - Raw Lat: {}, Raw Lon: {}, Lat: {}, Lon: {}",
-                latRaw, lonRaw, latitude, longitude);
+            parsedData.put("latitude", latitude);
+            parsedData.put("longitude", longitude);
 
-        // Clamp invalid values
-        if (latitude < -90 || latitude > 90) {
-            logger.warn("Invalid latitude value: {}, clamping to valid range", latitude);
-            latitude = Math.max(-90, Math.min(90, latitude));
+            // Read speed (km/h)
+            int speed = buffer.get() & 0xFF;
+            parsedData.put("speed", speed);
+            message.setSpeed(speed);
+
+            // Read course and status
+            int courseStatus = buffer.getShort() & 0xFFFF;
+            parsedData.put("courseStatus", courseStatus);
+            message.setCourse(courseStatus & 0x03FF);
+
+            // Read network info
+            int mcc = buffer.getShort() & 0xFFFF;
+            int mnc = buffer.get() & 0xFF;
+            int lac = buffer.getShort() & 0xFFFF;
+            int cellId = ((buffer.get() & 0xFF) << 16) |
+                    ((buffer.get() & 0xFF) << 8) |
+                    (buffer.get() & 0xFF);
+            int signalStrength = buffer.get() & 0xFF;
+
+            parsedData.put("mcc", mcc);
+            parsedData.put("mnc", mnc);
+            parsedData.put("lac", lac);
+            parsedData.put("cellId", cellId);
+            parsedData.put("signalStrength", signalStrength);
+
+            // Serial number
+            short serialNumber = buffer.getShort();
+            parsedData.put("serialNumber", serialNumber);
+            message.setSerialNumber(serialNumber);
+
+            message.setMessageType("GPS_EXTENDED");
+            message.setImei(lastValidImei.get());
+            parsedData.put("deviceId", generateDeviceId(message.getImei()));
+
+            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Time: {}",
+                    latitude, longitude, speed, timestamp);
+
+            // Generate response
+            byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte)0x01);
+            message.setResponseData(response);
+            message.setResponseRequired(true);
+
+            return message;
+        } catch (BufferUnderflowException e) {
+            throw new ProtocolException("Incomplete GPS extended packet", e);
         }
-        if (longitude < -180 || longitude > 180) {
-            logger.warn("Invalid longitude value: {}, clamping to valid range", longitude);
-            longitude = Math.max(-180, Math.min(180, longitude));
-        }
-
-        // Save coordinates
-        parsedData.put("latitude", latitude);
-        parsedData.put("longitude", longitude);
-
-        // Speed (km/h)
-        int speed = buffer.get() & 0xFF;
-        parsedData.put("speed", speed);
-        message.setSpeed(speed);
-
-        // Course and status
-        int courseStatus = buffer.getShort() & 0xFFFF;
-        parsedData.put("courseStatus", courseStatus);
-        message.setCourse(courseStatus & 0x03FF);  // Direction (lower 10 bits)
-
-        // Network info
-        int mcc = buffer.getShort() & 0xFFFF;
-        int mnc = buffer.get() & 0xFF;
-        int lac = buffer.getShort() & 0xFFFF;
-        int cellId = ((buffer.get() & 0xFF) << 16) | ((buffer.get() & 0xFF) << 8) | (buffer.get() & 0xFF);
-        int signalStrength = buffer.get() & 0xFF;
-
-        parsedData.put("mcc", mcc);
-        parsedData.put("mnc", mnc);
-        parsedData.put("lac", lac);
-        parsedData.put("cellId", cellId);
-        parsedData.put("signalStrength", signalStrength);
-
-        // Serial number
-        short serialNumber = buffer.getShort();
-        parsedData.put("serialNumber", serialNumber);
-        message.setSerialNumber(serialNumber);
-
-        message.setMessageType("GPS_EXTENDED");
-        message.setImei(lastValidImei.get());
-        parsedData.put("deviceId", generateDeviceId(message.getImei()));
-
-        logger.info("Parsed extended GPS - Lat: {}, Lon: {}, Speed: {}, Time: {}",
-                latitude, longitude, speed, timestamp);
-
-        // Generate response
-        byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte) 0x01);
-        parsedData.put("response", response);
-        message.setResponseData(response);
-        message.setResponseRequired(true);
-
-        return message;
     }
 
 
