@@ -915,14 +915,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
 
-    private LocalDateTime readDateTime(ByteBuffer buffer) {
-        int year = bcdToInt(buffer.get()) + 2000;
-        int month = bcdToInt(buffer.get());
-        int day = bcdToInt(buffer.get());
-        int hour = bcdToInt(buffer.get());
-        int minute = bcdToInt(buffer.get());
-        int second = bcdToInt(buffer.get());
-
+    private static LocalDateTime readDateTime(ByteBuffer buffer) {
+        int year = (buffer.get() & 0xFF) + 2000;
+        int month = buffer.get() & 0xFF;
+        int day = buffer.get() & 0xFF;
+        int hour = buffer.get() & 0xFF;
+        int minute = buffer.get() & 0xFF;
+        int second = buffer.get() & 0xFF;
         return LocalDateTime.of(year, month, day, hour, minute, second);
     }
 
