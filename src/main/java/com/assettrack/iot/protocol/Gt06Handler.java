@@ -824,7 +824,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private byte[] generateStandardResponse(byte protocol, short serialNumber, byte status) {
-        /*byte[] response = new byte[10];
+        byte[] response = new byte[10];
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
         response[2] = 0x05;
@@ -839,20 +839,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         response[7] = (byte)(checksum >> 8);
         response[8] = (byte)(checksum);
         response[9] = 0x0A;
-        return response;*/
-
-        // Implement the actual response generation logic based on GT06 protocol
-        // For 0xA0, a common response is 78 78 05 01 [serial_number] 01 [checksum] 0D 0A
-        // This is a simplified example based on the original code's call.
-        byte[] response = new byte[7]; // Example size
-        response[0] = 0x78;
-        response[1] = 0x78;
-        response[2] = 0x05; // Length
-        response[3] = 0x01; // Protocol for response (login/acknowledgement)
-        response[4] = (byte) ((serialNumber >> 8) & 0xFF);
-        response[5] = (byte) (serialNumber & 0xFF);
-        response[6] = status; // 0x01 for success
-        // Checksum and 0x0D 0x0A would be added by a lower layer or finalization method
         return response;
     }
 
