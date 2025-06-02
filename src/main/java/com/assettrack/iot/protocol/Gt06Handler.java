@@ -216,12 +216,16 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         message.setTimestamp(timestamp);
 
         // Read raw coordinates
-        int latRaw = buffer.getInt();
-        int lonRaw = buffer.getInt();
+        int latRaw = Integer.reverseBytes(buffer.getInt());
+        int lonRaw = Integer.reverseBytes(buffer.getInt());
 
         // Apply correct scaling: coordinates are in 1e-6 degrees
         double latitude = latRaw / 1_000_000.0;
         double longitude = lonRaw / 1_000_000.0;
+
+        logger.info("Raw bytes (lat): {}", Integer.toHexString(latRaw));
+        logger.info("Raw bytes (lon): {}", Integer.toHexString(lonRaw));
+
 
         // Log raw and scaled coordinates
         logger.info("Parsed extended GPS - Raw Lat: {}, Raw Lon: {}, Lat: {}, Lon: {}",
