@@ -236,84 +236,143 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 message.setPosition(new Position());
             }
 
-            // Read timestamp
+            // Read timestamp (6 bytes: YY-MM-DD-HH-MM-SS)
             LocalDateTime timestamp = readDateTime(buffer);
             parsedData.put("timestamp", timestamp);
             message.setTimestamp(timestamp);
 
-            // Read coordinates (big-endian format)
-            int latRaw = buffer.getInt();
-            int lonRaw = buffer.getInt();
+            // Read Satellite count and GPS Status (1 byte)
+            int satellitesAndStatus = buffer.get() & 0xFF;
+            int satelliteCount = satellitesAndStatus & 0x3F; // Bits 0-5
+            // GPS positioning status: 00: Unpositioned, 01: 2D, 10: 3D
+            int gpsPositioningStatus = (satellitesAndStatus >> 6) & 0x03; // Bits 6-7
+            parsedData.put("satelliteCount", satelliteCount);
+            parsedData.put("gpsPositioningStatus", gpsPositioningStatus);
 
-            // Convert to degrees (divide by 3e6 for GT06 extended protocol)
-            double latitude = latRaw / 3_000_000.0;
-            double longitude = lonRaw / 3_000_000.0;
+            // Read latitude and longitude (4 bytes each, signed int)
+            // GT06 format: raw_value / 1,800,000.0 to get decimal degrees
+            double latitude = buffer.getInt() / 1_800_000.0; // Corrected divisor
+            double longitude = buffer.getInt() / 1_800_000.0; // Corrected divisor
 
-            // Debug logging
-            logger.debug("Raw coordinates - Lat: {} (0x{}), Lon: {} (0x{})",
-                    latRaw, Integer.toHexString(latRaw),
-                    lonRaw, Integer.toHexString(lonRaw));
-
-            // Validate coordinate ranges
-            if (latitude < -90 || latitude > 90) {
-                logger.warn("Potentially invalid latitude: {} (raw: 0x{})", latitude, Integer.toHexString(latRaw));
-                // Don't clamp - instead mark as invalid
-                message.getPosition().setValid(false);
-            }
-            if (longitude < -180 || longitude > 180) {
-                logger.warn("Potentially invalid longitude: {} (raw: 0x{})", longitude, Integer.toHexString(lonRaw));
-                message.getPosition().setValid(false);
-            }
-
+            message.getPosition().setLatitude(latitude);
+            message.getPosition().setLongitude(longitude);
+            // Set validity based on GPS positioning status
+            message.getPosition().setValid(gpsPositioningStatus == 0x01 || gpsPositioningStatus == 0x02); // 2D or 3D means valid
             parsedData.put("latitude", latitude);
             parsedData.put("longitude", longitude);
-            message.getPosition().setValid(true); // Default to valid if checks pass
 
-            // Read speed (km/h)
+            // Debug logging (optional, adjust as needed)
+            logger.info("Parsed GPS - Lat: {}, Lon: {}, Sat: {}, Status: {}, Time: {}",
+                    latitude, longitude, satelliteCount, gpsPositioningStatus, timestamp);
+
+            // Read speed (1 byte, km/h)
             int speed = buffer.get() & 0xFF;
             parsedData.put("speed", speed);
             message.setSpeed(speed);
 
-            // Read course and status
+            // Read course and status (2 bytes)
             int courseStatus = buffer.getShort() & 0xFFFF;
             parsedData.put("courseStatus", courseStatus);
-            message.setCourse(courseStatus & 0x03FF);
+            message.setCourse(courseStatus & 0x03FF); // Bits 0-9 for Course
 
-            // Read network info
-            int mcc = buffer.getShort() & 0xFFFF;
-            int mnc = buffer.get() & 0xFF;
-            int lac = buffer.getShort() & 0xFFFF;
-            int cellId = ((buffer.get() & 0xFF) << 16) |
-                    ((buffer.get() & 0xFF) << 8) |
-                    (buffer.get() & 0xFF);
-            int signalStrength = buffer.get() & 0xFF;
+            // --- Start of variable/optional fields ---
 
-            parsedData.put("mcc", mcc);
-            parsedData.put("mnc", mnc);
-            parsedData.put("lac", lac);
-            parsedData.put("cellId", cellId);
-            parsedData.put("signalStrength", signalStrength);
+            // Read LBS Length (1 byte)
+            int lbsLength = buffer.get() & 0xFF;
+            parsedData.put("lbsLength", lbsLength);
 
-            // Serial number
+            if (lbsLength > 0) {
+                // LBS data is present (typically 9 bytes for single base station:
+                // MCC (2), MNC (1), LAC (2), Cell ID (3), RSSI (1)
+                if (buffer.remaining() >= lbsLength) {
+                    int mcc = buffer.getShort() & 0xFFFF;
+                    int mnc = buffer.get() & 0xFF;
+                    int lac = buffer.getShort() & 0xFFFF;
+                    int cellId = ((buffer.get() & 0xFF) << 16) | ((buffer.get() & 0xFF) << 8) | (buffer.get() & 0xFF);
+                    int signalStrength = buffer.get() & 0xFF;
+                    parsedData.put("mcc", mcc);
+                    parsedData.put("mnc", mnc);
+                    parsedData.put("lac", lac);
+                    parsedData.put("cellId", cellId);
+                    parsedData.put("signalStrength", signalStrength);
+                    // Consume any remaining LBS bytes if lbsLength is larger than default 9-byte LBS
+                    if (lbsLength > 9) { // If LBS data is longer than the common 9-byte structure
+                        buffer.position(buffer.position() + lbsLength - 9);
+                    }
+                } else {
+                    logger.warn("Incomplete LBS data. Expected: {} bytes, Available: {}", lbsLength, buffer.remaining());
+                    // Decide how to handle incomplete data (e.g., skip to next known field)
+                }
+            }
+
+            // --- I/O Alarm & Status fields (fixed order after LBS data or LBS Length 00) ---
+            // Based on example packet: 00 28 50 20 00 00 27 79 00 00 00 00 01 39 89 01 01 00 00 00 04 F6 7C
+
+            if (buffer.remaining() >= 1) { // Voltage/Status (e.g., 0x28 in your example)
+                int voltageStatus = buffer.get() & 0xFF;
+                parsedData.put("voltageStatus", voltageStatus);
+            }
+            if (buffer.remaining() >= 1) { // GSM Signal (e.g., 0x50 in your example)
+                int gsmSignal = buffer.get() & 0xFF;
+                parsedData.put("gsmSignal", gsmSignal);
+            }
+            if (buffer.remaining() >= 2) { // Alarm/Language/Terminal Info (e.g., 0x2000 in your example)
+                int alarmLanguageInfo = buffer.getShort() & 0xFFFF;
+                parsedData.put("alarmLanguageInfo", alarmLanguageInfo);
+            }
+            if (buffer.remaining() >= 4) { // Mileage (4 bytes)
+                long mileage = buffer.getInt() & 0xFFFFFFFFL; // Read as unsigned 4-byte integer
+                parsedData.put("mileage", mileage);
+            }
+            if (buffer.remaining() >= 4) { // Continuous Driving Time (4 bytes)
+                long drivingTime = buffer.getInt() & 0xFFFFFFFFL; // Read as unsigned 4-byte integer
+                parsedData.put("drivingTime", drivingTime);
+            }
+
+            // --- Other I/O Data (variable/custom) ---
+            // These bytes follow the standard fixed I/O fields. In your example, it's 9 bytes.
+            // 01 39 89 01 01 00 00 00 04
+            // The Serial Number (2 bytes) is the last field before the Checksum.
+            // So, read remaining bytes until 2 bytes before the end of the buffer (which is for Serial Number).
+
+            int remainingBytesBeforeSerial = buffer.remaining() - 2; // Assume 2 bytes for serial number
+
+            if (remainingBytesBeforeSerial > 0) {
+                byte[] otherIoData = new byte[remainingBytesBeforeSerial];
+                buffer.get(otherIoData);
+                parsedData.put("otherIoData", Hex.encodeHexString(otherIoData));
+            }
+
+            // Information Serial Number (2 bytes)
+            // This assumes buffer.remaining() is exactly 2 bytes after consuming all otherIoData.
             short serialNumber = buffer.getShort();
             parsedData.put("serialNumber", serialNumber);
             message.setSerialNumber(serialNumber);
 
+            // At this point, buffer.remaining() should be 0 if the buffer was precisely
+            // the data unit (Protocol Type to Serial Number), or 2 if it includes checksum.
+            // Checksum validation typically happens at a lower layer or before parsing.
+
             message.setMessageType("GPS_EXTENDED");
-            message.setImei(lastValidImei.get());
+            message.setImei(lastValidImei.get()); // Assuming lastValidImei is correctly set from login/IMEI packet
             parsedData.put("deviceId", generateDeviceId(message.getImei()));
 
-            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Valid: {}, Time: {}",
-                    latitude, longitude, speed, message.getPosition().isValid(), timestamp);
+            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Valid: {}, Time: {}, Serial: {}",
+                    latitude, longitude, speed, message.getPosition().getValid(), timestamp, serialNumber);
 
-            // Generate response
-            byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte)0x01);
+            // Generate response (assuming PROTOCOL_GPS is appropriate for A0 response, and 0x01 is status success)
+            byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte) 0x01);
             message.setResponseData(response);
             message.setResponseRequired(true);
 
             return message;
+
         } catch (BufferUnderflowException e) {
+            logger.error("Error decoding extended GPS packet due to insufficient bytes", e);
             throw new ProtocolException("Incomplete GPS extended packet", e);
+        } catch (Exception e) {
+            logger.error("Error handling extended GPS packet", e);
+            throw e; // Re-throw or handle as appropriate
         }
     }
 
@@ -877,13 +936,12 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
 
     private LocalDateTime readDateTime(ByteBuffer buffer) {
-        int year = bcdToInt(buffer.get()) + 2000;
-        int month = bcdToInt(buffer.get());
-        int day = bcdToInt(buffer.get());
-        int hour = bcdToInt(buffer.get());
-        int minute = bcdToInt(buffer.get());
-        int second = bcdToInt(buffer.get());
-
+        int year = (buffer.get() & 0xFF) + 2000;
+        int month = buffer.get() & 0xFF;
+        int day = buffer.get() & 0xFF;
+        int hour = buffer.get() & 0xFF;
+        int minute = buffer.get() & 0xFF;
+        int second = buffer.get() & 0xFF;
         return LocalDateTime.of(year, month, day, hour, minute, second);
     }
 
