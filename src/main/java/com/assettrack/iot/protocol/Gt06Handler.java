@@ -17,15 +17,12 @@ import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-
 import java.net.SocketAddress;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,19 +40,14 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
     private static final byte PROTOCOL_ERROR = 0x7F;
-    private static final byte PROTOCOL_FOOTER = 0x0A;
-    private static final byte PROTOCOL_GPS_EXTENDED = (byte) 0xA0;
-
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
-    private static final long SESSION_TIMEOUT_MS = 300000; // 5 minutes
 
     private final AtomicReference<String> lastValidImei = new AtomicReference<>();
     private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
 
     // VL03-specific constants
     private static final byte VL03_PROTOCOL_EXTENDED = 0x26;
-    private static final byte VL03_ALARM_TYPE = (byte) 0xA2;
 
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
@@ -408,8 +400,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
     }
 
-
-
     private DeviceSession manageDeviceSession(String imei, short serialNumber, ChannelHandlerContext ctx) {
         if (imei == null) {
             throw new IllegalArgumentException("IMEI cannot be null");
@@ -547,32 +537,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         STANDARD, VL03, UNKNOWN
     }
 
-
-    //@Override
-    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-        if (msg instanceof ByteBuf) {
-            ByteBuf buf = (ByteBuf) msg;
-            try {
-                byte[] data = new byte[buf.readableBytes()];
-                buf.readBytes(data);
-
-                logger.info("Processing GT06 message: {}", Hex.encodeHexString(data));
-
-                DeviceMessage message = handle(data);
-                if (message != null) {
-                    ctx.fireChannelRead(message);
-                    logger.info("Forwarding message with serialNumber: {}", message.getSerialNumber());
-                }
-            } catch (Exception e) {
-                logger.error("Error processing message", e);
-            } finally {
-                buf.release();
-            }
-        } else {
-            ctx.fireChannelRead(msg);
-        }
-    }
-
     private Variant detectVariant(ByteBuffer buffer) {
         // Check for VL03 specific markers
         if (buffer.remaining() > 10) {
@@ -629,53 +593,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
                     data[data.length - 2], data[data.length - 1]));
         }
-    }
-
-
-    private byte[] generateVl03LoginResponse(short serialNumber, byte vl03Extension) {
-        byte[] response = new byte[14];
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x09;  // Length (9 bytes following)
-        response[3] = PROTOCOL_LOGIN;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber);
-        response[6] = 0x01;  // Success status
-        response[7] = vl03Extension;  // VL03-specific extension byte
-
-        // Calculate checksum for bytes 2-7 (length through vl03Extension)
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 6);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-        response[8] = (byte)(checksum >> 8);
-        response[9] = (byte)(checksum);
-
-        // Terminal bytes
-        response[10] = 0x0D;
-        response[11] = 0x0A;
-
-        return response;
-    }
-
-    private byte[] generateStandardLoginResponse(short serialNumber) {
-        byte[] response = new byte[10];
-        response[0] = PROTOCOL_HEADER_1;
-        response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05; // Length
-        response[3] = PROTOCOL_LOGIN;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber);
-        response[6] = 0x01; // Success status
-
-        // Calculate checksum
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-        response[7] = (byte)(checksum >> 8);
-        response[8] = (byte)(checksum);
-        response[9] = 0x0A; // Termination byte
-
-        return response;
     }
 
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message,
@@ -906,8 +823,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return (byte)0xFF;
     }
 
-
-
     public String bytesToHex(byte[] bytes) {
         if (bytes == null) {
             return "null";
@@ -917,17 +832,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             sb.append(String.format("%02X ", b));
         }
         return sb.toString().trim();
-    }
-
-    @Scheduled(fixedRate = 60000)
-    public void cleanupExpiredSessions() {
-        activeSessions.entrySet().removeIf(entry -> {
-            if (entry.getValue().isExpired()) {
-                logger.debug("Removing expired session for IMEI: {}", entry.getKey());
-                return true;
-            }
-            return false;
-        });
     }
 
     @Override
@@ -966,7 +870,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         return generateStandardResponse(PROTOCOL_LOGIN, (short)0, (byte)0x01);
     }
 
-
     private LocalDateTime readDateTime(ByteBuffer buffer) {
         int year = (buffer.get() & 0xFF) + 2000;
         int month = buffer.get() & 0xFF;
@@ -976,32 +879,5 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         int second = buffer.get() & 0xFF;
         return LocalDateTime.of(year, month, day, hour, minute, second);
     }
-
-    private int bcdToInt(byte b) {
-        return ((b >> 4) & 0x0F) * 10 + (b & 0x0F);
-    }
-
-
-
-    /*private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
-        long raw = buffer.getInt() & 0xFFFFFFFFL; // Get as unsigned
-
-        // GT06 extended protocol uses (raw / 30000) / 60
-        double coordinate = (raw / 30000.0) / 60.0;
-
-        // Apply sign (if MSB of original int was set)
-        if ((buffer.getInt(buffer.position()-4) & 0x80000000) != 0) {
-            coordinate = -coordinate;
-        }
-
-        return coordinate;
-    }*/
-
-    private double readCoordinate(ByteBuffer buffer, boolean isLatitude) {
-        int raw = buffer.getInt(); // signed
-        return raw / 1800000.0; // matches Traccar decoding
-    }
-
-
 
 }
