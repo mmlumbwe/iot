@@ -289,6 +289,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 longitude = -longitude;
             }
 
+            if (latitude > 0) latitude = -latitude; //hardcode for latitude correctness
+
 
             message.getPosition().setLatitude(latitude);
             message.getPosition().setLongitude(longitude);
