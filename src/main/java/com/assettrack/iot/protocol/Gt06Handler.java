@@ -250,8 +250,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             parsedData.put("gpsPositioningStatus", gpsPositioningStatus);
 
             // Read raw latitude and longitude (4 bytes each, signed int)
-            // The raw integer value represents degrees * 1,800,000.0
-            // The sign (North/South, East/West) is indicated by bits in the Course/Status field.
+            // GT06 format: raw_value / 1,800,000.0 to get decimal degrees
             int rawLatitude = buffer.getInt();
             int rawLongitude = buffer.getInt();
 
@@ -266,27 +265,30 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setCourse(courseStatus & 0x03FF); // Bits 0-9 for Course
 
             // --- Determine Latitude and Longitude with correct sign ---
-            // Bit 13 of Course & Status (0x2000) indicates North (0) or South (1)
+            // Bit 13 (0x2000) of Course & Status indicates North (0) or South (1)
             boolean isSouth = (courseStatus & 0x2000) != 0;
-            // Bit 14 of Course & Status (0x4000) indicates East (0) or West (1)
+            // Bit 14 (0x4000) of Course & Status indicates East (0) or West (1)
             boolean isWest = (courseStatus & 0x4000) != 0;
 
             double latitude = rawLatitude / 1_800_000.0;
             double longitude = rawLongitude / 1_800_000.0;
 
-            // Apply the sign based on the N/S bit
-            if (isSouth) {
-                latitude = -Math.abs(latitude); // Ensure it's negative for South
-            } else {
-                latitude = Math.abs(latitude); // Ensure it's positive for North
+            // Apply the sign based on the N/S bit if the raw value is positive
+            // If the raw value is already negative, this will keep it negative.
+            if (isSouth && latitude > 0) { // Only negate if it's South and currently positive
+                latitude = -latitude;
+            } else if (!isSouth && latitude < 0) { // Only make positive if it's North and currently negative
+                latitude = -latitude;
             }
 
-            // Apply the sign based on the E/W bit
-            if (isWest) {
-                longitude = -Math.abs(longitude); // Ensure it's negative for West
-            } else {
-                longitude = Math.abs(longitude); // Ensure it's positive for East
+
+            // Apply the sign based on the E/W bit if the raw value is positive
+            if (isWest && longitude > 0) { // Only negate if it's West and currently positive
+                longitude = -longitude;
+            } else if (!isWest && longitude < 0) { // Only make positive if it's East and currently negative
+                longitude = -longitude;
             }
+
 
             message.getPosition().setLatitude(latitude);
             message.getPosition().setLongitude(longitude);
