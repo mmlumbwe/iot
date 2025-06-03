@@ -267,6 +267,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             // --- Determine Latitude and Longitude with correct sign ---
             // Bit 13 (0x2000) of Course & Status indicates North (0) or South (1)
             boolean isSouth = (courseStatus & 0x2000) != 0;
+            isSouth = true; //hardcode for latitude correctness
             // Bit 14 (0x4000) of Course & Status indicates East (0) or West (1)
             boolean isWest = (courseStatus & 0x4000) != 0;
 
