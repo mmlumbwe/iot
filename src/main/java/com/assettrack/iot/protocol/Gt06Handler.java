@@ -249,21 +249,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             parsedData.put("satelliteCount", satelliteCount);
             parsedData.put("gpsPositioningStatus", gpsPositioningStatus);
 
-            // Read latitude and longitude (4 bytes each, signed int)
-            // GT06 format: raw_value / 1,800,000.0 to get decimal degrees
-            double latitude = buffer.getInt() / 1_800_000.0; // Corrected divisor
-            double longitude = buffer.getInt() / 1_800_000.0; // Corrected divisor
-
-            message.getPosition().setLatitude(latitude);
-            message.getPosition().setLongitude(longitude);
-            // Set validity based on GPS positioning status
-            message.getPosition().setValid(gpsPositioningStatus == 0x01 || gpsPositioningStatus == 0x02); // 2D or 3D means valid
-            parsedData.put("latitude", latitude);
-            parsedData.put("longitude", longitude);
-
-            // Debug logging (optional, adjust as needed)
-            logger.info("Parsed GPS - Lat: {}, Lon: {}, Sat: {}, Status: {}, Time: {}",
-                    latitude, longitude, satelliteCount, gpsPositioningStatus, timestamp);
+            // Read raw latitude and longitude (4 bytes each, signed int)
+            // The raw integer value represents degrees * 1,800,000.0
+            // The sign (North/South, East/West) is indicated by bits in the Course/Status field.
+            int rawLatitude = buffer.getInt();
+            int rawLongitude = buffer.getInt();
 
             // Read speed (1 byte, km/h)
             int speed = buffer.get() & 0xFF;
@@ -274,6 +264,43 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             int courseStatus = buffer.getShort() & 0xFFFF;
             parsedData.put("courseStatus", courseStatus);
             message.setCourse(courseStatus & 0x03FF); // Bits 0-9 for Course
+
+            // --- Determine Latitude and Longitude with correct sign ---
+            // Bit 13 of Course & Status (0x2000) indicates North (0) or South (1)
+            boolean isSouth = (courseStatus & 0x2000) != 0;
+            // Bit 14 of Course & Status (0x4000) indicates East (0) or West (1)
+            boolean isWest = (courseStatus & 0x4000) != 0;
+
+            double latitude = rawLatitude / 1_800_000.0;
+            double longitude = rawLongitude / 1_800_000.0;
+
+            // Apply the sign based on the N/S bit
+            if (isSouth) {
+                latitude = -Math.abs(latitude); // Ensure it's negative for South
+            } else {
+                latitude = Math.abs(latitude); // Ensure it's positive for North
+            }
+
+            // Apply the sign based on the E/W bit
+            if (isWest) {
+                longitude = -Math.abs(longitude); // Ensure it's negative for West
+            } else {
+                longitude = Math.abs(longitude); // Ensure it's positive for East
+            }
+
+            message.getPosition().setLatitude(latitude);
+            message.getPosition().setLongitude(longitude);
+            // Set validity based on GPS positioning status
+            message.getPosition().setValid(gpsPositioningStatus == 0x01 || gpsPositioningStatus == 0x02); // 2D or 3D means valid
+            parsedData.put("latitude", latitude);
+            parsedData.put("longitude", longitude);
+
+            // Debug logging (optional, adjust as needed)
+            logger.info("Raw coordinates - Lat: 0x{}, Lon: 0x{}",
+                    Integer.toHexString(rawLatitude), Integer.toHexString(rawLongitude));
+            logger.info("Parsed GPS - Lat: {}, Lon: {}, Sat: {}, Status: {}, Time: {}, CourseStatus: 0x{}, isSouth: {}, isWest: {}",
+                    latitude, longitude, satelliteCount, gpsPositioningStatus, timestamp, Integer.toHexString(courseStatus), isSouth, isWest);
+
 
             // --- Start of variable/optional fields ---
 
