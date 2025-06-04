@@ -3,6 +3,7 @@ package com.assettrack.iot.protocol;
 import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
@@ -93,11 +94,18 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
     }
 
+
     @Override
+    public DeviceMessage handle(byte[] data) throws ProtocolException {
+        return null;
+    }
+
+    /*@Override
     public DeviceMessage handle(byte[] data,  ChannelHandlerContext ctx) throws ProtocolException {
         // Implement BaseProtocolDecoder's abstract method by delegating to context-aware version
         return handle(data, null);
     }
+
 
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
@@ -122,39 +130,92 @@ public class TeltonikaHandler implements ProtocolHandler {
         } catch (Exception e) {
             throw new ProtocolException("Failed to handle Teltonika message", e);
         }
+    }*/
+
+    public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
+        if (data == null || data.length == 0) {
+            throw new ProtocolException("Empty data received");
+        }
+
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocol("TELTONIKA");
+
+        try {
+            if (isImeiPacket(data)) {
+                message = handleImeiPacket(data, message);
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));  // Send login request
+                return message;
+            } else if (isDataPacket(data)) {
+                message = handleDataPacket(data, message);
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));  // Send ACK
+                return message;
+            }
+            throw new ProtocolException("Unsupported Teltonika packet");
+        } catch (Exception e) {
+            throw new ProtocolException("Failed to handle Teltonika message", e);
+        }
+    }
+
+    private boolean isDataPacket(byte[] data) {
+        if (data == null || data.length < 12) {  // Minimum Teltonika data packet size
+            return false;
+        }
+
+        try {
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+
+            // Check preamble (4 zero bytes)
+            if (buffer.getInt() != 0) {
+                return false;
+            }
+
+            // Check data length (should match remaining packet size)
+            int dataLength = buffer.getInt();
+            if (dataLength <= 0 || dataLength > 1024 * 1024) {  // Reasonable max size
+                return false;
+            }
+
+            // Check codec ID (should be one of supported codecs)
+            int codecId = buffer.get() & 0xFF;
+            if (!isSupportedCodec(codecId)) {
+                return false;
+            }
+
+            // Basic structure validation passed
+            return true;
+
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
-        // Validate packet length
-        if (data.length < 4 || data.length > 19) {
+        // Validate packet structure
+        if (data.length < 17 || data.length > 19) {  // 2 bytes length + 15-17 bytes IMEI
             throw new ProtocolException("Invalid IMEI packet length");
         }
 
-        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
-        if (length < 15 || length > 17) {
-            throw new ProtocolException("Invalid IMEI length");
+        int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+        if (length != 15) {  // Teltonika requires exactly 15 digits
+            throw new ProtocolException("IMEI must be 15 digits");
         }
 
         String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
-        if (!isValidImei(cleanImei(imei))) {
+        imei = cleanImei(imei);
+
+        if (!isValidImei(imei)) {
             throw new ProtocolException("Invalid IMEI format");
         }
 
         message.setImei(imei);
         message.setMessageType("IMEI");
-
-        // Some devices expect 8-byte response (like data packets)
-        ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0x00000000);  // Preamble
-        response.putInt(1);       // Number of accepted packets
-        response.putInt(123456);  // Example session ID - should be dynamic in real implementation
-        message.addParsedData("response", response.array());
+        message.addParsedData("response", new byte[]{0x01});
 
         logger.info("Accepted IMEI from device {}", imei);
         return message;
     }
 
-    private DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
+    public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
@@ -163,8 +224,7 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Packet too short");
             }
 
-            // Parse header
-            if (buffer.getInt() != 0) {
+            if (buffer.getInt() != 0) {  // Preamble check
                 throw new ProtocolException("Invalid preamble");
             }
 
@@ -176,7 +236,7 @@ public class TeltonikaHandler implements ProtocolHandler {
             int codecId = buffer.get() & 0xFF;
             String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
             message.setProtocolVersion(protocolVersion);
-            message.setMessageType("DATA"); // Ensure message type is set
+            message.setMessageType("DATA");
 
             // Process based on codec type
             switch (codecId) {
@@ -395,6 +455,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     public boolean supports(String protocolType) {
         return "TELTONIKA".equalsIgnoreCase(protocolType);
     }
+
 
     @Override
     public boolean canHandle(String protocol, String version) {

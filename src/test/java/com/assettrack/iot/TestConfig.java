@@ -3,10 +3,7 @@ package com.assettrack.iot;
 import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.network.TrackerPipelineFactory;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
-import com.assettrack.iot.protocol.BaseProtocolDecoder;
-import com.assettrack.iot.protocol.BaseProtocolEncoder;
-import com.assettrack.iot.protocol.ProtocolDetectionHandler;
-import com.assettrack.iot.protocol.ProtocolDetector;
+import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.security.AuthService;
 import com.assettrack.iot.security.PayloadValidator;
 import com.assettrack.iot.session.SessionManager;
@@ -55,13 +52,15 @@ public class TestConfig {
         AcknowledgementHandler mockAckHandler = Mockito.mock(AcknowledgementHandler.class);
         CacheManager mockCacheManager = Mockito.mock(CacheManager.class); // Correct type
         ProtocolDetectionHandler mockProtocolDetectionHandler = Mockito.mock(ProtocolDetectionHandler.class);
+        TeltonikaHandler mockTeltonikaHandler = Mockito.mock(TeltonikaHandler.class);
 
         return new TrackerPipelineFactory(
                 mockProtocolDetector,
                 mockSessionManager,
                 mockAckHandler,
                 mockCacheManager,  // Now providing CacheManager instead of MessageProcessor
-                mockProtocolDetectionHandler
+                mockProtocolDetectionHandler,
+                mockTeltonikaHandler
         );
     }
 
