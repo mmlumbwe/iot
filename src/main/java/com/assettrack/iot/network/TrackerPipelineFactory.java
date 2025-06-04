@@ -10,15 +10,22 @@ import io.netty.channel.*;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleStateHandler;
+import jakarta.annotation.PostConstruct;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 @Component
 public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private static final Logger logger = LoggerFactory.getLogger(TrackerPipelineFactory.class);
+    @PostConstruct
+    public void logInit() {
+        logger.info("ProtocolDetectionHandler initialized: {}", System.identityHashCode(this));
+    }
+
 
     private final ProtocolDetector protocolDetector;
     private final SessionManager sessionManager;
@@ -34,7 +41,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             SessionManager sessionManager,
             AcknowledgementHandler acknowledgementHandler,
             CacheManager cacheManager,
-            ProtocolDetectionHandler protocolDetectionHandler,
+            @Lazy ProtocolDetectionHandler protocolDetectionHandler,
             Gt06Handler gt06Handler,
             TeltonikaHandler teltonikaHandler
     ) {
