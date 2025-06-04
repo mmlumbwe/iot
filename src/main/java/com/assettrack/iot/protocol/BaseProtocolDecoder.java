@@ -51,7 +51,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 if (buf.isReadable()) {
                     byte[] data = new byte[buf.readableBytes()];
                     buf.getBytes(buf.readerIndex(), data);
-                    logger.debug("Received raw data: {}", bytesToHex(data));
+                    logger.info("Received raw data: {}", bytesToHex(data));
 
                     ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
                     Object decodedMessage = decode(ctx, buf, result);
