@@ -1,12 +1,9 @@
 package com.assettrack.iot.network;
 
+import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
-import com.assettrack.iot.protocol.BaseProtocolDecoder;
-import com.assettrack.iot.protocol.ProtocolDetectionHandler;
-import com.assettrack.iot.protocol.Gt06Handler;
-import com.assettrack.iot.protocol.ProtocolDetector;
+import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.session.SessionManager;
-import  com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.session.cache.CacheManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
@@ -28,62 +25,88 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private final AcknowledgementHandler acknowledgementHandler;
     private final CacheManager cacheManager;
     private final ProtocolDetectionHandler protocolDetectionHandler;
-
+    private final Gt06Handler gt06Handler;
+    private final TeltonikaHandler teltonikaHandler;
 
     @Autowired
     public TrackerPipelineFactory(
             ProtocolDetector protocolDetector,
-            SessionManager sessionManager, AcknowledgementHandler acknowledgementHandler, CacheManager cacheManager, ProtocolDetectionHandler protocolDetectionHandler
+            SessionManager sessionManager,
+            AcknowledgementHandler acknowledgementHandler,
+            CacheManager cacheManager,
+            ProtocolDetectionHandler protocolDetectionHandler,
+            Gt06Handler gt06Handler,
+            TeltonikaHandler teltonikaHandler
     ) {
         this.protocolDetector = protocolDetector;
         this.sessionManager = sessionManager;
         this.acknowledgementHandler = acknowledgementHandler;
         this.cacheManager = cacheManager;
         this.protocolDetectionHandler = protocolDetectionHandler;
+        this.gt06Handler = gt06Handler;
+        this.teltonikaHandler = teltonikaHandler;
     }
 
     @Override
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // 1. Protocol detection first
-        pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
+        // 1. Detect protocol (fills attributes)
+        pipeline.addLast("protocolDetector", protocolDetectionHandler);
 
-        // 2. Idle state handler
+        // 2. Idle state timeout
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 3. Protocol-specific handlers
-        pipeline.addLast("gt06Handler", new Gt06Handler(
-                sessionManager,
-                protocolDetector,
-                acknowledgementHandler
-        ));
+        // 3. Dynamically choose handler based on detection
+        pipeline.addLast("protocolRouter", new SimpleChannelInboundHandler<ByteBuf>() {
+            @Override
+            protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                String protocol = ctx.channel().attr(ProtocolDetectionHandler.PROTOCOL_ATTR).get();
 
-        // 4. Raw data logger
+                if ("GT06".equalsIgnoreCase(protocol)) {
+                    logger.info("Routing to GT06 handler");
+                    ctx.pipeline().addAfter(ctx.name(), "gt06Handler", gt06Handler);
+                } else if ("TELTONIKA".equalsIgnoreCase(protocol)) {
+                    logger.info("Routing to Teltonika handler");
+                    ctx.pipeline().addAfter(ctx.name(), "teltonikaHandler", (ChannelHandler) teltonikaHandler);
+                } else {
+                    logger.warn("Unknown or unsupported protocol: {}", protocol);
+                    ctx.close();
+                    return;
+                }
+
+                // Remove router to avoid duplicate routing
+                ctx.pipeline().remove(this);
+
+                // Pass along the message to the newly added handler
+                ctx.fireChannelRead(msg.retain());
+            }
+        });
+
+        // 4. Optional: log raw incoming bytes
         pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO) {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                if (msg instanceof ByteBuf) {
-                    ByteBuf buf = (ByteBuf) msg;
+                if (msg instanceof ByteBuf buf) {
                     byte[] bytes = new byte[buf.readableBytes()];
                     buf.getBytes(buf.readerIndex(), bytes);
                     logger.info("Raw message ({} bytes): {}", bytes.length, Hex.encodeHexString(bytes));
-                    buf.resetReaderIndex(); // Reset for next handler
+                    buf.resetReaderIndex(); // preserve reader index
                 }
                 super.channelRead(ctx, msg);
             }
         });
 
         // 5. Business logic handler
-        pipeline.addLast("messageHandler", new NetworkMessageHandler(
-                sessionManager,
-                cacheManager
-        ));
+        pipeline.addLast("messageHandler", new NetworkMessageHandler(sessionManager, cacheManager));
 
-        // 6. Processed messages logger
+        // 6. Outbound response handler (ACKs, etc.)
+        pipeline.addLast("ackHandler", acknowledgementHandler);
+
+        // 7. Processed logging
         pipeline.addLast("processedLogger", new LoggingHandler("Processed-Messages", LogLevel.DEBUG));
 
-        // 7. Exception handler
+        // 8. Exception catch-all
         pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {

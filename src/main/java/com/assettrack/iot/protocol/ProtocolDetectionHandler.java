@@ -1,9 +1,9 @@
 package com.assettrack.iot.protocol;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.*;
 import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
@@ -12,8 +12,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
+@ChannelHandler.Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
+
+    public static final AttributeKey<String> PROTOCOL_ATTR =
+            AttributeKey.valueOf("protocol");
+
     private final ProtocolDetector protocolDetector;
 
     @Autowired
@@ -23,45 +28,38 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (!(msg instanceof ByteBuf)) {
+        if (!(msg instanceof ByteBuf buf)) {
             ctx.fireChannelRead(msg);
             return;
         }
 
-        ByteBuf buf = (ByteBuf) msg;
         try {
-            if (!buf.isReadable()) {
-                return;
-            }
+            if (!buf.isReadable()) return;
 
-            // Make a copy of the data without consuming the buffer
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data);
 
-            // Perform protocol detection
+            // Detect protocol
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-            if (result != null) {
-                logger.debug("Detected protocol: {}", result.getProtocol());
-                // Forward both the result AND original message
-                ctx.fireChannelRead(result);
+            if (result != null && result.isValid()) {
+                String protocol = result.getProtocol();
+                logger.info("Detected protocol: {}", protocol);
+
+                // Store protocol as attribute for routing
+                ctx.channel().attr(PROTOCOL_ATTR).set(protocol);
+            } else {
+                logger.warn("Unable to detect protocol, closing connection");
+                ctx.close();
+                return;
             }
 
-            // Always forward the original message
+            // Forward original message to next handler
             ctx.fireChannelRead(msg);
 
         } catch (Exception e) {
-            logger.error("Protocol detection error", e);
+            logger.error("Protocol detection failed", e);
             ctx.close();
-        } finally {
-            // We're forwarding the original message, so don't release it here
-            // The downstream handler will release it
         }
-    }
-
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.error("Channel error", cause);
-        ctx.close();
     }
 
     @Override
@@ -72,5 +70,11 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         } else {
             ctx.fireUserEventTriggered(evt);
         }
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        logger.error("Exception in protocol detection", cause);
+        ctx.close();
     }
 }
