@@ -51,39 +51,45 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // 1. Detect protocol (fills attributes)
-        pipeline.addLast("protocolDetector", protocolDetectionHandler);
+        // 1. Protocol detection (shared, safe due to @Sharable)
+        if (pipeline.get("protocolDetector") == null) {
+            pipeline.addLast("protocolDetector", protocolDetectionHandler);
+        }
 
-        // 2. Idle state timeout
+        // 2. Idle timeout
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 3. Dynamically choose handler based on detection
+        // 3. Route to GT06 or Teltonika after protocol is detected
         pipeline.addLast("protocolRouter", new SimpleChannelInboundHandler<ByteBuf>() {
             @Override
             protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
                 String protocol = ctx.channel().attr(ProtocolDetectionHandler.PROTOCOL_ATTR).get();
 
                 if ("GT06".equalsIgnoreCase(protocol)) {
-                    logger.info("Routing to GT06 handler");
-                    ctx.pipeline().addAfter(ctx.name(), "gt06Handler", gt06Handler);
+                    if (ctx.pipeline().get("gt06Handler") == null) {
+                        logger.info("Routing to GT06 handler");
+                        ctx.pipeline().addAfter(ctx.name(), "gt06Handler", gt06Handler);
+                    }
                 } else if ("TELTONIKA".equalsIgnoreCase(protocol)) {
-                    logger.info("Routing to Teltonika handler");
-                    ctx.pipeline().addAfter(ctx.name(), "teltonikaHandler", (ChannelHandler) teltonikaHandler);
+                    if (ctx.pipeline().get("teltonikaHandler") == null) {
+                        logger.info("Routing to Teltonika handler");
+                        ctx.pipeline().addAfter(ctx.name(), "teltonikaHandler", (ChannelHandler) teltonikaHandler);
+                    }
                 } else {
-                    logger.warn("Unknown or unsupported protocol: {}", protocol);
+                    logger.warn("Unknown or unsupported protocol: '{}', closing connection", protocol);
                     ctx.close();
                     return;
                 }
 
-                // Remove router to avoid duplicate routing
+                // Remove this router from pipeline after use
                 ctx.pipeline().remove(this);
 
-                // Pass along the message to the newly added handler
+                // Forward the retained message
                 ctx.fireChannelRead(msg.retain());
             }
         });
 
-        // 4. Optional: log raw incoming bytes
+        // 4. Log raw bytes for debugging
         pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO) {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -97,16 +103,16 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             }
         });
 
-        // 5. Business logic handler
+        // 5. Message processing
         pipeline.addLast("messageHandler", new NetworkMessageHandler(sessionManager, cacheManager));
 
-        // 6. Outbound response handler (ACKs, etc.)
+        // 6. Send responses or ACKs
         pipeline.addLast("ackHandler", acknowledgementHandler);
 
-        // 7. Processed logging
+        // 7. Log structured/parsed messages
         pipeline.addLast("processedLogger", new LoggingHandler("Processed-Messages", LogLevel.DEBUG));
 
-        // 8. Exception catch-all
+        // 8. Global exception handler
         pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
