@@ -95,7 +95,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             DeviceMessage message = handle(data);
             if (message != null) {
                 enrichMessageWithContext(ctx, message);
-                logger.debug("Decoded message for IMEI: {}", message.getImei());
+                logger.info("Decoded message for IMEI: {}", message.getImei());
             }
             return message;
         } catch (Exception e) {
@@ -158,7 +158,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             throw new ProtocolException("Invalid IMEI length: " + imei.length());
         }
 
-        logger.debug("Extracted IMEI: {}", imei);
+        logger.info("Extracted IMEI: {}", imei);
         return imei.toString();
     }
 
@@ -250,7 +250,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         response[8] = PROTOCOL_TERMINATOR_1;
         response[9] = PROTOCOL_TERMINATOR_2;
 
-        logger.debug("Generated ACK response: {}", bytesToHex(response));
+        logger.info("Generated ACK response: {}", bytesToHex(response));
         return response;
     }
 }

@@ -41,7 +41,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             // Perform protocol detection
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
             if (result != null) {
-                logger.debug("Detected protocol: {}", result.getProtocol());
+                logger.info("Detected protocol: {}", result.getProtocol());
                 // Forward both the result AND original message
                 ctx.fireChannelRead(result);
             }
