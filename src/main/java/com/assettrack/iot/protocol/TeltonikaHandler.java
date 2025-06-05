@@ -95,26 +95,32 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
 
+    // In TeltonikaHandler.java
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
-        return null;
+        // Implementation for when no ChannelHandlerContext is available
+        return handle(data, null);
     }
 
+    @Override
     public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
+        // Your existing implementation that uses the ChannelHandlerContext
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
 
         try {
             if (isImeiPacket(data)) {
-                // Handle IMEI and send login request
                 message = handleImeiPacket(data, message);
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
-                logger.info("Sent login request (0x01) to device: {}", message.getImei());
+                if (ctx != null) {
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
+                    logger.info("Sent login request (0x01) to device: {}", message.getImei());
+                }
                 return message;
             } else if (isDataPacket(data)) {
-                // Handle data and send ACK
                 message = handleDataPacket(data, message);
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
+                if (ctx != null) {
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
+                }
                 return message;
             }
             throw new ProtocolException("Unsupported Teltonika packet");

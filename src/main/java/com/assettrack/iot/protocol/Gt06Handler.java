@@ -56,7 +56,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     public Gt06Handler(SessionManager sessionManager,
                        ProtocolDetector protocolDetector,
                        AcknowledgementHandler acknowledgementHandler) {
-        super(sessionManager, protocolDetector);
+        super(sessionManager, protocolDetector, null);
         this.acknowledgementHandler = acknowledgementHandler;
     }
 

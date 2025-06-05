@@ -37,11 +37,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     protected final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
+    protected final TeltonikaHandler teltonikaHandler;
 
     @Autowired
-    public BaseProtocolDecoder(SessionManager sessionManager, ProtocolDetector protocolDetector) {
+    public BaseProtocolDecoder(SessionManager sessionManager, ProtocolDetector protocolDetector, @Autowired(required = false) TeltonikaHandler teltonikaHandler) {
         this.sessionManager = sessionManager;
         this.protocolDetector = protocolDetector;
+        this.teltonikaHandler = teltonikaHandler;
     }
 
     @Override
@@ -75,8 +77,11 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     protected abstract DeviceMessage handle(byte[] data) throws ProtocolException;
 
+    // In BaseProtocolDecoder.java
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
         try {
+            logger.info("IN BASEPROTOCOLDECODER!!!!!!!!!!!!!!!!XXXXXXXXXXXXX");
+
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
@@ -85,27 +90,21 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 result = protocolDetector.detect(data);
             }
 
+            // Explicitly check for Teltonika protocol
             if (result != null && "TELTONIKA".equals(result.getProtocol())) {
-                DeviceMessage message = handle(data);
-                if (message != null) {
-                    enrichMessageWithContext(ctx, message);
-                    logger.info("Decoded Teltonika message: {}", message.getMessageType());
-
-                    // Send appropriate response based on packet type
-                    if ("IMEI".equals(message.getMessageType())) {
-                        byte[] response = new byte[]{0x01};
-                        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
-                        logger.info("Sent Teltonika login request (0x01) to {}", message.getImei());
-                    } else if ("DATA".equals(message.getMessageType())) {
-                        byte[] response = new byte[]{0x00};
-                        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
-                        logger.info("Sent Teltonika ACK (0x00) to {}", message.getImei());
+                if (teltonikaHandler != null) {
+                    DeviceMessage message = teltonikaHandler.handle(data, ctx);
+                    if (message != null) {
+                        enrichMessageWithContext(ctx, message);
+                        logger.info("Decoded Teltonika message: {}", message.getMessageType());
+                        return message;
                     }
-                    return message;
+                } else {
+                    logger.warn("Received Teltonika packet but no TeltonikaHandler is configured");
                 }
             }
 
-            // Fallback to GT06 handling
+            // Fallback to GT06 handling (existing code remains unchanged)
             if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (isValidGT06Header(data)) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
@@ -136,7 +135,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     private void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
         message.setProtocolType("TELTONIKA");
-        
+
         if (message.getProtocol() == null) {
             message.setProtocolType("GT06"); // Default to GT06 if not set
         }
