@@ -100,59 +100,27 @@ public class TeltonikaHandler implements ProtocolHandler {
         return null;
     }
 
-    /*@Override
-    public DeviceMessage handle(byte[] data,  ChannelHandlerContext ctx) throws ProtocolException {
-        // Implement BaseProtocolDecoder's abstract method by delegating to context-aware version
-        return handle(data, null);
-    }
-
-
-    @Override
-    public DeviceMessage handle(byte[] data) throws ProtocolException {
-        if (data == null || data.length == 0) {
-            throw new ProtocolException("Empty data received");
-        }
-
-        // Check for heartbeat first
-        if (isHeartbeatPacket(data)) {
-            return handleHeartbeat();
-        }
-
-        DeviceMessage message = new DeviceMessage();
-        message.setProtocol("TELTONIKA");
-
-        try {
-            if (isImeiPacket(data)) {
-                return handleImeiPacket(data, message);
-            } else {
-                return handleDataPacket(data, message);
-            }
-        } catch (Exception e) {
-            throw new ProtocolException("Failed to handle Teltonika message", e);
-        }
-    }*/
-
     public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
-        if (data == null || data.length == 0) {
-            throw new ProtocolException("Empty data received");
-        }
-
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
 
         try {
             if (isImeiPacket(data)) {
+                // Handle IMEI and send login request
                 message = handleImeiPacket(data, message);
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));  // Send login request
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
+                logger.info("Sent login request (0x01) to device: {}", message.getImei());
                 return message;
             } else if (isDataPacket(data)) {
+                // Handle data and send ACK
                 message = handleDataPacket(data, message);
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));  // Send ACK
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
                 return message;
             }
             throw new ProtocolException("Unsupported Teltonika packet");
         } catch (Exception e) {
-            throw new ProtocolException("Failed to handle Teltonika message", e);
+            logger.error("Error handling Teltonika packet: {}", e.getMessage());
+            throw new ProtocolException("Processing failed", e);
         }
     }
 
@@ -190,12 +158,12 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     public DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
-        // Validate packet structure
-        if (data.length < 17 || data.length > 19) {  // 2 bytes length + 15-17 bytes IMEI
+        // Validate packet structure (2 bytes length + IMEI)
+        if (data == null || data.length < 17 || data.length > 19) {
             throw new ProtocolException("Invalid IMEI packet length");
         }
 
-        int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
         if (length != 15) {  // Teltonika requires exactly 15 digits
             throw new ProtocolException("IMEI must be 15 digits");
         }
@@ -204,14 +172,13 @@ public class TeltonikaHandler implements ProtocolHandler {
         imei = cleanImei(imei);
 
         if (!isValidImei(imei)) {
-            throw new ProtocolException("Invalid IMEI format");
+            throw new ProtocolException("Invalid IMEI: " + imei);
         }
 
         message.setImei(imei);
         message.setMessageType("IMEI");
-        message.addParsedData("response", new byte[]{0x01});
+        logger.info("Accepted IMEI: {}", imei);
 
-        logger.info("Accepted IMEI from device {}", imei);
         return message;
     }
 
@@ -386,10 +353,8 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     private boolean isImeiPacket(byte[] data) {
-        if (data == null || data.length < 4) return false;
-
-        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
-        return length >= 15 && length <= 17 && data.length >= length + 2;
+        return data != null && data.length >= 2 &&
+                ((data[0] & 0xFF) << 8 | (data[1] & 0xFF)) == data.length - 2;
     }
 
     private void validateCoordinates(double latitude, double longitude) throws ProtocolException {
