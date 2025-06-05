@@ -28,6 +28,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private final CacheManager cacheManager;
     private final ProtocolDetectionHandler protocolDetectionHandler;
     private final TeltonikaHandler teltonikaHandler;
+    private final GenericProtocolDecoder genericDecoder;
 
 
     @Autowired
@@ -37,7 +38,8 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             AcknowledgementHandler acknowledgementHandler,
             CacheManager cacheManager,
             ProtocolDetectionHandler protocolDetectionHandler,
-            TeltonikaHandler teltonikaHandler
+            TeltonikaHandler teltonikaHandler,
+            GenericProtocolDecoder genericDecoder
     ) {
         this.protocolDetector = protocolDetector;
         this.sessionManager = sessionManager;
@@ -45,75 +47,33 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         this.cacheManager = cacheManager;
         this.protocolDetectionHandler = protocolDetectionHandler;
         this.teltonikaHandler = teltonikaHandler;
+        this.genericDecoder = genericDecoder;
     }
 
     @Override
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // 1. Protocol detection first
-        pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
+        // 1. Logging first
+        pipeline.addLast(new LoggingHandler("Raw-Inbound", LogLevel.INFO));
 
-        // 2. Idle state handler
+        // 2. Protocol detection
+        pipeline.addLast("protocolDetector", protocolDetectionHandler);
+
+        // 3. Idle state handler
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 3. Protocol-specific handlers
-        pipeline.addLast("gt06Handler", new Gt06Handler(
-                sessionManager,
-                protocolDetector,
-                acknowledgementHandler
-        ));
-        pipeline.addLast("teltonikaHandler", new ChannelInboundHandlerAdapter() {
-            @Override
-            public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                if (msg instanceof ByteBuf) {
-                    ByteBuf buf = (ByteBuf) msg;
-                    byte[] data = new byte[buf.readableBytes()];
-                    buf.getBytes(buf.readerIndex(), data);
+        // 4. Use the concrete decoder
+        pipeline.addLast("decoder", genericDecoder);
 
-                    // Check if this is a Teltonika packet
-                    ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-                    if (result != null && "TELTONIKA".equals(result.getProtocol())) {
-                        try {
-                            DeviceMessage message = teltonikaHandler.handle(data, ctx);
-                            ctx.fireChannelRead(message);  // Forward decoded message
-                        } catch (ProtocolException e) {
-                            logger.error("Teltonika decoding failed", e);
-                            ctx.close();
-                        }
-                        return;  // Skip further handlers
-                    }
-                }
-                ctx.fireChannelRead(msg);  // Not Teltonika? Forward as-is
-            }
-        });
-
-        // 4. Raw data logger
-        pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO) {
-            @Override
-            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                if (msg instanceof ByteBuf) {
-                    ByteBuf buf = (ByteBuf) msg;
-                    byte[] bytes = new byte[buf.readableBytes()];
-                    buf.getBytes(buf.readerIndex(), bytes);
-                    logger.info("Raw message ({} bytes): {}", bytes.length, Hex.encodeHexString(bytes));
-                    buf.resetReaderIndex(); // Reset for next handler
-                }
-                super.channelRead(ctx, msg);
-            }
-        });
-
-        // 5. Business logic handler
+        // 5. Business logic
         pipeline.addLast("messageHandler", new NetworkMessageHandler(
                 sessionManager,
                 cacheManager
         ));
 
-        // 6. Processed messages logger
-        pipeline.addLast("processedLogger", new LoggingHandler("Processed-Messages", LogLevel.DEBUG));
-
-        // 7. Exception handler
-        pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
+        // 6. Exception handler
+        pipeline.addLast(new ChannelDuplexHandler() {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
                 logger.error("Pipeline error", cause);

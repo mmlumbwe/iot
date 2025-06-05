@@ -262,59 +262,25 @@ public class ProtocolDetector {
 
     static class TeltonikaMatcher implements ProtocolMatcher {
         @Override
-        public boolean matches(byte[] data) throws ProtocolDetectionException {
-            if (data == null) return false;
-            return isImeiPacket(data) || isDataPacket(data) || isHeartbeatPacket(data);
+        public boolean matches(byte[] data) {
+            if (data == null || data.length < 2) return false;
+
+            // Check for IMEI packet (length prefix + IMEI)
+            int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+            if (data.length == length + 2 && length >= 15 && length <= 17) {
+                try {
+                    String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
+                    return imei.matches("^\\d{15,17}$");
+                } catch (Exception e) {
+                    return false;
+                }
+            }
+            return false;
         }
 
         @Override
-        public String getPacketType(byte[] data) throws ProtocolDetectionException {
-            if (isImeiPacket(data)) return "IMEI";
-            if (isDataPacket(data)) return "DATA";
-            if (isHeartbeatPacket(data)) return "HEARTBEAT";
-            throw new ProtocolDetectionException("Not a Teltonika packet");
-        }
-
-        private boolean isImeiPacket(byte[] data) {
-            if (data == null || data.length < 2) return false;
-
-            int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
-            return data.length == length + 2 && length >= 15 && length <= 17;
-        }
-
-        private boolean isDataPacket(byte[] data) {
-            if (data == null || data.length < 8) return false;
-
-            // Check preamble (4 zero bytes)
-            if (data[0] != 0 || data[1] != 0 || data[2] != 0 || data[3] != 0) {
-                return false;
-            }
-
-            try {
-                ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-                buffer.position(4); // Skip preamble
-                int dataLength = buffer.getInt();
-                return data.length >= dataLength + 8;
-            } catch (Exception e) {
-                return false;
-            }
-        }
-
-        private boolean isHeartbeatPacket(byte[] data) {
-            if (data == null) return false;
-
-            // Standard 4-byte null heartbeat
-            if (data.length == 4) {
-                return data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0;
-            }
-
-            // Alternative 8-byte heartbeat format
-            if (data.length == 8) {
-                return data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0 &&
-                        data[4] == 0 && data[5] == 0 && data[6] == 0 && data[7] == 0;
-            }
-
-            return false;
+        public String getPacketType(byte[] data) {
+            return "IMEI"; // For IMEI packets
         }
     }
 

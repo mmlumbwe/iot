@@ -53,6 +53,7 @@ public class TestConfig {
         CacheManager mockCacheManager = Mockito.mock(CacheManager.class); // Correct type
         ProtocolDetectionHandler mockProtocolDetectionHandler = Mockito.mock(ProtocolDetectionHandler.class);
         TeltonikaHandler mockTeltonikaHandler = Mockito.mock(TeltonikaHandler.class);
+        GenericProtocolDecoder mockGenericProtocolDecoder = Mockito.mock(GenericProtocolDecoder.class);
 
         return new TrackerPipelineFactory(
                 mockProtocolDetector,
@@ -60,7 +61,8 @@ public class TestConfig {
                 mockAckHandler,
                 mockCacheManager,  // Now providing CacheManager instead of MessageProcessor
                 mockProtocolDetectionHandler,
-                mockTeltonikaHandler
+                mockTeltonikaHandler,
+                mockGenericProtocolDecoder
         );
     }
 

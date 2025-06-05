@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -85,23 +86,30 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
-            // Handle Teltonika packets first
+            // If no result provided, perform detection
             if (result == null) {
+                logger.debug("No detection result provided, performing detection");
                 result = protocolDetector.detect(data);
             }
 
-            // Explicitly check for Teltonika protocol
+            // Handle Teltonika IMEI
             if (result != null && "TELTONIKA".equals(result.getProtocol())) {
-                if (teltonikaHandler != null) {
-                    DeviceMessage message = teltonikaHandler.handle(data, ctx);
-                    if (message != null) {
-                        enrichMessageWithContext(ctx, message);
-                        logger.info("Decoded Teltonika message: {}", message.getMessageType());
-                        return message;
-                    }
-                } else {
-                    logger.warn("Received Teltonika packet but no TeltonikaHandler is configured");
+                if ("IMEI".equals(result.getPacketType())) {
+                    String imei = new String(data, 2, data.length-2, StandardCharsets.US_ASCII);
+                    imei = imei.replaceAll("[^0-9]", "").substring(0, 15);
+
+                    DeviceMessage message = new DeviceMessage();
+                    message.setProtocol("TELTONIKA");
+                    message.setMessageType("IMEI");
+                    message.setImei(imei);
+
+                    // Send Teltonika login response
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
+
+                    enrichMessageWithContext(ctx, message);
+                    return message;
                 }
+                // Handle other Teltonika packet types...
             }
 
             // Fallback to GT06 handling (existing code remains unchanged)
