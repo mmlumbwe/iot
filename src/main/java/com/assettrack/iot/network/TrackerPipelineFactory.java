@@ -31,6 +31,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private final GenericProtocolDecoder genericDecoder;
 
 
+
     @Autowired
     public TrackerPipelineFactory(
             ProtocolDetector protocolDetector,

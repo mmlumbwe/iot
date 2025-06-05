@@ -135,13 +135,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private boolean isValidGT06Header(byte[] data) {
+    boolean isValidGT06Header(byte[] data) {
         return data.length >= 2 &&
                 data[0] == PROTOCOL_HEADER_1 &&
                 data[1] == PROTOCOL_HEADER_2;
     }
 
-    private void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
+    void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
         message.setProtocolType("TELTONIKA");
 
         if (message.getProtocol() == null) {
