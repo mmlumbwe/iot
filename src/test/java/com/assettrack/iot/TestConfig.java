@@ -47,22 +47,14 @@ public class TestConfig {
     @Bean
     @Primary
     public TrackerPipelineFactory testTrackerPipelineFactory() {
-        ProtocolDetector mockProtocolDetector = Mockito.mock(ProtocolDetector.class);
-        SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
-        AcknowledgementHandler mockAckHandler = Mockito.mock(AcknowledgementHandler.class);
-        CacheManager mockCacheManager = Mockito.mock(CacheManager.class); // Correct type
         ProtocolDetectionHandler mockProtocolDetectionHandler = Mockito.mock(ProtocolDetectionHandler.class);
-        TeltonikaHandler mockTeltonikaHandler = Mockito.mock(TeltonikaHandler.class);
         GenericProtocolDecoder mockGenericProtocolDecoder = Mockito.mock(GenericProtocolDecoder.class);
+        NetworkMessageHandler mockNetworkMessageHandler = Mockito.mock(NetworkMessageHandler.class);
 
         return new TrackerPipelineFactory(
-                mockProtocolDetector,
-                mockSessionManager,
-                mockAckHandler,
-                mockCacheManager,  // Now providing CacheManager instead of MessageProcessor
                 mockProtocolDetectionHandler,
-                mockTeltonikaHandler,
-                mockGenericProtocolDecoder
+                mockGenericProtocolDecoder,
+                mockNetworkMessageHandler
         );
     }
 

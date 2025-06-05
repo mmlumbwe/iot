@@ -35,13 +35,12 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data); // Don't consume buffer
 
-            logger.debug("Detecting protocol for data: {}", Hex.encodeHexString(data));
+            logger.info("Detecting protocol for packet: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
             if (result != null) {
-                logger.info("Detected protocol: {}", result.getProtocol());
-                // Forward both the result AND original message
-                ctx.fireChannelRead(result);
+                logger.info("Detected protocol: {} - {}", result.getProtocol(), result.getPacketType());
+                ctx.fireChannelRead(result); // Forward detection result
             }
 
             // Always forward the original message

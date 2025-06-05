@@ -22,58 +22,40 @@ import org.springframework.stereotype.Component;
 public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private static final Logger logger = LoggerFactory.getLogger(TrackerPipelineFactory.class);
 
-    private final ProtocolDetector protocolDetector;
-    private final SessionManager sessionManager;
-    private final AcknowledgementHandler acknowledgementHandler;
-    private final CacheManager cacheManager;
     private final ProtocolDetectionHandler protocolDetectionHandler;
-    private final TeltonikaHandler teltonikaHandler;
     private final GenericProtocolDecoder genericDecoder;
-
-
+    private final NetworkMessageHandler networkMessageHandler;
 
     @Autowired
     public TrackerPipelineFactory(
-            ProtocolDetector protocolDetector,
-            SessionManager sessionManager,
-            AcknowledgementHandler acknowledgementHandler,
-            CacheManager cacheManager,
             ProtocolDetectionHandler protocolDetectionHandler,
-            TeltonikaHandler teltonikaHandler,
-            GenericProtocolDecoder genericDecoder
-    ) {
-        this.protocolDetector = protocolDetector;
-        this.sessionManager = sessionManager;
-        this.acknowledgementHandler = acknowledgementHandler;
-        this.cacheManager = cacheManager;
+            GenericProtocolDecoder genericDecoder,
+            NetworkMessageHandler networkMessageHandler) {
         this.protocolDetectionHandler = protocolDetectionHandler;
-        this.teltonikaHandler = teltonikaHandler;
         this.genericDecoder = genericDecoder;
+        this.networkMessageHandler = networkMessageHandler;
     }
 
     @Override
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // 1. Logging first
+        // 1. Logging handler (new instance per channel)
         pipeline.addLast(new LoggingHandler("Raw-Inbound", LogLevel.INFO));
 
-        // 2. Protocol detection
+        // 2. Protocol detection (shared instance)
         pipeline.addLast("protocolDetector", protocolDetectionHandler);
 
-        // 3. Idle state handler
+        // 3. Idle state handler (new instance per channel)
         pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 4. Use the concrete decoder
+        // 4. Generic decoder (shared instance)
         pipeline.addLast("decoder", genericDecoder);
 
-        // 5. Business logic
-        pipeline.addLast("messageHandler", new NetworkMessageHandler(
-                sessionManager,
-                cacheManager
-        ));
+        // 5. Business logic handler
+        pipeline.addLast("messageHandler", networkMessageHandler);
 
-        // 6. Exception handler
+        // 6. Exception handler (new instance per channel)
         pipeline.addLast(new ChannelDuplexHandler() {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {

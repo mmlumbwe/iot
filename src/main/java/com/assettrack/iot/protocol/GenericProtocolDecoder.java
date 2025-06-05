@@ -33,14 +33,14 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
 
     @Override
     protected DeviceMessage handle(byte[] data) throws ProtocolException {
-        // Default implementation for GT06 protocol
+        // Handle GT06 protocol packets
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("GT06");
 
         try {
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-            // Check GT06 header
+            // Validate GT06 header
             if (buffer.get() != PROTOCOL_HEADER_1 || buffer.get() != PROTOCOL_HEADER_2) {
                 throw new ProtocolException("Invalid GT06 header");
             }
@@ -69,7 +69,6 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
             }
 
             return message;
-
         } catch (Exception e) {
             throw new ProtocolException("GT06 decoding failed", e);
         }
@@ -81,12 +80,12 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data); // Don't consume buffer yet
 
-            logger.info("Decoding packet: {}", Hex.encodeHexString(data));
+            logger.debug("Decoding packet: {}", Hex.encodeHexString(data));
 
             // If no detection result provided, perform detection
             if (result == null) {
                 result = protocolDetector.detect(data);
-                logger.info("Detection result: {}", result != null ?
+                logger.debug("Detection result: {}", result != null ?
                         result.getProtocol() + "/" + result.getPacketType() : "null");
             }
 
@@ -120,9 +119,9 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
             if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (isValidGT06Header(data)) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
-                    logger.info("Manually detected GT06 packet");
+                    logger.debug("Manually detected GT06 packet");
                 } else {
-                    logger.info("Unknown protocol packet");
+                    logger.debug("Unknown protocol packet");
                     return null;
                 }
             }
@@ -148,10 +147,13 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
 
     private DeviceMessage handleTeltonikaImei(ChannelHandlerContext ctx, byte[] data) {
         try {
-            String imei = new String(data, 2, data.length-2, StandardCharsets.US_ASCII);
+            // Extract IMEI from Teltonika packet (first 2 bytes are length)
+            int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+            String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
             imei = imei.replaceAll("[^0-9]", "");
+
             if (imei.length() >= 15) {
-                imei = imei.substring(0, 15);
+                imei = imei.substring(0, 15); // Take first 15 digits
 
                 DeviceMessage message = new DeviceMessage();
                 message.setProtocol("TELTONIKA");
