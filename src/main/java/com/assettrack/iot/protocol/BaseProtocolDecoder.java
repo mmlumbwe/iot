@@ -5,6 +5,7 @@ import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -74,20 +75,42 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     protected abstract DeviceMessage handle(byte[] data) throws ProtocolException;
 
-    protected Object decode(ChannelHandlerContext ctx,
-                            ByteBuf buf,
-                            ProtocolDetector.ProtocolDetectionResult result) {
+    protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
         try {
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
 
-            // Fallback detection if initial detection failed
+            // Handle Teltonika packets first
+            if (result == null) {
+                result = protocolDetector.detect(data);
+            }
+
+            if (result != null && "TELTONIKA".equals(result.getProtocol())) {
+                DeviceMessage message = handle(data);
+                if (message != null) {
+                    enrichMessageWithContext(ctx, message);
+                    logger.info("Decoded Teltonika message: {}", message.getMessageType());
+
+                    // Send appropriate response based on packet type
+                    if ("IMEI".equals(message.getMessageType())) {
+                        ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
+                        logger.info("Sent Teltonika login request (0x01)");
+                    } else if ("DATA".equals(message.getMessageType())) {
+                        ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
+                        logger.info("Sent Teltonika ACK (0x00)");
+                    }
+
+                    return message;
+                }
+            }
+
+            // Fallback to GT06 handling
             if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (isValidGT06Header(data)) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
                     logger.info("Manually detected GT06 packet");
                 } else {
-                    logger.debug("Packet doesn't match GT06 protocol");
+                    logger.debug("Packet doesn't match known protocols");
                     return null;
                 }
             }
@@ -111,7 +134,10 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     }
 
     private void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
-        message.setProtocolType("GT06");
+        if (message.getProtocol() == null) {
+            message.setProtocolType("GT06"); // Default to GT06 if not set
+        }
+
         if (ctx.channel() instanceof SocketChannel) {
             message.setChannel((SocketChannel) ctx.channel());
         }
@@ -120,7 +146,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         if (message.getImei() != null) {
             long deviceId = generateDeviceId(message.getImei());
             message.addParsedData("deviceId", deviceId);
-            logger.debug("Generated device ID {} for IMEI {}", deviceId, message.getImei());
+            logger.info("Generated device ID {} for IMEI {}", deviceId, message.getImei());
         }
     }
 
