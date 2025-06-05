@@ -93,13 +93,14 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
                     // Send appropriate response based on packet type
                     if ("IMEI".equals(message.getMessageType())) {
-                        ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
-                        logger.info("Sent Teltonika login request (0x01)");
+                        byte[] response = new byte[]{0x01};
+                        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+                        logger.info("Sent Teltonika login request (0x01) to {}", message.getImei());
                     } else if ("DATA".equals(message.getMessageType())) {
-                        ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
-                        logger.info("Sent Teltonika ACK (0x00)");
+                        byte[] response = new byte[]{0x00};
+                        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+                        logger.info("Sent Teltonika ACK (0x00) to {}", message.getImei());
                     }
-
                     return message;
                 }
             }
@@ -134,6 +135,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     }
 
     private void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
+        message.setProtocolType("TELTONIKA");
+        
         if (message.getProtocol() == null) {
             message.setProtocolType("GT06"); // Default to GT06 if not set
         }
