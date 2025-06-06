@@ -7,6 +7,8 @@ import com.assettrack.iot.service.GpsServer;
 import com.assettrack.iot.service.PositionService;
 import com.assettrack.iot.session.SessionManager;
 import jakarta.persistence.EntityManagerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -23,6 +25,7 @@ import java.util.concurrent.Executor;
 
 @Configuration
 public class AppConfig {
+    private static final Logger logger = LoggerFactory.getLogger(AppConfig.class);
 
     @Bean
     public CommandLineRunner demo(PositionRepository repository) {
@@ -71,7 +74,10 @@ public class AppConfig {
     }
 
     @Bean
-    public ProtocolDetectionHandler protocolDetectionHandler(ProtocolDetector detector) {
-        return new ProtocolDetectionHandler(detector); // Direct constructor to avoid proxy
+    public ProtocolDetectionHandler protocolDetectionHandler(ProtocolDetector protocolDetector) {
+        ProtocolDetectionHandler handler = new ProtocolDetectionHandler(protocolDetector);
+        logger.info("Created ProtocolDetectionHandler bean with instance ID: {}", System.identityHashCode(handler));
+        return handler;
     }
+
 }

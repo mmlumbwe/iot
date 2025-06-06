@@ -45,6 +45,8 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
     @Override
     protected void initChannel(Channel channel) {
+        logger.info("Adding ProtocolDetectionHandler to pipeline — instance ID: {}", System.identityHashCode(protocolDetectionHandler));
+
         ChannelPipeline pipeline = channel.pipeline();
 
         // Log the instance ID again when adding to the pipeline
