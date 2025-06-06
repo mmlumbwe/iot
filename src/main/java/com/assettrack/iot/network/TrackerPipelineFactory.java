@@ -25,15 +25,18 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private final ProtocolDetectionHandler protocolDetectionHandler;
     private final GenericProtocolDecoder genericDecoder;
     private final NetworkMessageHandler networkMessageHandler;
+    private final SessionManager sessionManager;
 
     @Autowired
     public TrackerPipelineFactory(
             ProtocolDetectionHandler protocolDetectionHandler,
             GenericProtocolDecoder genericDecoder,
-            NetworkMessageHandler networkMessageHandler) {
+            NetworkMessageHandler networkMessageHandler,
+            SessionManager sessionManager) {
         this.protocolDetectionHandler = protocolDetectionHandler;
         this.genericDecoder = genericDecoder;
         this.networkMessageHandler = networkMessageHandler;
+        this.sessionManager = sessionManager;
     }
 
     @Override
@@ -52,7 +55,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         // 4. Generic decoder (shared instance)
         pipeline.addLast("decoder", genericDecoder);
 
-        // 5. Business logic handler
+        // 5. Business logic handler (shared instance)
         pipeline.addLast("messageHandler", networkMessageHandler);
 
         // 6. Exception handler (new instance per channel)
@@ -61,6 +64,12 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
                 logger.error("Pipeline error", cause);
                 ctx.close();
+            }
+
+            @Override
+            public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                sessionManager.removeSession(ctx.channel());
+                super.channelInactive(ctx);
             }
         });
     }

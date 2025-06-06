@@ -1,6 +1,8 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.model.DeviceMessage;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -11,6 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.nio.charset.StandardCharsets;
 
 @Component
 @ChannelHandler.Sharable
@@ -35,6 +39,24 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data); // Don't consume buffer
 
+            // Special handling for Teltonika IMEI packets
+            if (isTeltonikaImeiPacket(data)) {
+                String imei = new String(data, 2, data.length-2, StandardCharsets.US_ASCII);
+                imei = imei.replaceAll("[^0-9]", "").substring(0, 15);
+
+                DeviceMessage message = new DeviceMessage();
+                message.setProtocol("TELTONIKA");
+                message.setMessageType("IMEI");
+                message.setImei(imei);
+
+                // Send Teltonika login response (0x01)
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
+                logger.info("Accepted Teltonika IMEI: {}", imei);
+
+                ctx.fireChannelRead(message);
+                return;
+            }
+
             logger.info("Detecting protocol for packet: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
@@ -49,6 +71,21 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             logger.error("Protocol detection error", e);
             ctx.close();
         }
+    }
+
+    private boolean isTeltonikaImeiPacket(byte[] data) {
+        if (data == null || data.length < 17) return false;
+
+        // Check for Teltonika IMEI packet structure (00 0F followed by 15 digits)
+        if (data[0] == 0x00 && data[1] == 0x0F && data.length == 17) {
+            try {
+                String imei = new String(data, 2, 15, StandardCharsets.US_ASCII);
+                return imei.matches("^\\d{15}$");
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        return false;
     }
 
     @Override

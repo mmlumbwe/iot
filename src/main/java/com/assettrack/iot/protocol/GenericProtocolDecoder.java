@@ -78,44 +78,9 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
         try {
             byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data); // Don't consume buffer yet
+            buf.readBytes(data); // Now consume the buffer
 
-            logger.debug("Decoding packet: {}", Hex.encodeHexString(data));
-
-            // If no detection result provided, perform detection
-            if (result == null) {
-                result = protocolDetector.detect(data);
-                logger.debug("Detection result: {}", result != null ?
-                        result.getProtocol() + "/" + result.getPacketType() : "null");
-            }
-
-            // Handle Teltonika packets
-            if (result != null && "TELTONIKA".equals(result.getProtocol())) {
-                if (teltonikaHandler == null) {
-                    logger.warn("Teltonika packet received but no handler configured");
-                    return null;
-                }
-
-                switch (result.getPacketType()) {
-                    case "IMEI":
-                        return handleTeltonikaImei(ctx, data);
-
-                    case "DATA":
-                        DeviceMessage message = teltonikaHandler.handle(data, ctx);
-                        if (message != null) {
-                            enrichMessageWithContext(ctx, message);
-                            // Send Teltonika ACK (0x00)
-                            ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
-                            return message;
-                        }
-                        break;
-
-                    case "HEARTBEAT":
-                        return handleHeartbeat(ctx);
-                }
-            }
-
-            // Handle GT06 packets
+            // Only handle GT06 packets here (Teltonika handled in ProtocolDetectionHandler)
             if (result == null || !"GT06".equals(result.getProtocol())) {
                 if (isValidGT06Header(data)) {
                     result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
@@ -130,18 +95,15 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
             DeviceMessage message = handle(data);
             if (message != null) {
                 enrichMessageWithContext(ctx, message);
-                // Generate appropriate GT06 response
                 byte[] response = generateGt06Response(message);
                 if (response != null) {
                     ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
                 }
                 return message;
             }
-
         } catch (Exception e) {
-            logger.error("Decoding error: {}", e.getMessage(), e);
+            logger.error("GT06 decoding error: {}", e.getMessage(), e);
         }
-
         return null;
     }
 
