@@ -38,7 +38,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     protected final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
-    protected final TeltonikaHandler teltonikaHandler;
+    protected final TeltonikaHandler teltonikaHandler; // The TeltonikaHandler instance
 
     @Autowired
     public BaseProtocolDecoder(SessionManager sessionManager, ProtocolDetector protocolDetector, @Autowired(required = false) TeltonikaHandler teltonikaHandler) {
@@ -49,88 +49,129 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        try {
-            if (msg instanceof ByteBuf) {
-                ByteBuf buf = (ByteBuf) msg;
-                if (buf.isReadable()) {
-                    byte[] data = new byte[buf.readableBytes()];
-                    buf.getBytes(buf.readerIndex(), data);
-                    logger.info("Received raw data: {}", bytesToHex(data));
+        logger.debug("BaseProtocolDecoder received message of type: {}", msg.getClass().getSimpleName());
 
-                    ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-                    Object decodedMessage = decode(ctx, buf, result);
+        // ProtocolDetectionResult might arrive before the ByteBuf or intermingled.
+        // We need to ensure we have both to make a decision.
+        // A common pattern is to store the result in ChannelHandlerContext's attributes
+        // or ensure `ProtocolDetectionHandler` fires them as a single custom aggregated message.
+        // For simplicity here, we'll try to get both from the pipeline.
 
-                    if (decodedMessage != null) {
-                        ctx.fireChannelRead(decodedMessage);
-                        logger.info("Successfully decoded message of type: {}",
-                                decodedMessage instanceof DeviceMessage ?
-                                        ((DeviceMessage) decodedMessage).getMessageType() : "Unknown");
-                    }
+        ProtocolDetector.ProtocolDetectionResult result = null;
+        ByteBuf buf = null;
+
+        // Try to get the ProtocolDetectionResult from the current message if it's there.
+        // This scenario handles `ctx.fireChannelRead(result)` followed by `ctx.fireChannelRead(buf)`
+        // from ProtocolDetectionHandler.
+        if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
+            result = (ProtocolDetector.ProtocolDetectionResult) msg;
+            // Store the result temporarily, or expect the ByteBuf next.
+            // For a robust solution, consider Netty's `MessageToMessageDecoder` or a custom aggregator.
+            // For this setup, we'll proceed assuming result and buf arrive sequentially or are handled by `decode`'s fallback.
+            ctx.fireChannelRead(msg); // Pass the result along, as `decode` might need it too.
+            return; // Wait for the ByteBuf
+        } else if (msg instanceof ByteBuf) {
+            buf = (ByteBuf) msg;
+            // Attempt to retrieve a result if it was fired just before this ByteBuf
+            // (This requires careful pipeline design or an aggregator)
+            // For now, the `decode` method will handle re-detection if result is null.
+        } else {
+            // Unknown message type, pass it on
+            ctx.fireChannelRead(msg);
+            return;
+        }
+
+        if (buf != null && buf.isReadable()) {
+            // Retain the buffer so it can be safely used by `decode` method after reading bytes.
+            // `decode` method will consume and release it.
+            buf.retain();
+            try {
+                // Pass null for result initially if not directly available; decode will re-detect.
+                // A better approach would be to ensure result is available here, e.g., via aggregator or attribute.
+                Object decodedMessage = decode(ctx, buf, null); // Pass null for result, decode will get it or re-detect
+
+                if (decodedMessage != null) {
+                    ctx.fireChannelRead(decodedMessage);
+                    logger.info("Successfully decoded message of type: {}",
+                            decodedMessage instanceof DeviceMessage ?
+                                    ((DeviceMessage) decodedMessage).getMessageType() : "Unknown");
+                } else {
+                    logger.warn("No message decoded from raw data: {}", bytesToHex(new byte[buf.readableBytes()])); // Log the data before release
                 }
+            } catch (Exception e) {
+                logger.error("Error in protocol decoding: {}", e.getMessage(), e);
+                ctx.close();
+            } finally {
+                ReferenceCountUtil.release(buf); // Ensure the ByteBuf is released after processing
             }
-        } catch (Exception e) {
-            logger.error("Error in protocol decoding: {}", e.getMessage(), e);
-            ctx.close();
-        } finally {
-            ReferenceCountUtil.release(msg);
+        } else if (buf != null) {
+            // If buffer is empty or not readable, release it
+            ReferenceCountUtil.release(buf);
         }
     }
 
-    protected abstract DeviceMessage handle(byte[] data) throws ProtocolException;
 
-    // In BaseProtocolDecoder.java
+    protected abstract DeviceMessage handle(byte[] data) throws ProtocolException; // This is the GT06 handler
+
+    //@Override // This overrides the default `decode` behavior in BaseProtocolDecoder
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
         try {
-            logger.info("IN BASEPROTOCOLDECODER!!!!!!!!!!!!!!!!XXXXXXXXXXXXX");
+            logger.info("IN BASEPROTOCOLDECODER: Decoding packet...");
 
             byte[] data = new byte[buf.readableBytes()];
-            buf.readBytes(data);
+            buf.getBytes(buf.readerIndex(), data); // Read data without consuming here, `handle` or `teltonikaHandler` will consume
 
-            // If no result provided, perform detection
+            // If no result provided, perform detection (fallback or if result was not passed as separate message)
             if (result == null) {
-                logger.debug("No detection result provided, performing detection");
+                logger.debug("No detection result provided, performing detection within BaseProtocolDecoder.");
                 result = protocolDetector.detect(data);
             }
 
-            // Handle Teltonika IMEI
+            // --- Route to TeltonikaHandler or GT06 handler ---
             if (result != null && "TELTONIKA".equals(result.getProtocol())) {
-                if ("IMEI".equals(result.getPacketType())) {
-                    String imei = new String(data, 2, data.length-2, StandardCharsets.US_ASCII);
-                    imei = imei.replaceAll("[^0-9]", "").substring(0, 15);
-
-                    DeviceMessage message = new DeviceMessage();
-                    message.setProtocol("TELTONIKA");
-                    message.setMessageType("IMEI");
-                    message.setImei(imei);
-
-                    // Send Teltonika login response
-                    ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
-
-                    enrichMessageWithContext(ctx, message);
-                    return message;
-                }
-                // Handle other Teltonika packet types...
-            }
-
-            // Fallback to GT06 handling (existing code remains unchanged)
-            if (result == null || !"GT06".equals(result.getProtocol())) {
-                if (isValidGT06Header(data)) {
-                    result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "LOGIN", "1.0");
-                    logger.info("Manually detected GT06 packet");
+                if (teltonikaHandler != null) {
+                    logger.info("Delegating Teltonika packet to TeltonikaHandler: Protocol={}, PacketType={}", result.getProtocol(), result.getPacketType());
+                    // Use the existing handle method in TeltonikaHandler which correctly processes IMEI/DATA packets
+                    DeviceMessage teltonikaMessage = teltonikaHandler.handle(data, ctx); // Pass raw data and context
+                    if (teltonikaMessage != null) {
+                        enrichMessageWithContext(ctx, teltonikaMessage);
+                        return teltonikaMessage;
+                    } else {
+                        logger.warn("TeltonikaHandler did not return a message for protocol type: {}", result.getPacketType());
+                        return null; // TeltonikaHandler couldn't process this packet
+                    }
                 } else {
-                    logger.debug("Packet doesn't match known protocols");
+                    logger.error("TeltonikaHandler is not available, but Teltonika protocol detected. Cannot process.");
                     return null;
                 }
-            }
+            } else {
+                // If not Teltonika, assume it's GT06 or other protocols handled by `GenericProtocolDecoder`
+                logger.info("Processing as non-Teltonika packet (likely GT06): Protocol={}, PacketType={}",
+                        result != null ? result.getProtocol() : "UNKNOWN",
+                        result != null ? result.getPacketType() : "UNKNOWN");
 
-            DeviceMessage message = handle(data);
-            if (message != null) {
-                enrichMessageWithContext(ctx, message);
-                logger.info("Decoded message for IMEI: {}", message.getImei());
+                // Manual GT06 header detection as a final fallback if ProtocolDetector didn't identify it or identified as UNKNOWN
+                if (result == null && isValidGT06Header(data)) {
+                    result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "UNKNOWN_FROM_HEADER", "1.0");
+                    logger.info("Manually re-classified packet as GT06 based on header.");
+                }
+
+                if (result != null && "GT06".equals(result.getProtocol())) {
+                    // Call the abstract `handle` method, which `GenericProtocolDecoder` implements for GT06
+                    DeviceMessage gt06Message = handle(data); // This is where GenericProtocolDecoder's GT06 logic runs
+                    if (gt06Message != null) {
+                        enrichMessageWithContext(ctx, gt06Message);
+                        logger.info("Decoded GT06 message for IMEI: {}", gt06Message.getImei());
+                    }
+                    return gt06Message;
+                } else {
+                    logger.debug("Packet not identified as Teltonika or GT06. Returning null.");
+                    return null; // Cannot decode this packet
+                }
             }
-            return message;
         } catch (Exception e) {
-            logger.error("Decoding error for packet: {}", e.getMessage(), e);
+            logger.error("Decoding error in BaseProtocolDecoder: {}", e.getMessage(), e);
+            // Don't re-throw, just log and return null so pipeline can continue
             return null;
         }
     }
@@ -142,10 +183,9 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     }
 
     void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
-        message.setProtocolType("TELTONIKA");
-
         if (message.getProtocol() == null) {
-            message.setProtocolType("GT06"); // Default to GT06 if not set
+            // Default to GT06 if protocol is not set by the specific handler
+            message.setProtocol("GT06");
         }
 
         if (ctx.channel() instanceof SocketChannel) {
