@@ -82,9 +82,6 @@ public class AppConfig {
         return new AcknowledgementHandler();
     }
 
-    @Bean
-    public ProtocolDetectionHandler protocolDetectionHandler(ProtocolDetector detector) {
-        return new ProtocolDetectionHandler(detector);
-    }
+
 
 }
