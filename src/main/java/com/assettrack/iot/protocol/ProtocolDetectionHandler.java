@@ -7,54 +7,44 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.timeout.IdleStateEvent;
-import io.netty.util.ReferenceCountUtil;
-import jakarta.annotation.PostConstruct;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 
-@Component
 @ChannelHandler.Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
-
     private final ProtocolDetector protocolDetector;
 
-    @Autowired
     public ProtocolDetectionHandler(ProtocolDetector protocolDetector) {
         this.protocolDetector = protocolDetector;
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (!(msg instanceof ByteBuf)) {
+        if (!(msg instanceof ByteBuf buf)) {
             ctx.fireChannelRead(msg);
             return;
         }
 
-        ByteBuf buf = (ByteBuf) msg;
         try {
             byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data); // Don't consume buffer
+            buf.getBytes(buf.readerIndex(), data); // Don't consume
 
-            // Special handling for Teltonika IMEI packets
             if (isTeltonikaImeiPacket(data)) {
-                String imei = new String(data, 2, data.length-2, StandardCharsets.US_ASCII);
-                imei = imei.replaceAll("[^0-9]", "").substring(0, 15);
+                String imei = new String(data, 2, data.length - 2, StandardCharsets.US_ASCII)
+                        .replaceAll("[^0-9]", "")
+                        .substring(0, 15);
 
                 DeviceMessage message = new DeviceMessage();
                 message.setProtocol("TELTONIKA");
                 message.setMessageType("IMEI");
                 message.setImei(imei);
 
-                // Send Teltonika login response (0x01)
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
                 logger.info("Accepted Teltonika IMEI: {}", imei);
-
                 ctx.fireChannelRead(message);
                 return;
             }
@@ -64,11 +54,10 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
             if (result != null) {
                 logger.info("Detected protocol: {} - {}", result.getProtocol(), result.getPacketType());
-                ctx.fireChannelRead(result); // Forward detection result
+                ctx.fireChannelRead(result);
             }
 
-            // Always forward the original message
-            ctx.fireChannelRead(msg);
+            ctx.fireChannelRead(msg); // Pass original buffer
         } catch (Exception e) {
             logger.error("Protocol detection error", e);
             ctx.close();
@@ -77,8 +66,6 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     private boolean isTeltonikaImeiPacket(byte[] data) {
         if (data == null || data.length < 17) return false;
-
-        // Check for Teltonika IMEI packet structure (00 0F followed by 15 digits)
         if (data[0] == 0x00 && data[1] == 0x0F && data.length == 17) {
             try {
                 String imei = new String(data, 2, 15, StandardCharsets.US_ASCII);
@@ -105,11 +92,4 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             ctx.fireUserEventTriggered(evt);
         }
     }
-
-    @PostConstruct
-    public void logInstance() {
-        logger.info("[INIT] ProtocolDetectionHandler initialized with instance ID: {}", System.identityHashCode(this));
-    }
-
-
 }
