@@ -7,11 +7,13 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.util.ReferenceCountUtil; // Import for releasing ByteBuf
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 
 @ChannelHandler.Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
@@ -24,6 +26,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
+        // If the message is not a ByteBuf, pass it along immediately.
         if (!(msg instanceof ByteBuf buf)) {
             ctx.fireChannelRead(msg);
             return;
@@ -31,35 +34,32 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
         try {
             byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data); // Don't consume
+            buf.getBytes(buf.readerIndex(), data); // Read data without consuming (increasing readerIndex)
 
+            // Check if it's a Teltonika IMEI packet (handshake)
             if (isTeltonikaImeiPacket(data)) {
                 String imei = new String(data, 2, data.length - 2, StandardCharsets.US_ASCII)
                         .replaceAll("[^0-9]", "")
                         .substring(0, 15);
 
-                DeviceMessage message = new DeviceMessage();
-                message.setProtocol("TELTONIKA");
-                message.setMessageType("IMEI");
-                message.setImei(imei);
-
+                // Acknowledge Teltonika IMEI packet
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
                 logger.info("Accepted Teltonika IMEI: {}", imei);
-                ctx.fireChannelRead(message);
-                return;
+
+                // Release the ByteBuf as this handler has fully processed the IMEI handshake
+                ReferenceCountUtil.release(buf);
+                return; // Stop further processing of this IMEI packet in the pipeline
+            } else {
+                // For all other ByteBufs (assumed to be data packets),
+                // simply pass them downstream to the next handler (GenericProtocolDecoder).
+                // The GenericProtocolDecoder will then be responsible for protocol detection and actual decoding.
+                logger.info("Passing raw data to next decoder: {}", Hex.encodeHexString(data));
+                ctx.fireChannelRead(msg);
             }
-
-            logger.info("Detecting protocol for packet: {}", Hex.encodeHexString(data));
-            ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-
-            if (result != null) {
-                logger.info("Detected protocol: {} - {}", result.getProtocol(), result.getPacketType());
-                ctx.fireChannelRead(result);
-            }
-
-            ctx.fireChannelRead(msg); // Pass original buffer
         } catch (Exception e) {
             logger.error("Protocol detection error", e);
+            // Ensure the ByteBuf is released if an error occurs
+            ReferenceCountUtil.release(buf);
             ctx.close();
         }
     }

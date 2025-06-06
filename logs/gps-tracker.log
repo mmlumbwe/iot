@@ -409,3 +409,84 @@ Caused by: org.springframework.beans.factory.NoSuchBeanDefinitionException: No q
 2025-06-06 19:21:58 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
 2025-06-06 19:21:58 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x5a291128, L:/[0:0:0:0:0:0:0:0]:5023] ACTIVE
 2025-06-06 19:21:58 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server successfully bound to port 5023
+2025-06-06 19:44:36 [main] INFO  c.assettrack.iot.IotApplicationTests - Starting IotApplicationTests using Java 21 with PID 55486 (started by mathiaslumbwe in /projects/dev/school/iot)
+2025-06-06 19:44:36 [main] DEBUG c.assettrack.iot.IotApplicationTests - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-06-06 19:44:36 [main] INFO  c.assettrack.iot.IotApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2025-06-06 19:44:37 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-06-06 19:44:38 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 182 ms. Found 2 JPA repository interfaces.
+2025-06-06 19:44:39 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-06-06 19:44:39 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-06-06 19:44:39 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-06-06 19:44:39 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-06-06 19:44:39 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-06-06 19:44:40 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@79c4f23b
+2025-06-06 19:44:40 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-06-06 19:44:40 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-06-06 19:44:40 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-06-06 19:44:40 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-06-06 19:44:41 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-06-06 19:44:41 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-06-06 19:44:43 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-06-06 19:44:45 [main] INFO  c.a.i.network.TrackerPipelineFactory - TrackerPipelineFactory constructed.
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023, Max Threads: 10, Max Connections: 100
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - Starting Netty TCP server on port 5023
+2025-06-06 19:44:45 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac] REGISTERED
+2025-06-06 19:44:45 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac] BIND: 0.0.0.0/0.0.0.0:5023
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - Netty TCP server started successfully on port 5023
+2025-06-06 19:44:45 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac, L:/[0:0:0:0:0:0:0:0]:5023] ACTIVE
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
+2025-06-06 19:44:45 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server successfully bound to port 5023
+2025-06-06 19:44:52 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac, L:/[0:0:0:0:0:0:0:0]:5023] READ: [id: 0xe41d9367, L:/127.0.0.1:5023 - R:/127.0.0.1:52546]
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: e41d9367, instance ID: 2037424894
+2025-06-06 19:44:52 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac, L:/[0:0:0:0:0:0:0:0]:5023] READ COMPLETE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: e41d9367, instance ID: 488490180
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: e41d9367, instance ID: 819072671
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 - R:/127.0.0.1:52546] REGISTERED
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 - R:/127.0.0.1:52546] ACTIVE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 - R:/127.0.0.1:52546] READ: 10B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 0f 12 34 56 78 90 12 34 35                   |...4Vx..45      |
++--------+-------------------------------------------------+----------------+
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  c.a.i.p.ProtocolDetectionHandler - Detecting protocol for packet: 000f1234567890123435
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Received raw data: 00 0F 12 34 56 78 90 12 34 35
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 - R:/127.0.0.1:52546] READ COMPLETE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 - R:/127.0.0.1:52546] READ COMPLETE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 ! R:/127.0.0.1:52546] INACTIVE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 ! R:/127.0.0.1:52546] CLOSE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xe41d9367, L:/127.0.0.1:5023 ! R:/127.0.0.1:52546] UNREGISTERED
+2025-06-06 19:44:52 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac, L:/[0:0:0:0:0:0:0:0]:5023] READ: [id: 0x3593d423, L:/127.0.0.1:5023 - R:/127.0.0.1:52558]
+2025-06-06 19:44:52 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x2f141eac, L:/[0:0:0:0:0:0:0:0]:5023] READ COMPLETE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: 3593d423, instance ID: 1014677163
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: 3593d423, instance ID: 2037917504
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: 3593d423, instance ID: 1500780985
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 - R:/127.0.0.1:52558] REGISTERED
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 - R:/127.0.0.1:52558] ACTIVE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 - R:/127.0.0.1:52558] READ: 57B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 00 00 33 00 00 00 00 08 01 00 00 01 97 46 58 |...3..........FX|
+|00000010| 76 20 00 ff ff ff ff b9 85 71 78 14 4b f4 10 00 |v .......qx.K...|
+|00000020| 64 00 b4 08 00 1a 00 03 02 01 01 ef 01 01 43 31 |d.............C1|
+|00000030| 38 01 10 00 00 58 0a f2 44                      |8....X..D       |
++--------+-------------------------------------------------+----------------+
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  c.a.i.p.ProtocolDetectionHandler - Detecting protocol for packet: 00000033000000000801000001974658762000ffffffffb9857178144bf410006400b408001a0003020101ef010143313801100000580af244
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  c.a.iot.protocol.BaseProtocolDecoder - Received raw data: 00 00 00 33 00 00 00 00 08 01 00 00 01 97 46 58 76 20 00 FF FF FF FF B9 85 71 78 14 4B F4 10 00 64 00 B4 08 00 1A 00 03 02 01 01 EF 01 01 43 31 38 01 10 00 00 58 0A F2 44
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 - R:/127.0.0.1:52558] READ COMPLETE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 - R:/127.0.0.1:52558] READ COMPLETE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 ! R:/127.0.0.1:52558] INACTIVE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 ! R:/127.0.0.1:52558] CLOSE
+2025-06-06 19:44:52 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x3593d423, L:/127.0.0.1:5023 ! R:/127.0.0.1:52558] UNREGISTERED
