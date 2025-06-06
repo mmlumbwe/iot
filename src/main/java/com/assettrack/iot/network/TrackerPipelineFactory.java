@@ -4,7 +4,8 @@ import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.GenericProtocolDecoder;
 import com.assettrack.iot.protocol.ProtocolDetectionHandler;
-import com.assettrack.iot.protocol.ProtocolDetector; // Import ProtocolDetector
+import com.assettrack.iot.protocol.ProtocolDetector;
+import com.assettrack.iot.protocol.TeltonikaHandler; // Import TeltonikaHandler
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
@@ -21,23 +22,23 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
     private static final Logger logger = LoggerFactory.getLogger(TrackerPipelineFactory.class);
 
-    // Removed ProtocolDetectionHandler as a member variable to instantiate per channel
-    private final GenericProtocolDecoder genericDecoder;
+    // Removed ProtocolDetectionHandler and GenericProtocolDecoder as member variables
     private final NetworkMessageHandler networkMessageHandler;
     private final SessionManager sessionManager;
-    private final ProtocolDetector protocolDetector; // Inject ProtocolDetector
+    private final ProtocolDetector protocolDetector;
+    private final TeltonikaHandler teltonikaHandler; // Inject TeltonikaHandler
 
     @Autowired
     public TrackerPipelineFactory(
-            ProtocolDetector protocolDetector, // Inject ProtocolDetector directly
-            GenericProtocolDecoder genericDecoder,
+            ProtocolDetector protocolDetector,
             NetworkMessageHandler networkMessageHandler,
-            SessionManager sessionManager) {
+            SessionManager sessionManager,
+            @Autowired(required = false) TeltonikaHandler teltonikaHandler) { // Make TeltonikaHandler optional if it can be null
 
-        this.protocolDetector = protocolDetector; // Store ProtocolDetector
-        this.genericDecoder = genericDecoder;
+        this.protocolDetector = protocolDetector;
         this.networkMessageHandler = networkMessageHandler;
         this.sessionManager = sessionManager;
+        this.teltonikaHandler = teltonikaHandler; // Store TeltonikaHandler
 
         logger.info("TrackerPipelineFactory constructed.");
     }
@@ -50,6 +51,11 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         ProtocolDetectionHandler protocolDetectionHandler = new ProtocolDetectionHandler(protocolDetector);
         logger.info("Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: {}, instance ID: {}",
                 channel.id(), System.identityHashCode(protocolDetectionHandler));
+
+        // Create a new instance of GenericProtocolDecoder for each channel, passing its dependencies
+        GenericProtocolDecoder genericDecoder = new GenericProtocolDecoder(sessionManager, protocolDetector, teltonikaHandler);
+        logger.info("Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: {}, instance ID: {}",
+                channel.id(), System.identityHashCode(genericDecoder));
 
         // 1. Raw inbound byte logging
         if (pipeline.context("rawLogger") == null) {

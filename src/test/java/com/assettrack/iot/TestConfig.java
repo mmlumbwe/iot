@@ -48,15 +48,15 @@ public class TestConfig {
     @Primary
     public TrackerPipelineFactory testTrackerPipelineFactory() {
         ProtocolDetector mockProtocolDetection = Mockito.mock(ProtocolDetector.class);
-        GenericProtocolDecoder mockGenericProtocolDecoder = Mockito.mock(GenericProtocolDecoder.class);
         NetworkMessageHandler mockNetworkMessageHandler = Mockito.mock(NetworkMessageHandler.class);
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
+        TeltonikaHandler mockTeltonikaHandler = Mockito.mock(TeltonikaHandler.class);
 
         return new TrackerPipelineFactory(
                 mockProtocolDetection,
-                mockGenericProtocolDecoder,
                 mockNetworkMessageHandler,
-                mockSessionManager
+                mockSessionManager,
+                mockTeltonikaHandler
         );
     }
 
