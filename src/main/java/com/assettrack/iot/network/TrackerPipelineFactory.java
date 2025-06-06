@@ -4,7 +4,7 @@ import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.session.SessionManager;
-import  com.assettrack.iot.handler.network.AcknowledgementHandler;
+import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.session.cache.CacheManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
@@ -37,29 +37,47 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         this.genericDecoder = genericDecoder;
         this.networkMessageHandler = networkMessageHandler;
         this.sessionManager = sessionManager;
+
+        // Log the instance ID of the injected protocol detection handler
+        logger.info("TrackerPipelineFactory constructed with ProtocolDetectionHandler instance ID: {}",
+                System.identityHashCode(this.protocolDetectionHandler));
     }
 
     @Override
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // 1. Logging handler (new instance per channel)
-        pipeline.addLast(new LoggingHandler("Raw-Inbound", LogLevel.INFO));
+        // Log the instance ID again when adding to the pipeline
+        logger.info("Adding ProtocolDetectionHandler to pipeline — instance ID: {}",
+                System.identityHashCode(protocolDetectionHandler));
 
-        // 2. Protocol detection (shared instance)
-        pipeline.addLast("protocolDetector", protocolDetectionHandler);
+        // 1. Raw logging
+        if (pipeline.get("rawLogger") == null) {
+            pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO));
+        }
 
-        // 3. Idle state handler (new instance per channel)
-        pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
+        // 2. Protocol detector
+        if (pipeline.get("protocolDetector") == null) {
+            pipeline.addLast("protocolDetector", protocolDetectionHandler);
+        }
 
-        // 4. Generic decoder (shared instance)
-        pipeline.addLast("decoder", genericDecoder);
+        // 3. Idle handler
+        if (pipeline.get("idleHandler") == null) {
+            pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
+        }
 
-        // 5. Business logic handler (shared instance)
-        pipeline.addLast("messageHandler", networkMessageHandler);
+        // 4. Decoder
+        if (pipeline.get("decoder") == null) {
+            pipeline.addLast("decoder", genericDecoder);
+        }
 
-        // 6. Exception handler (new instance per channel)
-        pipeline.addLast(new ChannelDuplexHandler() {
+        // 5. Business logic
+        if (pipeline.get("messageHandler") == null) {
+            pipeline.addLast("messageHandler", networkMessageHandler);
+        }
+
+        // 6. Exception handler (anonymous is OK here)
+        pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
                 logger.error("Pipeline error", cause);

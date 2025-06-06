@@ -8,6 +8,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.ReferenceCountUtil;
+import jakarta.annotation.PostConstruct;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 @ChannelHandler.Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
+
     private final ProtocolDetector protocolDetector;
 
     @Autowired
@@ -103,4 +105,11 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             ctx.fireUserEventTriggered(evt);
         }
     }
+
+    @PostConstruct
+    public void logInstance() {
+        logger.info("[INIT] ProtocolDetectionHandler initialized with instance ID: {}", System.identityHashCode(this));
+    }
+
+
 }
