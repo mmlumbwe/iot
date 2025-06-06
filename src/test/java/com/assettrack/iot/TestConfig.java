@@ -50,11 +50,13 @@ public class TestConfig {
         ProtocolDetectionHandler mockProtocolDetectionHandler = Mockito.mock(ProtocolDetectionHandler.class);
         GenericProtocolDecoder mockGenericProtocolDecoder = Mockito.mock(GenericProtocolDecoder.class);
         NetworkMessageHandler mockNetworkMessageHandler = Mockito.mock(NetworkMessageHandler.class);
+        SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
 
         return new TrackerPipelineFactory(
                 mockProtocolDetectionHandler,
                 mockGenericProtocolDecoder,
-                mockNetworkMessageHandler
+                mockNetworkMessageHandler,
+                mockSessionManager
         );
     }
 
