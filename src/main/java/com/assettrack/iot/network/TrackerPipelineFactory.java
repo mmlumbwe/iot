@@ -4,6 +4,7 @@ import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.GenericProtocolDecoder;
 import com.assettrack.iot.protocol.ProtocolDetectionHandler;
+import com.assettrack.iot.protocol.ProtocolDetector; // Import ProtocolDetector
 import com.assettrack.iot.session.SessionManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
@@ -20,33 +21,35 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
     private static final Logger logger = LoggerFactory.getLogger(TrackerPipelineFactory.class);
 
-    private final ProtocolDetectionHandler protocolDetectionHandler;
+    // Removed ProtocolDetectionHandler as a member variable to instantiate per channel
     private final GenericProtocolDecoder genericDecoder;
     private final NetworkMessageHandler networkMessageHandler;
     private final SessionManager sessionManager;
+    private final ProtocolDetector protocolDetector; // Inject ProtocolDetector
 
     @Autowired
     public TrackerPipelineFactory(
-            ProtocolDetectionHandler protocolDetectionHandler,
+            ProtocolDetector protocolDetector, // Inject ProtocolDetector directly
             GenericProtocolDecoder genericDecoder,
             NetworkMessageHandler networkMessageHandler,
             SessionManager sessionManager) {
 
-        this.protocolDetectionHandler = protocolDetectionHandler;
+        this.protocolDetector = protocolDetector; // Store ProtocolDetector
         this.genericDecoder = genericDecoder;
         this.networkMessageHandler = networkMessageHandler;
         this.sessionManager = sessionManager;
 
-        logger.info("TrackerPipelineFactory constructed with ProtocolDetectionHandler instance ID: {}",
-                System.identityHashCode(this.protocolDetectionHandler));
+        logger.info("TrackerPipelineFactory constructed.");
     }
 
     @Override
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        logger.info("Adding ProtocolDetectionHandler to pipeline — instance ID: {}",
-                System.identityHashCode(protocolDetectionHandler));
+        // Create a new instance of ProtocolDetectionHandler for each channel
+        ProtocolDetectionHandler protocolDetectionHandler = new ProtocolDetectionHandler(protocolDetector);
+        logger.info("Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: {}, instance ID: {}",
+                channel.id(), System.identityHashCode(protocolDetectionHandler));
 
         // 1. Raw inbound byte logging
         if (pipeline.context("rawLogger") == null) {
