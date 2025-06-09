@@ -39,7 +39,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     private static final AttributeKey<ProtocolDetector.ProtocolDetectionResult> ATTR_DETECTION_RESULT =
             AttributeKey.valueOf("PROTOCOL_DETECTION_RESULT");
 
-    protected final ProtocolDetector protocolDetector;
+    private final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
     protected final TeltonikaHandler teltonikaHandler; // The TeltonikaHandler instance
 
@@ -50,6 +50,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         this.protocolDetector = protocolDetector;
         this.teltonikaHandler = teltonikaHandler;
     }
+
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -121,11 +122,15 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     //@Override // This overrides the default `decode` behavior in BaseProtocolDecoder
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
+        logger.info("Is protocolDetector null? {}", protocolDetector == null);
+
         try {
             logger.info("IN BASEPROTOCOLDECODER: Decoding packet...");
 
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data); // Read data without consuming here, `handle` or `teltonikaHandler` will consume
+
+            logger.info("decode(): result passed in is null? {}", result == null);
 
             // If no result provided, perform detection (fallback or if result was not passed as separate message)
             if (result == null) {
@@ -133,6 +138,9 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 result = protocolDetector.detect(data);
             }
             logger.info("PROTOCOLRESULT IS: {}", result);
+            logger.info("Forcing protocolDetector.detect(data). Actual class: {}", protocolDetector.getClass().getName());
+            result = protocolDetector.detect(data);
+
             // --- Route to TeltonikaHandler or GT06 handler ---
             if (result != null && "TELTONIKA".equals(result.getProtocol())) {
                 if (teltonikaHandler != null) {

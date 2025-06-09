@@ -5,7 +5,7 @@ public class NewProtocolMatcher implements ProtocolDetector.ProtocolMatcher {
     private static final byte[] SIGNATURE = {0x00, 0x00, 0x00, 0x33};
 
     @Override
-    public boolean matches(byte[] data) throws ProtocolDetector.ProtocolDetectionException {
+    public boolean matches(byte[] data) {
         if (data == null || data.length < MIN_PACKET_LENGTH) {
             return false;
         }
@@ -22,9 +22,9 @@ public class NewProtocolMatcher implements ProtocolDetector.ProtocolMatcher {
     }
 
     @Override
-    public String getPacketType(byte[] data) throws ProtocolDetector.ProtocolDetectionException {
+    public String getPacketType(byte[] data) {
         if (!matches(data)) {
-            throw new ProtocolDetector.ProtocolDetectionException("Not a NEW_PROTOCOL packet");
+            //throw new ProtocolDetector.ProtocolDetectionException("Not a NEW_PROTOCOL packet");
         }
 
         // Analyze packet to determine type

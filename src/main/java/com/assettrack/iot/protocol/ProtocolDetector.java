@@ -1,6 +1,7 @@
 package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.config.Checksum;
+import io.netty.channel.Channel;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
@@ -23,13 +25,16 @@ public class ProtocolDetector {
     // Protocol constants
     private static final byte PROTOCOL_HEADER_1 = 0x78;
     private static final byte PROTOCOL_HEADER_2 = 0x78;
+    protected static final byte PROTOCOL_LOGIN = 0x01;
 
     private final Map<String, ProtocolDetectionResult> detectionCache = new ConcurrentHashMap<>();
 
     static {
+        logger.info("ProtocolDetector: Registering protocol matchers...");
         registerProtocolMatcher("GT06", new Gt06Matcher());
         registerProtocolMatcher("TK103", new Tk103Matcher());
         registerProtocolMatcher("TELTONIKA", new TeltonikaMatcher());
+        logger.info("ProtocolDetector: Finished registering protocol matchers. Total registered: {}", PROTOCOL_MATCHERS.size());
     }
 
     public static void registerProtocolMatcher(String protocolName, ProtocolMatcher matcher) {
@@ -38,268 +43,219 @@ public class ProtocolDetector {
         }
     }
 
-    // Temporary test method
-    public ProtocolDetectionResult debugDetection(byte[] data) {
-        logger.info("==== DEBUG DETECTION ====");
-        logger.info("Data length: {}", data.length);
-        logger.info("Header bytes: {} {}",
-                data.length > 0 ? String.format("%02X", data[0]) : "N/A",
-                data.length > 1 ? String.format("%02X", data[1]) : "N/A");
-
-        // Manually check GT06 pattern
-        if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
-            logger.info("GT06 header detected");
-            return ProtocolDetectionResult.success("GT06", "DEBUG", "1.0");
-        }
+    public static Object failure(String noDetection) {
         return null;
     }
 
     public ProtocolDetectionResult detect(byte[] data) {
-        logger.info("IN ProtocolDetectionResult detect!!!!!!!!!!!");
-        logger.info("GT06 detection - Length: {}, Declared: {}, Valid: {}",
-                data.length,
-                data[2] & 0xFF,
-                data.length == (data[2] & 0xFF) + 5);
-
-        System.out.println("Packet analysis:");
-        System.out.println("Header: " + String.format("%02X%02X", data[0], data[1]));
-        System.out.println("Length: " + (data[2] & 0xFF));
-        System.out.println("Protocol: " + String.format("%02X", data[3]));
-        System.out.println("Footer: " +
-                String.format("%02X%02X", data[data.length-2], data[data.length-1]));
-
         if (data == null || data.length < MIN_DATA_LENGTH) {
-            logger.info("Insufficient data for detection ({} bytes)", data == null ? 0 : data.length);
-            return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "Insufficient data");
+            return ProtocolDetectionResult.failure("INVALID_DATA_LENGTH");
         }
 
-        // Special fast path for GT06 packets
-        if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
-            logger.info("Potential GT06 packet detected: {}", Hex.encodeHexString(data));
-            ProtocolMatcher matcher = PROTOCOL_MATCHERS.get("GT06");
-            if (matcher != null) {
-                try {
-                    if (matcher.matches(data)) {
-                        String packetType = matcher.getPacketType(data);
-                        logger.info("GT06 packet confirmed - Type: {}, Length: {}", packetType, data.length);
-                        return ProtocolDetectionResult.success("GT06", packetType, "1.0");
-                    } else {
-                        logger.debug("GT06 packet validation failed");
-                    }
-                } catch (ProtocolDetectionException e) {
-                    logger.debug("GT06 detection failed: {}", e.getMessage());
-                }
+        String dataHex = Hex.encodeHexString(Arrays.copyOf(data, Math.min(data.length, 20)));
+        if (detectionCache.containsKey(dataHex)) {
+            return detectionCache.get(dataHex);
+        }
+
+        for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
+            ProtocolMatcher matcher = entry.getValue();
+            if (matcher.matches(data)) {
+                ProtocolDetectionResult result = new ProtocolDetectionResult(
+                        true,
+                        entry.getKey(),
+                        matcher.getPacketType(data)
+                );
+                detectionCache.put(dataHex, result);
+                return result;
             }
         }
-
-        // Fall back to full matcher loop
-        return performDetection(data);
-    }
-
-    private ProtocolDetectionResult performDetection(byte[] data) {
-        try {
-            for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
-                try {
-                    ProtocolMatcher matcher = entry.getValue();
-                    if (matcher.matches(data)) {
-                        String packetType = matcher.getPacketType(data);
-                        String version = "1.0"; // Default version
-
-                        // Special handling for Teltonika version detection
-                        if ("TELTONIKA".equals(entry.getKey()) && "DATA".equals(packetType)) {
-                            version = detectTeltonikaVersion(data);
-                        }
-
-                        return ProtocolDetectionResult.success(entry.getKey(), packetType, version);
-                    }
-                } catch (ProtocolDetectionException e) {
-                    logger.debug("Protocol detection failed for {}: {}", entry.getKey(), e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error during protocol detection", e);
-        }
-
-        return ProtocolDetectionResult.error("UNKNOWN", "UNKNOWN", "No matching protocol found");
-    }
-
-    private String detectTeltonikaVersion(byte[] data) {
-        if (data.length > 8) {
-            int codecId = data[8] & 0xFF;
-            return TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN_CODEC");
-        }
-        return "UNKNOWN_CODEC";
-    }
-
-    private String bytesToHex(byte[] bytes) {
-        if (bytes == null) return "null";
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X", b));
-        }
-        return sb.toString();
+        return ProtocolDetectionResult.failure("UNKNOWN_PROTOCOL");
     }
 
     public static class ProtocolDetectionResult {
+        private final boolean valid;
         private final String protocol;
         private final String packetType;
         private final String version;
         private final String error;
-        private final Map<String, Object> metadata;
+        private final Channel channel;
 
-        ProtocolDetectionResult(String protocol, String packetType, String version,
-                                String error, Map<String, Object> metadata) {
+        public ProtocolDetectionResult(boolean valid, String protocol, String packetType) {
+            this(valid, protocol, packetType, "1.0", null, null);
+        }
+
+        public ProtocolDetectionResult(boolean valid, String protocol, String packetType, Channel channel) {
+            this(valid, protocol, packetType, "1.0", null, channel);
+        }
+
+        public ProtocolDetectionResult(boolean valid, String protocol, String packetType,
+                                       String version, String error, Channel channel) {
+            this.valid = valid;
             this.protocol = protocol;
             this.packetType = packetType;
             this.version = version;
             this.error = error;
-            this.metadata = metadata != null ? new LinkedHashMap<>(metadata) : new LinkedHashMap<>();
+            this.channel = channel;
         }
 
         public static ProtocolDetectionResult success(String protocol, String packetType, String version) {
-            return new ProtocolDetectionResult(protocol, packetType, version, null, null);
+            return new ProtocolDetectionResult(true, protocol, packetType, version, null, null);
         }
 
-        public static ProtocolDetectionResult error(String protocol, String packetType, String error) {
-            return new ProtocolDetectionResult(protocol, packetType, "UNKNOWN", error, null);
+        public static ProtocolDetectionResult failure(String error) {
+            return new ProtocolDetectionResult(false, "UNKNOWN", "ERROR", "0.0", error, null);
         }
 
-        public ProtocolDetectionResult withMetadata(String key, Object value) {
-            this.metadata.put(key, value);
-            return this;
+        public boolean isDetected() {
+            return valid;
         }
 
-        // Getters
-        public String getProtocol() { return protocol; }
-        public String getPacketType() { return packetType; }
-        public String getVersion() { return version; }
-        public String getError() { return error; }
-        public boolean isValid() { return error == null; }
-        public Map<String, Object> getMetadata() { return new LinkedHashMap<>(metadata); }
+        public String getProtocol() {
+            return protocol;
+        }
+
+        public String getPacketType() {
+            return packetType;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        public boolean isValid() {
+            return valid;
+        }
+
+        public String getError() {
+            return error;
+        }
+
+        public Channel getChannel() {
+            return channel;
+        }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "ProtocolDetectionResult[valid=%s, protocol=%s, packetType=%s, version=%s, error=%s]",
+                    valid, protocol, packetType, version, error
+            );
+        }
     }
 
-    public interface ProtocolMatcher {
-        boolean matches(byte[] data) throws ProtocolDetectionException;
-        String getPacketType(byte[] data) throws ProtocolDetectionException;
-    }
-
-    public static class ProtocolDetectionException extends Exception {
-        public ProtocolDetectionException(String message) {
-            super(message);
-        }
+    interface ProtocolMatcher {
+        boolean matches(byte[] data);
+        String getPacketType(byte[] data);
     }
 
     static class Gt06Matcher implements ProtocolMatcher {
-        private static final int MIN_GT06_LENGTH = 12;
-        private static final byte START_BYTE_1 = 0x78;
-        private static final byte START_BYTE_2 = 0x78;
-        private static final int LOGIN_PACKET_LENGTH = 22;
-
         @Override
         public boolean matches(byte[] data) {
-            return data != null && data.length >= 2 && data[0] == 0x78 && data[1] == 0x78;
-        }
+            if (data == null || data.length < 4) return false;
 
-        private boolean validateLoginPacket(byte[] data) {
-            // Verify footer bytes (0D 0A)
-            if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+            // Check header
+            if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
                 return false;
             }
 
-            // Verify checksum (simple XOR for GT06)
-            byte checksum = 0;
-            for (int i = 2; i < data.length - 4; i++) {
-                checksum ^= data[i];
-            }
-            return checksum == data[data.length - 4];
+            // Check length
+            int declaredLength = data[2] & 0xFF;
+            return data.length == (declaredLength + 4); // Header (2) + length (1) + data + CRC (1)
         }
 
         @Override
-        public String getPacketType(byte[] data) throws ProtocolDetectionException {
-            if (!matches(data) || data.length < 4) {
-                throw new ProtocolDetectionException("Not a GT06 packet");
-            }
-
-            byte protocolByte = data[3];
-            switch (protocolByte & 0xFF) {
+        public String getPacketType(byte[] data) {
+            if (data.length < 4) return "UNKNOWN";
+            switch (data[3]) {
                 case 0x01: return "LOGIN";
-                case 0x12: return "GPS";
+                case 0x12: return "GPS_DATA";
                 case 0x13: return "HEARTBEAT";
                 case 0x16: return "ALARM";
-                case 0x80: return "CONFIGURATION";
-                case 0x26: return "VL03_EXTENDED";
-                default:   return "UNKNOWN_0x" + String.format("%02X", protocolByte);
+                default: return "UNKNOWN_GT06";
             }
         }
     }
 
     static class Tk103Matcher implements ProtocolMatcher {
-        private static final int MIN_TK103_LENGTH = 6;
-        private static final byte START_BYTE_1 = 0x23;
-        private static final byte START_BYTE_2 = 0x23;
-
         @Override
-        public boolean matches(byte[] data) throws ProtocolDetectionException {
-            if (data == null || data.length < MIN_TK103_LENGTH) {
-                return false;
-            }
-            return (data[0] == START_BYTE_1 && data[1] == START_BYTE_2) ||
-                    new String(data, StandardCharsets.US_ASCII).matches("^\\d{15},.*");
+        public boolean matches(byte[] data) {
+            if (data == null || data.length < 4) return false;
+
+            // Check header and terminator
+            return (data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) &&
+                    (data[data.length-2] == 0x0D && data[data.length-1] == 0x0A);
         }
 
         @Override
-        public String getPacketType(byte[] data) throws ProtocolDetectionException {
-            if (!matches(data)) {
-                throw new ProtocolDetectionException("Not a TK103 packet");
-            }
+        public String getPacketType(byte[] data) {
+            if (data.length < 4) return "UNKNOWN";
             String message = new String(data, StandardCharsets.US_ASCII);
-            if (message.startsWith("##")) {
-                return message.contains("A;") ? "LOGIN" : "CONFIGURATION";
+            if (message.contains("A;") || message.contains("a;")) {
+                return "LOGIN";
             }
-            return message.contains("imei:") ? "IMEI" : "LOCATION";
+            return message.contains(";") ? "DATA" : "UNKNOWN_TK103";
         }
     }
 
     static class TeltonikaMatcher implements ProtocolMatcher {
         @Override
         public boolean matches(byte[] data) {
-            if (data == null || data.length < 17) return false;
+            if (data == null) return false;
 
-            int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
-
-            // Validate: 15-digit IMEI + 2 bytes length = 17 bytes total
-            if (length == 15 && data.length == 17) {
+            // IMEI packet
+            if (data.length == 17 && data[0] == 0x00 && data[1] == 0x0F) {
                 try {
-                    String imei = new String(data, 2, 15, StandardCharsets.US_ASCII).trim();
-                    logger.info("TeltonikaMatcher: data length = {}, declared = {}", data.length, length);
-                    logger.info("IMEI string = {}", imei);
-
+                    String imei = new String(data, 2, 15, StandardCharsets.US_ASCII);
                     return imei.matches("^\\d{15}$");
                 } catch (Exception e) {
                     return false;
                 }
             }
+
+            // AVL data packet
+            if (data.length >= 12) {
+                try {
+                    ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+                    int avlLength = buffer.getInt(4);
+                    return data.length == (avlLength + 12);
+                } catch (Exception e) {
+                    return false;
+                }
+            }
+
             return false;
         }
 
-
         @Override
         public String getPacketType(byte[] data) {
-            return "IMEI"; // For IMEI packets
+            if (data == null) return "UNKNOWN";
+
+            // IMEI packet
+            if (data.length == 17 && data[0] == 0x00 && data[1] == 0x0F) {
+                return "IMEI";
+            }
+
+            // AVL data packet
+            if (data.length >= 12) {
+                try {
+                    int codecId = data[8] & 0xFF;
+                    return "AVL_DATA_CODEC_" + codecId;
+                } catch (Exception e) {
+                    return "UNKNOWN_AVL";
+                }
+            }
+
+            return "UNKNOWN_TELTONIKA";
         }
     }
 
     public static class TeltonikaConstants {
         public static final int IMEI_MIN_LENGTH = 15;
-        public static final int IMEI_MAX_LENGTH = 17;
-        public static final int MAX_PACKET_SIZE = 2048;
-
-        public static final Map<Integer, String> CODECS = new LinkedHashMap<>();
-        static {
-            CODECS.put(0x08, "CODEC_8");
-            CODECS.put(0x0C, "CODEC_12");
-            CODECS.put(0x0E, "CODEC_13");
-            CODECS.put(0x10, "CODEC_16");
-        }
+        public static final Map<Integer, String> CODECS = Map.of(
+                0x08, "CODEC_8",
+                0x0C, "CODEC_7",
+                0x10, "CODEC_16",
+                0x8E, "CODEC_8_EXT"
+        );
     }
 }

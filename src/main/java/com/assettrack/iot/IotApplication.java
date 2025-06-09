@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ComponentScan(basePackages = {
 		"com.assettrack.iot.protocol",
 		"com.assettrack.iot.service",
+		"com.assettrack.iot.network",
 		"com.assettrack.iot.handler.network",
 		"com.assettrack.iot.session"
 })
