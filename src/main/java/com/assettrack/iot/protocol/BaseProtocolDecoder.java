@@ -10,6 +10,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.socket.SocketChannel;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
@@ -35,10 +36,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     protected static final byte PROTOCOL_LOGIN = 0x01;
     protected static final byte PROTOCOL_TERMINATOR_1 = 0x0D;
     protected static final byte PROTOCOL_TERMINATOR_2 = 0x0A;
+    private static final AttributeKey<ProtocolDetector.ProtocolDetectionResult> ATTR_DETECTION_RESULT =
+            AttributeKey.valueOf("PROTOCOL_DETECTION_RESULT");
 
     protected final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
     protected final TeltonikaHandler teltonikaHandler; // The TeltonikaHandler instance
+
 
     @Autowired
     public BaseProtocolDecoder(SessionManager sessionManager, ProtocolDetector protocolDetector, @Autowired(required = false) TeltonikaHandler teltonikaHandler) {
@@ -65,6 +69,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         // from ProtocolDetectionHandler.
         if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
             result = (ProtocolDetector.ProtocolDetectionResult) msg;
+            ctx.channel().attr(ATTR_DETECTION_RESULT).set((ProtocolDetector.ProtocolDetectionResult) msg);
             // Store the result temporarily, or expect the ByteBuf next.
             // For a robust solution, consider Netty's `MessageToMessageDecoder` or a custom aggregator.
             // For this setup, we'll proceed assuming result and buf arrive sequentially or are handled by `decode`'s fallback.
@@ -72,6 +77,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             return; // Wait for the ByteBuf
         } else if (msg instanceof ByteBuf) {
             buf = (ByteBuf) msg;
+            result = ctx.channel().attr(ATTR_DETECTION_RESULT).get();
             // Attempt to retrieve a result if it was fired just before this ByteBuf
             // (This requires careful pipeline design or an aggregator)
             // For now, the `decode` method will handle re-detection if result is null.
@@ -88,7 +94,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             try {
                 // Pass null for result initially if not directly available; decode will re-detect.
                 // A better approach would be to ensure result is available here, e.g., via aggregator or attribute.
-                Object decodedMessage = decode(ctx, buf, null); // Pass null for result, decode will get it or re-detect
+                Object decodedMessage = decode(ctx, buf, result); // Pass null for result, decode will get it or re-detect
 
                 if (decodedMessage != null) {
                     ctx.fireChannelRead(decodedMessage);
@@ -126,7 +132,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 logger.debug("No detection result provided, performing detection within BaseProtocolDecoder.");
                 result = protocolDetector.detect(data);
             }
-
+            logger.info("PROTOCOLRESULT IS: {}", result);
             // --- Route to TeltonikaHandler or GT06 handler ---
             if (result != null && "TELTONIKA".equals(result.getProtocol())) {
                 if (teltonikaHandler != null) {

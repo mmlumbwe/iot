@@ -263,20 +263,25 @@ public class ProtocolDetector {
     static class TeltonikaMatcher implements ProtocolMatcher {
         @Override
         public boolean matches(byte[] data) {
-            if (data == null || data.length < 2) return false;
+            if (data == null || data.length < 17) return false;
 
-            // Check for IMEI packet (length prefix + IMEI)
             int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
-            if (data.length == length + 2 && length >= 15 && length <= 17) {
+
+            // Validate: 15-digit IMEI + 2 bytes length = 17 bytes total
+            if (length == 15 && data.length == 17) {
                 try {
-                    String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
-                    return imei.matches("^\\d{15,17}$");
+                    String imei = new String(data, 2, 15, StandardCharsets.US_ASCII).trim();
+                    logger.info("TeltonikaMatcher: data length = {}, declared = {}", data.length, length);
+                    logger.info("IMEI string = {}", imei);
+
+                    return imei.matches("^\\d{15}$");
                 } catch (Exception e) {
                     return false;
                 }
             }
             return false;
         }
+
 
         @Override
         public String getPacketType(byte[] data) {
