@@ -9,6 +9,9 @@ import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.assettrack.iot.protocol.BaseProtocolDecoder.PROTOCOL_HEADER_1;
+import static com.assettrack.iot.protocol.BaseProtocolDecoder.PROTOCOL_HEADER_2;
+
 // Removed @Sharable annotation since we're creating new instances per channel
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
@@ -20,41 +23,44 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        // If the message is not a ByteBuf, pass it along immediately.
-        // This is crucial if a previous handler or Netty itself passes non-ByteBuf messages.
         if (!(msg instanceof ByteBuf buf)) {
             ctx.fireChannelRead(msg);
             return;
         }
 
-        // Retain the buffer so it can be safely used by subsequent handlers.
-        // The last handler consuming the buffer is responsible for releasing it.
-        buf.retain();
         try {
             byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data); // Read data without consuming (increasing readerIndex)
+            buf.getBytes(buf.readerIndex(), data);
+            buf.retain();
 
-            logger.info("ProtocolDetectionHandler: Detecting protocol for raw packet: {}", Hex.encodeHexString(data));
+            logger.debug("Protocol detection for: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
-            if (result != null && result.isDetected()) {
-                logger.info("ProtocolDetectionHandler: Detected protocol: {} - {}", result.getProtocol(), result.getPacketType());
-                ctx.fireChannelRead(result); // Pass the detection result downstream
+            if (result.isDetected()) {
+                logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());
+                ctx.fireChannelRead(result);
+                ctx.fireChannelRead(buf);
             } else {
-                logger.warn("ProtocolDetectionHandler: No protocol detected by ProtocolDetector for packet: {}", Hex.encodeHexString(data));
-                // Even if not detected, we might still want to pass an UNKNOWN result
-                // so the next handler can make decisions or log appropriately.
-                ctx.fireChannelRead(ProtocolDetector.failure("NO_DETECTION"));
+                logger.warn("No protocol detected ({}), attempting fallback", result.getError());
+
+                // Fallback for GT06-like packets
+                if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+                    logger.info("Fallback detection as GT06 based on header");
+                    ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.success("GT06", "FALLBACK_DETECT", "1.0"));
+                    ctx.fireChannelRead(buf);
+                } else {
+                    logger.error("No protocol detected and no fallback available");
+                    ReferenceCountUtil.release(buf);
+                    ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("NO_MATCHING_PROTOCOL"));
+                }
             }
-
-            ctx.fireChannelRead(buf); // Pass the original ByteBuf downstream for decoding
-
         } catch (Exception e) {
-            logger.error("ProtocolDetectionHandler: Error in ProtocolDetectionHandler", e);
-            ReferenceCountUtil.release(buf); // Release buffer on error
-            ctx.close(); // Close the channel on error
+            logger.error("Protocol detection error", e);
+            ReferenceCountUtil.release(buf);
+            ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR"));
         }
     }
+
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {

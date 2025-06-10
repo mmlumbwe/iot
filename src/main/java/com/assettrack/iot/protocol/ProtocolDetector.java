@@ -52,23 +52,37 @@ public class ProtocolDetector {
             return ProtocolDetectionResult.failure("INVALID_DATA_LENGTH");
         }
 
-        String dataHex = Hex.encodeHexString(Arrays.copyOf(data, Math.min(data.length, 20)));
-        if (detectionCache.containsKey(dataHex)) {
-            return detectionCache.get(dataHex);
-        }
+        // Don't use cache for the first implementation to avoid masking issues
+        // String dataHex = Hex.encodeHexString(Arrays.copyOf(data, Math.min(data.length, 20)));
+        // if (detectionCache.containsKey(dataHex)) {
+        //     return detectionCache.get(dataHex);
+        // }
 
         for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
-            ProtocolMatcher matcher = entry.getValue();
-            if (matcher.matches(data)) {
-                ProtocolDetectionResult result = new ProtocolDetectionResult(
-                        true,
-                        entry.getKey(),
-                        matcher.getPacketType(data)
-                );
-                detectionCache.put(dataHex, result);
-                return result;
+            try {
+                ProtocolMatcher matcher = entry.getValue();
+                if (matcher.matches(data)) {
+                    ProtocolDetectionResult result = new ProtocolDetectionResult(
+                            true,
+                            entry.getKey(),
+                            matcher.getPacketType(data),
+                            "1.0",
+                            null,
+                            null
+                    );
+                    // detectionCache.put(dataHex, result);
+                    return result;
+                }
+            } catch (Exception e) {
+                logger.warn("Error in {} protocol matcher: {}", entry.getKey(), e.getMessage());
             }
         }
+
+        // Special case for GT06-like packets that might have failed strict validation
+        if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+            return ProtocolDetectionResult.success("GT06", "POSSIBLE_GT06", "1.0");
+        }
+
         return ProtocolDetectionResult.failure("UNKNOWN_PROTOCOL");
     }
 
@@ -158,20 +172,43 @@ public class ProtocolDetector {
                 return false;
             }
 
-            // Check length
+            // Check minimum structure
             int declaredLength = data[2] & 0xFF;
-            return data.length == (declaredLength + 4); // Header (2) + length (1) + data + CRC (1)
+            if (data.length < (declaredLength + 5)) return false; // +5 for header(2)+len(1)+proto(1)+crc(1)
+
+            // Verify terminator if present
+            if (data.length >= (declaredLength + 6) &&
+                    !(data[data.length-2] == 0x0D && data[data.length-1] == 0x0A)) {
+                return false;
+            }
+
+            // Basic checksum verification
+            try {
+                int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25,
+                        ByteBuffer.wrap(data, 2, declaredLength + 1));
+                int packetChecksum = ((data[declaredLength + 3] & 0xFF) << 8) |
+                        (data[declaredLength + 4] & 0xFF);
+                return calculatedChecksum == packetChecksum;
+            } catch (Exception e) {
+                return false;
+            }
         }
 
         @Override
         public String getPacketType(byte[] data) {
-            if (data.length < 4) return "UNKNOWN";
-            switch (data[3]) {
+            if (data == null || data.length < 4) return "UNKNOWN";
+            byte protocol = data[3];
+            switch (protocol) {
                 case 0x01: return "LOGIN";
                 case 0x12: return "GPS_DATA";
                 case 0x13: return "HEARTBEAT";
                 case 0x16: return "ALARM";
-                default: return "UNKNOWN_GT06";
+                case 0x1A: return "STATUS";
+                case (byte) 0x80: return "GPRS_COMMAND";
+                default: {
+                    if ((protocol & 0xF0) == 0x10) return "EXTENDED_DATA";
+                    return "UNKNOWN_GT06_" + String.format("%02X", protocol);
+                }
             }
         }
     }
