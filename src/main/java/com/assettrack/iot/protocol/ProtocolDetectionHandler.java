@@ -36,6 +36,14 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             logger.info("Protocol detection for packet: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
+            if (result == null) {
+                logger.error("ProtocolDetector returned null for data: {}", Hex.encodeHexString(data));
+                ReferenceCountUtil.release(buf);
+                // Propagate a failure result downstream:
+                ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTOR_RETURNED_NULL"));
+                return;
+            }
+
             // This check is now safe since detect() never returns null
             if (result.isDetected()) {
                 logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());

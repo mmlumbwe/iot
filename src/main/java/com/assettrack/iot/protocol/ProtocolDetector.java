@@ -43,10 +43,6 @@ public class ProtocolDetector {
         }
     }
 
-    public static Object failure(String noDetection) {
-        return null;
-    }
-
     public ProtocolDetectionResult detect(byte[] data) {
         if (data == null || data.length < MIN_DATA_LENGTH) {
             return ProtocolDetectionResult.failure("INVALID_DATA_LENGTH");
