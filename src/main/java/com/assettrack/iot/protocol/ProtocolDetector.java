@@ -52,38 +52,80 @@ public class ProtocolDetector {
             return ProtocolDetectionResult.failure("INVALID_DATA_LENGTH");
         }
 
-        // Don't use cache for the first implementation to avoid masking issues
-        // String dataHex = Hex.encodeHexString(Arrays.copyOf(data, Math.min(data.length, 20)));
-        // if (detectionCache.containsKey(dataHex)) {
-        //     return detectionCache.get(dataHex);
-        // }
-
-        for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
-            try {
-                ProtocolMatcher matcher = entry.getValue();
-                if (matcher.matches(data)) {
-                    ProtocolDetectionResult result = new ProtocolDetectionResult(
-                            true,
-                            entry.getKey(),
-                            matcher.getPacketType(data),
-                            "1.0",
-                            null,
-                            null
-                    );
-                    // detectionCache.put(dataHex, result);
-                    return result;
+        try {
+            // First check for GT06 packets manually since they're most common
+            if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+                ProtocolDetectionResult gt06Result = checkGt06(data);
+                if (gt06Result.isDetected()) {
+                    return gt06Result;
                 }
-            } catch (Exception e) {
-                logger.warn("Error in {} protocol matcher: {}", entry.getKey(), e.getMessage());
             }
-        }
 
-        // Special case for GT06-like packets that might have failed strict validation
-        if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
-            return ProtocolDetectionResult.success("GT06", "POSSIBLE_GT06", "1.0");
-        }
+            // Check other protocols
+            for (Map.Entry<String, ProtocolMatcher> entry : PROTOCOL_MATCHERS.entrySet()) {
+                try {
+                    ProtocolMatcher matcher = entry.getValue();
+                    if (matcher.matches(data)) {
+                        return new ProtocolDetectionResult(
+                                true,
+                                entry.getKey(),
+                                matcher.getPacketType(data),
+                                "1.0",
+                                null,
+                                null
+                        );
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error in {} protocol matcher: {}", entry.getKey(), e.getMessage());
+                }
+            }
 
-        return ProtocolDetectionResult.failure("UNKNOWN_PROTOCOL");
+            // Fallback for GT06-like packets
+            if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+                return ProtocolDetectionResult.success("GT06", "POSSIBLE_GT06", "1.0");
+            }
+
+            return ProtocolDetectionResult.failure("UNKNOWN_PROTOCOL");
+        } catch (Exception e) {
+            logger.error("Error during protocol detection", e);
+            return ProtocolDetectionResult.failure("DETECTION_ERROR");
+        }
+    }
+
+    private ProtocolDetectionResult checkGt06(byte[] data) {
+        try {
+            if (data.length < 5) return ProtocolDetectionResult.failure("GT06_TOO_SHORT");
+
+            int declaredLength = data[2] & 0xFF;
+            if (data.length < declaredLength + 5) {
+                return ProtocolDetectionResult.failure("GT06_INVALID_LENGTH");
+            }
+
+            // Verify checksum
+            int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25,
+                    ByteBuffer.wrap(data, 2, declaredLength + 1));
+            int packetChecksum = ((data[declaredLength + 3] & 0xFF) << 8) |
+                    (data[declaredLength + 4] & 0xFF);
+
+            if (calculatedChecksum != packetChecksum) {
+                return ProtocolDetectionResult.failure("GT06_CHECKSUM_MISMATCH");
+            }
+
+            String packetType = "UNKNOWN_GT06";
+            if (data.length > 3) {
+                switch (data[3]) {
+                    case 0x01: packetType = "LOGIN"; break;
+                    case 0x12: packetType = "GPS_DATA"; break;
+                    case 0x13: packetType = "HEARTBEAT"; break;
+                    case 0x16: packetType = "ALARM"; break;
+                }
+            }
+
+            return ProtocolDetectionResult.success("GT06", packetType, "1.0");
+        } catch (Exception e) {
+            logger.warn("GT06 detection error", e);
+            return ProtocolDetectionResult.failure("GT06_DETECTION_ERROR");
+        }
     }
 
     public static class ProtocolDetectionResult {

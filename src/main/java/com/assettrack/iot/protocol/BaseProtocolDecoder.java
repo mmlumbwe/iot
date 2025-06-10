@@ -60,65 +60,28 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        logger.debug("BaseProtocolDecoder received message of type: {}", msg.getClass().getSimpleName());
-
-        // ProtocolDetectionResult might arrive before the ByteBuf or intermingled.
-        // We need to ensure we have both to make a decision.
-        // A common pattern is to store the result in ChannelHandlerContext's attributes
-        // or ensure `ProtocolDetectionHandler` fires them as a single custom aggregated message.
-        // For simplicity here, we'll try to get both from the pipeline.
-
-        ProtocolDetector.ProtocolDetectionResult result = null;
-        ByteBuf buf = null;
-
-        // Try to get the ProtocolDetectionResult from the current message if it's there.
-        // This scenario handles `ctx.fireChannelRead(result)` followed by `ctx.fireChannelRead(buf)`
-        // from ProtocolDetectionHandler.
         if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
-            result = (ProtocolDetector.ProtocolDetectionResult) msg;
-            ctx.channel().attr(ATTR_DETECTION_RESULT).set((ProtocolDetector.ProtocolDetectionResult) msg);
-            // Store the result temporarily, or expect the ByteBuf next.
-            // For a robust solution, consider Netty's `MessageToMessageDecoder` or a custom aggregator.
-            // For this setup, we'll proceed assuming result and buf arrive sequentially or are handled by `decode`'s fallback.
-            ctx.fireChannelRead(msg); // Pass the result along, as `decode` might need it too.
-            return; // Wait for the ByteBuf
-        } else if (msg instanceof ByteBuf) {
-            buf = (ByteBuf) msg;
-            result = ctx.channel().attr(ATTR_DETECTION_RESULT).get();
-            // Attempt to retrieve a result if it was fired just before this ByteBuf
-            // (This requires careful pipeline design or an aggregator)
-            // For now, the `decode` method will handle re-detection if result is null.
-        } else {
-            // Unknown message type, pass it on
+            ProtocolDetector.ProtocolDetectionResult result = (ProtocolDetector.ProtocolDetectionResult) msg;
+            if (!result.isDetected()) {
+                logger.warn("Received undetected protocol result: {}", result.getError());
+                return;
+            }
+            ctx.channel().attr(ATTR_DETECTION_RESULT).set(result);
             return;
         }
 
-        if (buf != null && buf.isReadable()) {
-            // Retain the buffer so it can be safely used by `decode` method after reading bytes.
-            // `decode` method will consume and release it.
-            buf.retain();
-            try {
-                // Pass null for result initially if not directly available; decode will re-detect.
-                // A better approach would be to ensure result is available here, e.g., via aggregator or attribute.
-                Object decodedMessage = decode(ctx, buf, result); // Pass null for result, decode will get it or re-detect
+        if (msg instanceof ByteBuf) {
+            ByteBuf buf = (ByteBuf) msg;
+            ProtocolDetector.ProtocolDetectionResult result = ctx.channel().attr(ATTR_DETECTION_RESULT).get();
 
-                if (decodedMessage != null) {
-                    ctx.fireChannelRead(decodedMessage);
-                    logger.info("Successfully decoded message of type: {}",
-                            decodedMessage instanceof DeviceMessage ?
-                                    ((DeviceMessage) decodedMessage).getMessageType() : "Unknown");
-                } else {
-                    logger.warn("No message decoded from raw data: {}", bytesToHex(new byte[buf.readableBytes()])); // Log the data before release
+            try {
+                Object decoded = decode(ctx, buf, result);
+                if (decoded != null) {
+                    ctx.fireChannelRead(decoded);
                 }
-            } catch (Exception e) {
-                logger.error("Error in protocol decoding: {}", e.getMessage(), e);
-                ctx.close();
             } finally {
-                ReferenceCountUtil.release(buf); // Ensure the ByteBuf is released after processing
+                ReferenceCountUtil.release(buf);
             }
-        } else if (buf != null) {
-            // If buffer is empty or not readable, release it
-            ReferenceCountUtil.release(buf);
         }
     }
 
