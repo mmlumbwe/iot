@@ -2,10 +2,7 @@ package com.assettrack.iot.network;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
-import com.assettrack.iot.protocol.GenericProtocolDecoder;
-import com.assettrack.iot.protocol.ProtocolDetectionHandler;
-import com.assettrack.iot.protocol.ProtocolDetector;
-import com.assettrack.iot.protocol.TeltonikaHandler;
+import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.session.SessionManager;
 import com.assettrack.iot.session.cache.CacheManager; // Import CacheManager
 import io.netty.buffer.ByteBuf;
@@ -26,6 +23,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private final SessionManager sessionManager;
     private final ProtocolDetector protocolDetector;
     private final TeltonikaHandler teltonikaHandler;
+    protected final Gt06Handler gt06Handler;
     private final CacheManager cacheManager; // Inject CacheManager
 
     @Autowired
@@ -33,12 +31,14 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             ProtocolDetector protocolDetector,
             SessionManager sessionManager,
             CacheManager cacheManager, // Add CacheManager to constructor
-            @Autowired(required = false) TeltonikaHandler teltonikaHandler) {
+            @Autowired(required = false) TeltonikaHandler teltonikaHandler,
+            @Autowired(required = false) Gt06Handler gt06Handler) {
 
         this.protocolDetector = protocolDetector;
         this.sessionManager = sessionManager;
         this.cacheManager = cacheManager; // Assign CacheManager
         this.teltonikaHandler = teltonikaHandler;
+        this.gt06Handler       = gt06Handler;
 
         logger.info("TrackerPipelineFactory constructed.");
     }
@@ -53,7 +53,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
                 channel.id(), System.identityHashCode(protocolDetectionHandler));
 
         // Create a new instance of GenericProtocolDecoder for each channel, passing its dependencies
-        GenericProtocolDecoder genericDecoder = new GenericProtocolDecoder(sessionManager, protocolDetector, teltonikaHandler);
+        GenericProtocolDecoder genericDecoder = new GenericProtocolDecoder(sessionManager, protocolDetector, teltonikaHandler, gt06Handler);
         logger.info("Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: {}, instance ID: {}",
                 channel.id(), System.identityHashCode(genericDecoder));
 

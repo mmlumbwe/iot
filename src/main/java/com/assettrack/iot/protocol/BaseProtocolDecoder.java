@@ -42,13 +42,19 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     private final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
     protected final TeltonikaHandler teltonikaHandler; // The TeltonikaHandler instance
+    protected final Gt06Handler gt06Handler;
 
 
     @Autowired
-    public BaseProtocolDecoder(SessionManager sessionManager, ProtocolDetector protocolDetector, @Autowired(required = false) TeltonikaHandler teltonikaHandler) {
+    public BaseProtocolDecoder(
+            SessionManager sessionManager,
+            ProtocolDetector protocolDetector,
+            @Autowired(required = false) TeltonikaHandler teltonikaHandler,
+            @Autowired(required = false) Gt06Handler gt06Handler) {
         this.sessionManager = sessionManager;
         this.protocolDetector = protocolDetector;
         this.teltonikaHandler = teltonikaHandler;
+        this.gt06Handler = gt06Handler;
     }
 
 
@@ -171,13 +177,23 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 }
 
                 if (result != null && "GT06".equals(result.getProtocol())) {
-                    // Call the abstract `handle` method, which `GenericProtocolDecoder` implements for GT06
-                    DeviceMessage gt06Message = handle(data); // This is where GenericProtocolDecoder's GT06 logic runs
-                    if (gt06Message != null) {
-                        enrichMessageWithContext(ctx, gt06Message);
-                        logger.info("Decoded GT06 message for IMEI: {}", gt06Message.getImei());
+                    // 1) Delegate to your Gt06Handler if available
+                    if (gt06Handler != null) {
+                        logger.info("Delegating GT06 packet to Gt06Handler: {}, {}", result.getProtocol(), result.getPacketType());
+                        DeviceMessage msg = gt06Handler.handle(data, ctx);
+                        if (msg != null) {
+                            enrichMessageWithContext(ctx, msg);
+                            return msg;
+                        }
+                        logger.warn("Gt06Handler returned null for packet type: {}", result.getPacketType());
                     }
-                    return gt06Message;
+                    // 2) Fallback to the old GenericProtocolDecoder.handle()
+                    logger.debug("Falling back to default GT06 logic");
+                    DeviceMessage fallback = handle(data);
+                    if (fallback != null) {
+                        enrichMessageWithContext(ctx, fallback);
+                    }
+                    return fallback;
                 } else {
                     logger.debug("Packet not identified as Teltonika or GT06. Returning null.");
                     return null; // Cannot decode this packet

@@ -51,12 +51,14 @@ public class TestConfig {
         SessionManager mockSessionManager = Mockito.mock(SessionManager.class);
         CacheManager mockCacheManager = Mockito.mock(CacheManager.class);
         TeltonikaHandler mockTeltonikaHandler = Mockito.mock(TeltonikaHandler.class);
+        Gt06Handler mockGt06Handler = Mockito.mock(Gt06Handler.class);
 
         return new TrackerPipelineFactory(
                 mockProtocolDetection,
                 mockSessionManager,
                 mockCacheManager,
-                mockTeltonikaHandler
+                mockTeltonikaHandler,
+                mockGt06Handler
         );
     }
 
