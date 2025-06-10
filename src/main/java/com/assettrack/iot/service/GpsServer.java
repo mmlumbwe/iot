@@ -313,11 +313,11 @@ public class GpsServer {
 
     //---------------------------------
 
-    @Scheduled(fixedRate = 3600000) // 1 hour
+    /*@Scheduled(fixedRate = 3600000) // 1 hour
     public void cleanupBlacklist() {
         logger.info("Current blacklist size: {}", blacklistedIps.size());
         // Implement logic to expire old blacklist entries if needed
-    }
+    }*/
 
     @Async
     protected void startTcpServer() {
@@ -366,7 +366,7 @@ public class GpsServer {
     }
 
     // Add this scheduled task to clean up stale connections
-    @Scheduled(fixedRate = 60000) // Run every minute
+    //@Scheduled(fixedRate = 60000) // Run every minute
 
     private void handleTcpClient(Socket clientSocket) {
         String clientAddress = clientSocket.getInetAddress().getHostAddress();

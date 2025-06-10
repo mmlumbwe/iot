@@ -256,3 +256,589 @@
 2025-06-10 19:56:23 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
 2025-06-10 19:56:23 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xc0646a0a, L:/0.0.0.0:5023] ACTIVE
 2025-06-10 19:56:23 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server successfully bound to port 5023
+2025-06-10 20:06:04 [main] INFO  com.assettrack.iot.IotApplication - Starting IotApplication using Java 21 with PID 168190 (/projects/dev/school/iot/target/classes started by mathiaslumbwe in /projects/dev/school/iot)
+2025-06-10 20:06:04 [main] DEBUG com.assettrack.iot.IotApplication - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-06-10 20:06:04 [main] INFO  com.assettrack.iot.IotApplication - No active profile set, falling back to 1 default profile: "default"
+2025-06-10 20:06:05 [main] WARN  o.s.b.w.s.c.AnnotationConfigServletWebServerApplicationContext - Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.support.BeanDefinitionOverrideException: Invalid bean definition with name 'transactionManager' defined in class path resource [com/assettrack/iot/config/TransactionConfig.class]: Cannot register bean definition [Root bean: class=null; scope=; abstract=false; lazyInit=null; autowireMode=3; dependencyCheck=0; autowireCandidate=true; primary=false; fallback=false; factoryBeanName=transactionConfig; factoryMethodName=transactionManager; initMethodNames=null; destroyMethodNames=[(inferred)]; defined in class path resource [com/assettrack/iot/config/TransactionConfig.class]] for bean 'transactionManager' since there is already [Root bean: class=null; scope=; abstract=false; lazyInit=null; autowireMode=3; dependencyCheck=0; autowireCandidate=true; primary=false; fallback=false; factoryBeanName=appConfig; factoryMethodName=transactionManager; initMethodNames=null; destroyMethodNames=[(inferred)]; defined in class path resource [com/assettrack/iot/config/AppConfig.class]] bound.
+2025-06-10 20:06:05 [main] INFO  o.s.b.a.l.ConditionEvaluationReportLogger - 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2025-06-10 20:06:05 [main] ERROR o.s.b.d.LoggingFailureAnalysisReporter - 
+
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+The bean 'transactionManager', defined in class path resource [com/assettrack/iot/config/TransactionConfig.class], could not be registered. A bean with that name has already been defined in class path resource [com/assettrack/iot/config/AppConfig.class] and overriding is disabled.
+
+Action:
+
+Consider renaming one of the beans or enabling overriding by setting spring.main.allow-bean-definition-overriding=true
+
+2025-06-10 20:08:08 [main] INFO  com.assettrack.iot.IotApplication - Starting IotApplication using Java 21 with PID 168551 (/projects/dev/school/iot/target/classes started by mathiaslumbwe in /projects/dev/school/iot)
+2025-06-10 20:08:08 [main] DEBUG com.assettrack.iot.IotApplication - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-06-10 20:08:08 [main] INFO  com.assettrack.iot.IotApplication - No active profile set, falling back to 1 default profile: "default"
+2025-06-10 20:08:09 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-06-10 20:08:09 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 83 ms. Found 2 JPA repository interfaces.
+2025-06-10 20:08:09 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8080 (http)
+2025-06-10 20:08:09 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-8080"]
+2025-06-10 20:08:09 [main] INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2025-06-10 20:08:09 [main] INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.39]
+2025-06-10 20:08:09 [main] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2025-06-10 20:08:09 [main] INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1516 ms
+2025-06-10 20:08:10 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-06-10 20:08:10 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-06-10 20:08:10 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-06-10 20:08:10 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-06-10 20:08:10 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-06-10 20:08:11 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@503a7990
+2025-06-10 20:08:11 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-06-10 20:08:11 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-06-10 20:08:11 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-06-10 20:08:11 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-06-10 20:08:12 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-06-10 20:08:12 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:08:12 [main] INFO  com.assettrack.iot.config.AppConfig - Creating Gt06Handler bean with dependencies
+2025-06-10 20:08:12 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-06-10 20:08:13 [main] WARN  o.s.b.w.s.c.AnnotationConfigServletWebServerApplicationContext - Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'protocolService' defined in file [/projects/dev/school/iot/target/classes/com/assettrack/iot/service/ProtocolService.class]: Unsatisfied dependency expressed through constructor parameter 0: No qualifying bean of type 'com.assettrack.iot.security.AuthService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}
+2025-06-10 20:08:13 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:08:13 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-06-10 20:08:13 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2025-06-10 20:08:13 [main] INFO  o.a.catalina.core.StandardService - Stopping service [Tomcat]
+2025-06-10 20:08:13 [main] INFO  o.s.b.a.l.ConditionEvaluationReportLogger - 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2025-06-10 20:08:13 [main] ERROR o.s.b.d.LoggingFailureAnalysisReporter - 
+
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Parameter 0 of constructor in com.assettrack.iot.service.ProtocolService required a bean of type 'com.assettrack.iot.security.AuthService' that could not be found.
+
+
+Action:
+
+Consider defining a bean of type 'com.assettrack.iot.security.AuthService' in your configuration.
+
+2025-06-10 20:10:38 [main] INFO  com.assettrack.iot.IotApplication - Starting IotApplication using Java 21 with PID 169066 (/projects/dev/school/iot/target/classes started by mathiaslumbwe in /projects/dev/school/iot)
+2025-06-10 20:10:38 [main] DEBUG com.assettrack.iot.IotApplication - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-06-10 20:10:38 [main] INFO  com.assettrack.iot.IotApplication - No active profile set, falling back to 1 default profile: "default"
+2025-06-10 20:10:39 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-06-10 20:10:39 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 91 ms. Found 2 JPA repository interfaces.
+2025-06-10 20:10:40 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8080 (http)
+2025-06-10 20:10:40 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-8080"]
+2025-06-10 20:10:40 [main] INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2025-06-10 20:10:40 [main] INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.39]
+2025-06-10 20:10:40 [main] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2025-06-10 20:10:40 [main] INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1476 ms
+2025-06-10 20:10:40 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-06-10 20:10:40 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-06-10 20:10:40 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-06-10 20:10:40 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-06-10 20:10:40 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-06-10 20:10:41 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@503a7990
+2025-06-10 20:10:41 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-06-10 20:10:41 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-06-10 20:10:41 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-06-10 20:10:41 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-06-10 20:10:42 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-06-10 20:10:42 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:10:42 [main] INFO  com.assettrack.iot.config.AppConfig - Creating Gt06Handler bean with dependencies
+2025-06-10 20:10:42 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.UdpServer - UDP server started on port 5023
+2025-06-10 20:10:44 [main] INFO  c.a.i.network.TrackerPipelineFactory - TrackerPipelineFactory constructed. GT06 Handler available
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023, Max Threads: 10, Max Connections: 100
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - Starting Netty TCP server on port 5023
+2025-06-10 20:10:44 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xc2dbe489] REGISTERED
+2025-06-10 20:10:44 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xc2dbe489] BIND: 0.0.0.0/0.0.0.0:5023
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - Netty TCP server started successfully on port 5023
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
+2025-06-10 20:10:44 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xc2dbe489, L:/0.0.0.0:5023] ACTIVE
+2025-06-10 20:10:44 [main] ERROR c.assettrack.iot.service.GpsServer - Failed to start UDP server
+java.net.BindException: Address already in use
+	at java.base/sun.nio.ch.Net.bind0(Native Method)
+	at java.base/sun.nio.ch.Net.bind(Net.java:565)
+	at java.base/sun.nio.ch.DatagramChannelImpl.bindInternal(DatagramChannelImpl.java:1267)
+	at java.base/sun.nio.ch.DatagramChannelImpl.bind(DatagramChannelImpl.java:1237)
+	at java.base/sun.nio.ch.DatagramSocketAdaptor.bind(DatagramSocketAdaptor.java:111)
+	at java.base/java.net.DatagramSocket.createDelegate(DatagramSocket.java:1425)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:328)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:387)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:353)
+	at com.assettrack.iot.service.GpsServer.startUdpServer(GpsServer.java:223)
+	at com.assettrack.iot.service.GpsServer.start(GpsServer.java:148)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMethod.invoke(InitDestroyAnnotationBeanPostProcessor.java:457)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMetadata.invokeInitMethods(InitDestroyAnnotationBeanPostProcessor.java:401)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor.postProcessBeforeInitialization(InitDestroyAnnotationBeanPostProcessor.java:219)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.applyBeanPostProcessorsBeforeInitialization(AbstractAutowireCapableBeanFactory.java:423)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1804)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:601)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:523)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:347)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1155)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1121)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1056)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:987)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at com.assettrack.iot.IotApplication.main(IotApplication.java:22)
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server stopped
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server successfully started (TCP:5023, UDP:5023)
+2025-06-10 20:10:44 [main] INFO  TRAFFIC - SERVER_STARTED ports=5023,5023
+2025-06-10 20:10:44 [main] WARN  o.s.b.w.s.c.AnnotationConfigServletWebServerApplicationContext - Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'gpsServer' defined in class path resource [com/assettrack/iot/config/AppConfig.class]: Could not create recurring task for @Scheduled method 'handleTcpClient': Only no-arg methods may be annotated with @Scheduled
+2025-06-10 20:10:44 [main] INFO  c.assettrack.iot.service.UdpServer - UDP server stopped
+2025-06-10 20:10:44 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:10:44 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-06-10 20:10:44 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2025-06-10 20:10:44 [main] INFO  o.a.catalina.core.StandardService - Stopping service [Tomcat]
+2025-06-10 20:10:44 [main] INFO  o.s.b.a.l.ConditionEvaluationReportLogger - 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2025-06-10 20:10:44 [main] ERROR o.s.boot.SpringApplication - Application run failed
+org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'gpsServer' defined in class path resource [com/assettrack/iot/config/AppConfig.class]: Could not create recurring task for @Scheduled method 'handleTcpClient': Only no-arg methods may be annotated with @Scheduled
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:608)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:523)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:347)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1155)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1121)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1056)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:987)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at com.assettrack.iot.IotApplication.main(IotApplication.java:22)
+Caused by: java.lang.IllegalStateException: Could not create recurring task for @Scheduled method 'handleTcpClient': Only no-arg methods may be annotated with @Scheduled
+	at org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor.processScheduledSync(ScheduledAnnotationBeanPostProcessor.java:362)
+	at org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor.processScheduled(ScheduledAnnotationBeanPostProcessor.java:343)
+	at org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor.lambda$postProcessAfterInitialization$1(ScheduledAnnotationBeanPostProcessor.java:308)
+	at java.base/java.lang.Iterable.forEach(Iterable.java:75)
+	at org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor.lambda$postProcessAfterInitialization$2(ScheduledAnnotationBeanPostProcessor.java:308)
+	at java.base/java.util.LinkedHashMap.forEach(LinkedHashMap.java:986)
+	at org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor.postProcessAfterInitialization(ScheduledAnnotationBeanPostProcessor.java:307)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.applyBeanPostProcessorsAfterInitialization(AbstractAutowireCapableBeanFactory.java:439)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1815)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:601)
+	... 17 common frames omitted
+2025-06-10 20:12:54 [main] INFO  com.assettrack.iot.IotApplication - Starting IotApplication using Java 21 with PID 169490 (/projects/dev/school/iot/target/classes started by mathiaslumbwe in /projects/dev/school/iot)
+2025-06-10 20:12:54 [main] DEBUG com.assettrack.iot.IotApplication - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-06-10 20:12:54 [main] INFO  com.assettrack.iot.IotApplication - No active profile set, falling back to 1 default profile: "default"
+2025-06-10 20:12:55 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-06-10 20:12:55 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 84 ms. Found 2 JPA repository interfaces.
+2025-06-10 20:12:56 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8080 (http)
+2025-06-10 20:12:56 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-8080"]
+2025-06-10 20:12:56 [main] INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2025-06-10 20:12:56 [main] INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.39]
+2025-06-10 20:12:56 [main] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2025-06-10 20:12:56 [main] INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1483 ms
+2025-06-10 20:12:56 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-06-10 20:12:56 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-06-10 20:12:56 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-06-10 20:12:56 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-06-10 20:12:56 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-06-10 20:12:57 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@503a7990
+2025-06-10 20:12:57 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-06-10 20:12:57 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-06-10 20:12:57 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-06-10 20:12:57 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-06-10 20:12:58 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-06-10 20:12:58 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:12:58 [main] INFO  com.assettrack.iot.config.AppConfig - Creating Gt06Handler bean with dependencies
+2025-06-10 20:12:59 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.UdpServer - UDP server started on port 5023
+2025-06-10 20:13:00 [main] INFO  c.a.i.network.TrackerPipelineFactory - TrackerPipelineFactory constructed. GT06 Handler available
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023, Max Threads: 10, Max Connections: 100
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - Starting Netty TCP server on port 5023
+2025-06-10 20:13:00 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54] REGISTERED
+2025-06-10 20:13:00 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54] BIND: 0.0.0.0/0.0.0.0:5023
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - Netty TCP server started successfully on port 5023
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
+2025-06-10 20:13:00 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] ACTIVE
+2025-06-10 20:13:00 [main] ERROR c.assettrack.iot.service.GpsServer - Failed to start UDP server
+java.net.BindException: Address already in use
+	at java.base/sun.nio.ch.Net.bind0(Native Method)
+	at java.base/sun.nio.ch.Net.bind(Net.java:565)
+	at java.base/sun.nio.ch.DatagramChannelImpl.bindInternal(DatagramChannelImpl.java:1267)
+	at java.base/sun.nio.ch.DatagramChannelImpl.bind(DatagramChannelImpl.java:1237)
+	at java.base/sun.nio.ch.DatagramSocketAdaptor.bind(DatagramSocketAdaptor.java:111)
+	at java.base/java.net.DatagramSocket.createDelegate(DatagramSocket.java:1425)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:328)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:387)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:353)
+	at com.assettrack.iot.service.GpsServer.startUdpServer(GpsServer.java:223)
+	at com.assettrack.iot.service.GpsServer.start(GpsServer.java:148)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMethod.invoke(InitDestroyAnnotationBeanPostProcessor.java:457)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMetadata.invokeInitMethods(InitDestroyAnnotationBeanPostProcessor.java:401)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor.postProcessBeforeInitialization(InitDestroyAnnotationBeanPostProcessor.java:219)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.applyBeanPostProcessorsBeforeInitialization(AbstractAutowireCapableBeanFactory.java:423)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1804)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:601)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:523)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:347)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1155)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1121)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1056)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:987)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at com.assettrack.iot.IotApplication.main(IotApplication.java:22)
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server stopped
+2025-06-10 20:13:00 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server successfully started (TCP:5023, UDP:5023)
+2025-06-10 20:13:00 [main] INFO  TRAFFIC - SERVER_STARTED ports=5023,5023
+2025-06-10 20:13:00 [main] INFO  com.assettrack.iot.config.AppConfig - Created ProtocolDetectionHandler bean with instance ID: 429860948
+2025-06-10 20:13:00 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-8080"]
+2025-06-10 20:13:00 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 8080 (http) with context path '/'
+2025-06-10 20:13:00 [main] INFO  com.assettrack.iot.IotApplication - Started IotApplication in 6.95 seconds (process running for 7.323)
+2025-06-10 20:14:06 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] READ: [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116]
+2025-06-10 20:14:06 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] READ COMPLETE
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: c8fd5aac, instance ID: 1685802365
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: c8fd5aac, instance ID: 561635222
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: c8fd5aac, instance ID: 1455240954
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] REGISTERED
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] ACTIVE
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] READ: 17B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 0f 33 35 30 35 34 34 35 30 36 36 38 38 36 39 |..35054450668869|
+|00000010| 39                                              |9               |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.i.p.ProtocolDetectionHandler - Protocol detection for packet: 000f333530353434353036363838363939
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.i.p.ProtocolDetectionHandler - Detected TELTONIKA protocol: IMEI
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Is protocolDetector null? false
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - IN BASEPROTOCOLDECODER: Decoding packet...
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - decode(): result passed in is null? false
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - PROTOCOLRESULT IS: ProtocolDetectionResult[valid=true, protocol=TELTONIKA, packetType=IMEI, version=1.0, error=null]
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Forcing protocolDetector.detect(data). Actual class: com.assettrack.iot.protocol.ProtocolDetector
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Processing packet with protocol: TELTONIKA, type: IMEI
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Delegating Teltonika packet to TeltonikaHandler: Protocol=TELTONIKA, PacketType=IMEI
+2025-06-10 20:14:06 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.TeltonikaHandler - Accepted IMEI: 350544506688699
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] WRITE: 1B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 01                                              |.               |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] FLUSH
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.TeltonikaHandler - Sent login request (0x01) to device: 350544506688699
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Generated device ID 2342627412 for IMEI 350544506688699
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] READ COMPLETE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 - R:/127.0.0.1:52116] READ COMPLETE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 ! R:/127.0.0.1:52116] INACTIVE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 ! R:/127.0.0.1:52116] CLOSE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0xc8fd5aac, L:/127.0.0.1:5023 ! R:/127.0.0.1:52116] UNREGISTERED
+2025-06-10 20:14:07 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] READ: [id: 0x390eb3d0, L:/127.0.0.1:5023 - R:/127.0.0.1:52128]
+2025-06-10 20:14:07 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] READ COMPLETE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: 390eb3d0, instance ID: 880256096
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: 390eb3d0, instance ID: 1903504522
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: 390eb3d0, instance ID: 826448635
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 - R:/127.0.0.1:52128] REGISTERED
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 - R:/127.0.0.1:52128] ACTIVE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 - R:/127.0.0.1:52128] READ: 57B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 00 00 33 00 00 00 00 08 01 00 00 01 97 5b 0c |...3..........[.|
+|00000010| ad 98 00 ff ff ff ff b9 85 71 78 14 4b f4 10 00 |.........qx.K...|
+|00000020| 64 00 b4 08 00 1a 00 03 02 01 01 ef 01 01 43 31 |d.............C1|
+|00000030| 38 01 10 00 00 52 dd db dd                      |8....R...       |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  c.a.i.p.ProtocolDetectionHandler - Protocol detection for packet: 00000033000000000801000001975b0cad9800ffffffffb9857178144bf410006400b408001a0003020101ef01014331380110000052dddbdd
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] WARN  c.a.i.p.ProtocolDetectionHandler - Protocol detection failed: UNKNOWN_PROTOCOL
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] ERROR c.a.i.p.ProtocolDetectionHandler - No protocol detected and no fallback available
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] WARN  c.a.iot.protocol.BaseProtocolDecoder - Received undetected protocol result: DETECTION_ERROR
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 - R:/127.0.0.1:52128] READ COMPLETE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 - R:/127.0.0.1:52128] READ COMPLETE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 ! R:/127.0.0.1:52128] INACTIVE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 ! R:/127.0.0.1:52128] CLOSE
+2025-06-10 20:14:07 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x390eb3d0, L:/127.0.0.1:5023 ! R:/127.0.0.1:52128] UNREGISTERED
+2025-06-10 20:14:17 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] READ: [id: 0x6f2992e7, L:/127.0.0.1:5023 - R:/127.0.0.1:37784]
+2025-06-10 20:14:17 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] READ COMPLETE
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: 6f2992e7, instance ID: 2051196346
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: 6f2992e7, instance ID: 1061176470
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: 6f2992e7, instance ID: 447312202
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 - R:/127.0.0.1:37784] REGISTERED
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 - R:/127.0.0.1:37784] ACTIVE
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 - R:/127.0.0.1:37784] READ: 57B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 00 00 33 00 00 00 00 08 01 00 00 01 97 5b 0c |...3..........[.|
+|00000010| d4 a8 00 ff ff ff ff b9 85 5d f0 14 4b e0 88 00 |.........]..K...|
+|00000020| 64 00 b4 08 00 1a 00 03 02 01 01 ef 01 01 43 31 |d.............C1|
+|00000030| 73 01 10 00 00 6f f6 af ee                      |s....o...       |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  c.a.i.p.ProtocolDetectionHandler - Protocol detection for packet: 00000033000000000801000001975b0cd4a800ffffffffb9855df0144be088006400b408001a0003020101ef0101433173011000006ff6afee
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] WARN  c.a.i.p.ProtocolDetectionHandler - Protocol detection failed: UNKNOWN_PROTOCOL
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] ERROR c.a.i.p.ProtocolDetectionHandler - No protocol detected and no fallback available
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] WARN  c.a.iot.protocol.BaseProtocolDecoder - Received undetected protocol result: DETECTION_ERROR
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 - R:/127.0.0.1:37784] READ COMPLETE
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 - R:/127.0.0.1:37784] READ COMPLETE
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 ! R:/127.0.0.1:37784] INACTIVE
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 ! R:/127.0.0.1:37784] CLOSE
+2025-06-10 20:14:17 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x6f2992e7, L:/127.0.0.1:5023 ! R:/127.0.0.1:37784] UNREGISTERED
+2025-06-10 20:15:56 [SpringApplicationShutdownHook] INFO  o.s.b.w.e.tomcat.GracefulShutdown - Commencing graceful shutdown. Waiting for active requests to complete
+2025-06-10 20:15:56 [tomcat-shutdown] INFO  o.s.b.w.e.tomcat.GracefulShutdown - Graceful shutdown complete
+2025-06-10 20:15:56 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.GpsServer - Shutting down GPS Server...
+2025-06-10 20:15:56 [SpringApplicationShutdownHook] INFO  TRAFFIC - SERVER_SHUTDOWN_INITIATED
+2025-06-10 20:15:56 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] CLOSE
+2025-06-10 20:15:56 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] INACTIVE
+2025-06-10 20:15:56 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xe6d13c54, L:/0.0.0.0:5023] UNREGISTERED
+2025-06-10 20:15:58 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.GpsServer - GPS Server shutdown complete
+2025-06-10 20:15:58 [SpringApplicationShutdownHook] INFO  TRAFFIC - SERVER_SHUTDOWN_COMPLETED
+2025-06-10 20:15:58 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.UdpServer - UDP server stopped
+2025-06-10 20:15:58 [SpringApplicationShutdownHook] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:15:58 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-06-10 20:15:59 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2025-06-10 20:29:23 [main] INFO  com.assettrack.iot.IotApplication - Starting IotApplication using Java 21 with PID 172157 (/projects/dev/school/iot/target/classes started by mathiaslumbwe in /projects/dev/school/iot)
+2025-06-10 20:29:23 [main] DEBUG com.assettrack.iot.IotApplication - Running with Spring Boot v3.4.4, Spring v6.2.5
+2025-06-10 20:29:23 [main] INFO  com.assettrack.iot.IotApplication - No active profile set, falling back to 1 default profile: "default"
+2025-06-10 20:29:24 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-06-10 20:29:24 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 82 ms. Found 2 JPA repository interfaces.
+2025-06-10 20:29:24 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8080 (http)
+2025-06-10 20:29:24 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-8080"]
+2025-06-10 20:29:24 [main] INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2025-06-10 20:29:24 [main] INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.39]
+2025-06-10 20:29:24 [main] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2025-06-10 20:29:24 [main] INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1445 ms
+2025-06-10 20:29:25 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-06-10 20:29:25 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.6.11.Final
+2025-06-10 20:29:25 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2025-06-10 20:29:25 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-06-10 20:29:25 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-06-10 20:29:25 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@503a7990
+2025-06-10 20:29:25 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-06-10 20:29:25 [main] WARN  org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2025-06-10 20:29:25 [main] WARN  org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2025-06-10 20:29:25 [main] INFO  o.hibernate.orm.connections.pooling - HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 8.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-06-10 20:29:26 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-06-10 20:29:27 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:29:27 [main] INFO  com.assettrack.iot.config.AppConfig - Creating TeltonikaHandler bean
+2025-06-10 20:29:27 [main] INFO  com.assettrack.iot.config.AppConfig - Creating Gt06Handler bean with dependencies
+2025-06-10 20:29:27 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2025-06-10 20:29:28 [main] INFO  c.assettrack.iot.service.UdpServer - UDP server started on port 5023
+2025-06-10 20:29:28 [main] INFO  c.a.i.network.TrackerPipelineFactory - TrackerPipelineFactory constructed. GT06 Handler available
+2025-06-10 20:29:28 [main] INFO  c.assettrack.iot.service.GpsServer - Initialized GPS Server with thread pool size: 10
+2025-06-10 20:29:28 [main] INFO  c.assettrack.iot.service.GpsServer - Initializing GPS Server...
+2025-06-10 20:29:28 [main] INFO  c.assettrack.iot.service.GpsServer - Configuration - TCP Port: 5023, UDP Port: 5023, Max Threads: 10, Max Connections: 100
+2025-06-10 20:29:28 [main] INFO  c.assettrack.iot.service.GpsServer - Starting Netty TCP server on port 5023
+2025-06-10 20:29:29 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87] REGISTERED
+2025-06-10 20:29:29 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87] BIND: 0.0.0.0/0.0.0.0:5023
+2025-06-10 20:29:29 [main] INFO  c.assettrack.iot.service.GpsServer - Netty TCP server started successfully on port 5023
+2025-06-10 20:29:29 [main] INFO  c.assettrack.iot.service.GpsServer - Starting UDP server on port 5023
+2025-06-10 20:29:29 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] ACTIVE
+2025-06-10 20:29:29 [main] ERROR c.assettrack.iot.service.GpsServer - Failed to start UDP server
+java.net.BindException: Address already in use
+	at java.base/sun.nio.ch.Net.bind0(Native Method)
+	at java.base/sun.nio.ch.Net.bind(Net.java:565)
+	at java.base/sun.nio.ch.DatagramChannelImpl.bindInternal(DatagramChannelImpl.java:1267)
+	at java.base/sun.nio.ch.DatagramChannelImpl.bind(DatagramChannelImpl.java:1237)
+	at java.base/sun.nio.ch.DatagramSocketAdaptor.bind(DatagramSocketAdaptor.java:111)
+	at java.base/java.net.DatagramSocket.createDelegate(DatagramSocket.java:1425)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:328)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:387)
+	at java.base/java.net.DatagramSocket.<init>(DatagramSocket.java:353)
+	at com.assettrack.iot.service.GpsServer.startUdpServer(GpsServer.java:223)
+	at com.assettrack.iot.service.GpsServer.start(GpsServer.java:148)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMethod.invoke(InitDestroyAnnotationBeanPostProcessor.java:457)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMetadata.invokeInitMethods(InitDestroyAnnotationBeanPostProcessor.java:401)
+	at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor.postProcessBeforeInitialization(InitDestroyAnnotationBeanPostProcessor.java:219)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.applyBeanPostProcessorsBeforeInitialization(AbstractAutowireCapableBeanFactory.java:423)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1804)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:601)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:523)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:347)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1155)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1121)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1056)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:987)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at com.assettrack.iot.IotApplication.main(IotApplication.java:22)
+2025-06-10 20:29:29 [main] INFO  c.assettrack.iot.service.GpsServer - UDP server stopped
+2025-06-10 20:29:29 [main] INFO  c.assettrack.iot.service.GpsServer - GPS Server successfully started (TCP:5023, UDP:5023)
+2025-06-10 20:29:29 [main] INFO  TRAFFIC - SERVER_STARTED ports=5023,5023
+2025-06-10 20:29:29 [main] INFO  com.assettrack.iot.config.AppConfig - Created ProtocolDetectionHandler bean with instance ID: 429860948
+2025-06-10 20:29:29 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-8080"]
+2025-06-10 20:29:29 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 8080 (http) with context path '/'
+2025-06-10 20:29:29 [main] INFO  com.assettrack.iot.IotApplication - Started IotApplication in 6.968 seconds (process running for 7.301)
+2025-06-10 20:29:55 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] READ: [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604]
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: 7d1a8dad, instance ID: 485585056
+2025-06-10 20:29:55 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] READ COMPLETE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: 7d1a8dad, instance ID: 1509158234
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: 7d1a8dad, instance ID: 125483567
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] REGISTERED
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] ACTIVE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] READ: 17B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 0f 33 35 30 35 34 34 35 30 36 36 38 38 36 39 |..35054450668869|
+|00000010| 39                                              |9               |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.i.p.ProtocolDetectionHandler - Protocol detection for packet: 000f333530353434353036363838363939
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.i.p.ProtocolDetectionHandler - Detected TELTONIKA protocol: IMEI
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Is protocolDetector null? false
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - IN BASEPROTOCOLDECODER: Decoding packet...
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - decode(): result passed in is null? false
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - PROTOCOLRESULT IS: ProtocolDetectionResult[valid=true, protocol=TELTONIKA, packetType=IMEI, version=1.0, error=null]
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Forcing protocolDetector.detect(data). Actual class: com.assettrack.iot.protocol.ProtocolDetector
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Processing packet with protocol: TELTONIKA, type: IMEI
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Delegating Teltonika packet to TeltonikaHandler: Protocol=TELTONIKA, PacketType=IMEI
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.TeltonikaHandler - Accepted IMEI: 350544506688699
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] WRITE: 1B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 01                                              |.               |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] FLUSH
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.TeltonikaHandler - Sent login request (0x01) to device: 350544506688699
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.iot.protocol.BaseProtocolDecoder - Generated device ID 2342627412 for IMEI 350544506688699
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] READ COMPLETE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 - R:/127.0.0.1:50604] READ COMPLETE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 ! R:/127.0.0.1:50604] INACTIVE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 ! R:/127.0.0.1:50604] CLOSE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-1] INFO  Raw-Inbound - [id: 0x7d1a8dad, L:/127.0.0.1:5023 ! R:/127.0.0.1:50604] UNREGISTERED
+2025-06-10 20:29:55 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] READ: [id: 0x9a4d9437, L:/127.0.0.1:5023 - R:/127.0.0.1:50606]
+2025-06-10 20:29:55 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] READ COMPLETE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: 9a4d9437, instance ID: 231327294
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: 9a4d9437, instance ID: 1221282275
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: 9a4d9437, instance ID: 1117439593
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 - R:/127.0.0.1:50606] REGISTERED
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 - R:/127.0.0.1:50606] ACTIVE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 - R:/127.0.0.1:50606] READ: 57B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 00 00 33 00 00 00 00 08 01 00 00 01 97 5b 1b |...3..........[.|
+|00000010| 24 b8 00 ff ff ff ff b9 85 71 78 14 4b f4 10 00 |$........qx.K...|
+|00000020| 64 00 b4 08 00 1a 00 03 02 01 01 ef 01 01 43 31 |d.............C1|
+|00000030| 38 01 10 00 00 08 ac 9e 2c                      |8.......,       |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  c.a.i.p.ProtocolDetectionHandler - Protocol detection for packet: 00000033000000000801000001975b1b24b800ffffffffb9857178144bf410006400b408001a0003020101ef01014331380110000008ac9e2c
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] WARN  c.a.i.p.ProtocolDetectionHandler - Protocol detection failed: UNKNOWN_PROTOCOL
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] ERROR c.a.i.p.ProtocolDetectionHandler - No protocol detected and no fallback available
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] WARN  c.a.iot.protocol.BaseProtocolDecoder - Received undetected protocol result: DETECTION_ERROR
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 - R:/127.0.0.1:50606] READ COMPLETE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 - R:/127.0.0.1:50606] READ COMPLETE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 ! R:/127.0.0.1:50606] INACTIVE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 ! R:/127.0.0.1:50606] CLOSE
+2025-06-10 20:29:55 [nioEventLoopGroup-3-2] INFO  Raw-Inbound - [id: 0x9a4d9437, L:/127.0.0.1:5023 ! R:/127.0.0.1:50606] UNREGISTERED
+2025-06-10 20:30:05 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] READ: [id: 0x10e1f2da, L:/127.0.0.1:5023 - R:/127.0.0.1:51584]
+2025-06-10 20:30:05 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] READ COMPLETE
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  c.a.i.network.TrackerPipelineFactory - Adding ProtocolDetectionHandler to pipeline — new instance created for channel ID: 10e1f2da, instance ID: 1771935124
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  c.a.i.network.TrackerPipelineFactory - Adding GenericProtocolDecoder to pipeline — new instance created for channel ID: 10e1f2da, instance ID: 748623555
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  c.a.i.network.TrackerPipelineFactory - Adding NetworkMessageHandler to pipeline — new instance created for channel ID: 10e1f2da, instance ID: 1623285610
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 - R:/127.0.0.1:51584] REGISTERED
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 - R:/127.0.0.1:51584] ACTIVE
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 - R:/127.0.0.1:51584] READ: 57B
+         +-------------------------------------------------+
+         |  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f |
++--------+-------------------------------------------------+----------------+
+|00000000| 00 00 00 33 00 00 00 00 08 01 00 00 01 97 5b 1b |...3..........[.|
+|00000010| 4b c8 00 ff ff ff ff b9 85 5d f0 14 4b e0 88 00 |K........]..K...|
+|00000020| 64 00 b4 08 00 1a 00 03 02 01 01 ef 01 01 43 31 |d.............C1|
+|00000030| 02 01 10 00 00 0a 3a a0 05                      |......:..       |
++--------+-------------------------------------------------+----------------+
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  c.a.i.p.ProtocolDetectionHandler - Protocol detection for packet: 00000033000000000801000001975b1b4bc800ffffffffb9855df0144be088006400b408001a0003020101ef0101433102011000000a3aa005
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] WARN  c.a.i.p.ProtocolDetectionHandler - Protocol detection failed: UNKNOWN_PROTOCOL
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] ERROR c.a.i.p.ProtocolDetectionHandler - No protocol detected and no fallback available
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] WARN  c.a.iot.protocol.BaseProtocolDecoder - Received undetected protocol result: DETECTION_ERROR
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 - R:/127.0.0.1:51584] READ COMPLETE
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 - R:/127.0.0.1:51584] READ COMPLETE
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 ! R:/127.0.0.1:51584] INACTIVE
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  c.a.i.n.h.NetworkMessageHandler - Channel closed, session removed
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 ! R:/127.0.0.1:51584] CLOSE
+2025-06-10 20:30:05 [nioEventLoopGroup-3-3] INFO  Raw-Inbound - [id: 0x10e1f2da, L:/127.0.0.1:5023 ! R:/127.0.0.1:51584] UNREGISTERED
+2025-06-10 20:30:33 [SpringApplicationShutdownHook] INFO  o.s.b.w.e.tomcat.GracefulShutdown - Commencing graceful shutdown. Waiting for active requests to complete
+2025-06-10 20:30:33 [tomcat-shutdown] INFO  o.s.b.w.e.tomcat.GracefulShutdown - Graceful shutdown complete
+2025-06-10 20:30:33 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.GpsServer - Shutting down GPS Server...
+2025-06-10 20:30:33 [SpringApplicationShutdownHook] INFO  TRAFFIC - SERVER_SHUTDOWN_INITIATED
+2025-06-10 20:30:33 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] CLOSE
+2025-06-10 20:30:33 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] INACTIVE
+2025-06-10 20:30:33 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0x15ad5a87, L:/0.0.0.0:5023] UNREGISTERED
+2025-06-10 20:30:35 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.GpsServer - GPS Server shutdown complete
+2025-06-10 20:30:35 [SpringApplicationShutdownHook] INFO  TRAFFIC - SERVER_SHUTDOWN_COMPLETED
+2025-06-10 20:30:35 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.UdpServer - UDP server stopped
+2025-06-10 20:30:35 [SpringApplicationShutdownHook] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2025-06-10 20:30:35 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-06-10 20:30:35 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.

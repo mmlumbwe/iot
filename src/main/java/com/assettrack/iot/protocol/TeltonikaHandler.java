@@ -434,6 +434,9 @@ public class TeltonikaHandler implements ProtocolHandler {
                 (version == null || version.startsWith("CODEC8") || version.startsWith("CODEC16"));
     }
 
+    /*public void setValidationMode(ValidationMode validationMode) {
+    }*/
+
 
     public enum ValidationMode {
         STRICT, LENIENT, RECOVER

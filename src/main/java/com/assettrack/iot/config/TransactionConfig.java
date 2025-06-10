@@ -12,12 +12,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 @EnableTransactionManagement
 public class TransactionConfig {
 
-    @Bean
+    /*@Bean
     public PlatformTransactionManager transactionManager(EntityManagerFactory emf) {
         JpaTransactionManager transactionManager = new JpaTransactionManager();
         transactionManager.setEntityManagerFactory(emf);
         return transactionManager;
-    }
+    }*/
 
     @Bean
     public TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {

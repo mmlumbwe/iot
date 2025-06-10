@@ -13,7 +13,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 		"com.assettrack.iot.service",
 		"com.assettrack.iot.network",
 		"com.assettrack.iot.handler.network",
-		"com.assettrack.iot.session"
+		"com.assettrack.iot.session",
+		"com.assettrack.iot.config"
 })
 public class IotApplication {
 

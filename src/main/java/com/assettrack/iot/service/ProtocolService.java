@@ -22,7 +22,7 @@ import java.util.Map;
 public class ProtocolService {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolService.class);
 
-    private final AuthService authService;
+    //private final AuthService authService;
     private final PayloadValidator validator;
     private final DeviceStatusService deviceStatusService;
     private final PositionService positionService;
@@ -31,14 +31,14 @@ public class ProtocolService {
     private final TeltonikaHandler teltonikaHandler;
 
     @Autowired
-    public ProtocolService(AuthService authService,
+    public ProtocolService(//AuthService authService,
                            PayloadValidator validator,
                            DeviceStatusService deviceStatusService,
                            PositionService positionService,
                            Gt06Handler gt06Handler,
                            Tk103Handler tk103Handler,
                            TeltonikaHandler teltonikaHandler) {
-        this.authService = authService;
+        //this.authService = authService;
         this.validator = validator;
         this.deviceStatusService = deviceStatusService;
         this.positionService = positionService;
