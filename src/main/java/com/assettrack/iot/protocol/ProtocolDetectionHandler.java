@@ -12,7 +12,11 @@ import org.slf4j.LoggerFactory;
 import static com.assettrack.iot.protocol.BaseProtocolDecoder.PROTOCOL_HEADER_1;
 import static com.assettrack.iot.protocol.BaseProtocolDecoder.PROTOCOL_HEADER_2;
 
-// Removed @Sharable annotation since we're creating new instances per channel
+/**
+ * ProtocolDetectionHandler dispatches incoming ByteBufs to the appropriate protocol decoder.
+ * It attempts primary detection via ProtocolDetector.detect(...), and if that returns null
+ * or a non-detected result, it falls back to Teltonika and GT06 matchers before failing.
+ */
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
     private final ProtocolDetector protocolDetector;
@@ -28,48 +32,64 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
+        buf.retain();
+        byte[] data = new byte[buf.readableBytes()];
+        buf.getBytes(buf.readerIndex(), data);
+        String hex = Hex.encodeHexString(data);
+        logger.info("Protocol detection for packet: {}", hex);
+
+        ProtocolDetector.ProtocolDetectionResult result;
         try {
-            byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data);
-            buf.retain();
+            result = protocolDetector.detect(data);
+        } catch (Exception e) {
+            logger.error("Protocol detection error during detect(): {}", e.getMessage(), e);
+            result = null;
+        }
 
-            logger.info("Protocol detection for packet: {}", Hex.encodeHexString(data));
-            ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
-
+        // If detect() returned null, or result not detected, try fallbacks
+        if (result == null || !result.isDetected()) {
             if (result == null) {
-                logger.error("ProtocolDetector returned null for data: {}", Hex.encodeHexString(data));
-                ReferenceCountUtil.release(buf);
-                // Propagate a failure result downstream:
-                ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTOR_RETURNED_NULL"));
+                logger.error("ProtocolDetector returned null for data: {}", hex);
+            } else {
+                logger.warn("Protocol detection failed: {}", result.getError());
+            }
+
+            // 1) Teltonika fallback
+            ProtocolDetector.TeltonikaMatcher teltonikaMatcher = new ProtocolDetector.TeltonikaMatcher();
+            if (teltonikaMatcher.matches(data)) {
+                String packetType = teltonikaMatcher.getPacketType(data);
+                logger.info("Fallback detecting Teltonika protocol: {}", packetType);
+                ctx.fireChannelRead(
+                        ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
+                );
+                ctx.fireChannelRead(buf);
                 return;
             }
 
-            // This check is now safe since detect() never returns null
-            if (result.isDetected()) {
-                logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());
-                ctx.fireChannelRead(result);
+            // 2) GT06 fallback
+            if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+                logger.info("Processing as GT06 despite detection failure");
+                ctx.fireChannelRead(
+                        ProtocolDetector.ProtocolDetectionResult.success("GT06", "FALLBACK_DETECT", "1.0")
+                );
                 ctx.fireChannelRead(buf);
-            } else {
-                logger.warn("Protocol detection failed: {}", result.getError());
-
-                // Special handling for GT06-like packets
-                if (data.length >= 2 && data[0] == 0x78 && data[1] == 0x78) {
-                    logger.info("Processing as GT06 despite detection failure");
-                    ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.success("GT06", "FALLBACK_DETECT", "1.0"));
-                    ctx.fireChannelRead(buf);
-                } else {
-                    logger.error("No protocol detected and no fallback available");
-                    ReferenceCountUtil.release(buf);
-                    ctx.fireChannelRead(result); // Send the failure result downstream
-                }
+                return;
             }
-        } catch (Exception e) {
-            logger.error("Protocol detection error", e);
-            ReferenceCountUtil.release(buf);
-            ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR"));
-        }
-    }
 
+            // 3) Total failure
+            logger.error("No protocol detected and no fallback available");
+            ReferenceCountUtil.release(buf);
+            ctx.fireChannelRead(
+                    ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR")
+            );
+            return;
+        }
+
+        // Primary detection succeeded
+        logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());
+        ctx.fireChannelRead(result);
+        ctx.fireChannelRead(buf);
+    }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {

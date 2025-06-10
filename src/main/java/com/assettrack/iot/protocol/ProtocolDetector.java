@@ -203,33 +203,16 @@ public class ProtocolDetector {
     static class Gt06Matcher implements ProtocolMatcher {
         @Override
         public boolean matches(byte[] data) {
-            if (data == null || data.length < 4) return false;
-
-            // Check header
-            if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
-                return false;
-            }
-
-            // Check minimum structure
+            if (data.length < 5) return false;
             int declaredLength = data[2] & 0xFF;
-            if (data.length < (declaredLength + 5)) return false; // +5 for header(2)+len(1)+proto(1)+crc(1)
-
-            // Verify terminator if present
-            if (data.length >= (declaredLength + 6) &&
-                    !(data[data.length-2] == 0x0D && data[data.length-1] == 0x0A)) {
+            if (data.length < declaredLength + 5) return false;
+            // verify terminator
+            if (!(data[data.length - 2] == 0x0D &&
+                    data[data.length - 1] == 0x0A)) {
                 return false;
             }
-
-            // Basic checksum verification
-            try {
-                int calculatedChecksum = Checksum.crc16(Checksum.CRC16_X25,
-                        ByteBuffer.wrap(data, 2, declaredLength + 1));
-                int packetChecksum = ((data[declaredLength + 3] & 0xFF) << 8) |
-                        (data[declaredLength + 4] & 0xFF);
-                return calculatedChecksum == packetChecksum;
-            } catch (Exception e) {
-                return false;
-            }
+            // don’t check CRC here
+            return true;
         }
 
         @Override
