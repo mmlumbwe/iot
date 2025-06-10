@@ -85,7 +85,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     break;
                 }
                 int declaredLength = buf.getByte(buf.readerIndex() + 2) & 0xFF; // Length byte at index 2 (relative to packet start)
-                packetSize = 2 + 1 + declaredLength + 2 + 2; // header (2) + length (1) + data (declaredLength) + checksum (2) + footer (2)
+                packetSize = 2 + 1 + declaredLength + 2; // header (2) + length (1) + data (declaredLength) + footer (2)
 
             } else if (header1 == PROTOCOL_HEADER_79_1 && header2 == PROTOCOL_HEADER_79_2) { // 0x7979 packet
                 // For 0x7979 packets, the length is not at a fixed offset like 0x7878.

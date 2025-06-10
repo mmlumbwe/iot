@@ -144,8 +144,15 @@ public class ProtocolDetector {
                 case 0x1A: return "STATUS";
                 case (byte)0x80: return "GPRS_COMMAND";
                 default:
-                    if ((data[3] & 0xF0) == 0x10) return "EXTENDED_DATA";
+                    // handle extended‐GPS (0xA0) frames:
+                    if (data[3] == (byte)0xA0) {
+                        return "EXTENDED_DATA";
+                    }
+                    if ((data[3] & 0xF0) == 0x10) {
+                        return "EXTENDED_DATA";
+                    }
                     return "UNKNOWN_GT06_" + String.format("%02X", data[3]);
+
             }
         }
     }
