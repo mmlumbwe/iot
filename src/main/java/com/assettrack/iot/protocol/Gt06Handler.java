@@ -131,6 +131,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             int length = buffer.get() & 0xFF;
             byte protocol = buffer.get();
 
+            // Add logging for unknown protocols
+            if (!isSupportedProtocol(protocol)) {
+                logger.warn("Received unsupported protocol type: 0x{}",
+                        String.format("%02X", protocol));
+                return createUnsupportedProtocolMessage(data, protocol);
+            }
+
             logger.info("Detected GT06 packet - Protocol: 0x{}, Length: {}",
                     String.format("%02X", protocol), length);
 
@@ -163,6 +170,33 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setResponseRequired(true);
             return message;
         }
+    }
+
+    private boolean isSupportedProtocol(byte protocol) {
+        switch (protocol & 0xFF) {
+            case 0x01: // LOGIN
+            case 0x12: // GPS
+            case 0x13: // HEARTBEAT
+            case 0x8A: // ALIAS HEARTBEAT
+            case 0xA0: // GPS EXTENDED
+            case 0x26: // VL03 EXTENDED
+            case 0x16: // ALARM
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private DeviceMessage createUnsupportedProtocolMessage(byte[] data, byte protocol) {
+        DeviceMessage message = new DeviceMessage();
+        message.setProtocolType("GT06");
+        message.setMessageType("UNSUPPORTED_PROTOCOL");
+        message.setError("Unsupported protocol type: 0x" + String.format("%02X", protocol));
+
+        // Optionally include the raw data
+        message.setRawData(data);
+
+        return message;
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
@@ -551,6 +585,18 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private void validatePacket(byte[] data) throws ProtocolException {
         // Add explicit length check for login packets
+        if (data == null || data.length < MIN_PACKET_LENGTH) {
+            throw new ProtocolException("Packet is null or too short");
+        }
+
+        // Allow for potential alternative headers (0x79 0x79)
+        if (!((data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) ||
+                (data[0] == 0x79 && data[1] == 0x79))) {
+            throw new ProtocolException(String.format(
+                    "Invalid protocol header: 0x%02X 0x%02X",
+                    data[0], data[1]));
+        }
+
         if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
             throw new ProtocolException("Invalid login packet length");
         }
@@ -655,7 +701,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         message.setImei(imei);
         message.setMessageType("HEARTBEAT");
-        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
+        //acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
+
+        // Create a non-null collection for the acknowledgement
+        Collection<Object> ackObjects = Collections.singletonList(response);
+        acknowledgementHandler.write(null, new AcknowledgementHandler.EventDecoded(ackObjects), null);
 
         return message;
     }

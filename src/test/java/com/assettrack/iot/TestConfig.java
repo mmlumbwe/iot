@@ -1,6 +1,6 @@
 package com.assettrack.iot;
 
-import com.assettrack.iot.handler.network.AcknowledgementHandler;
+//import com.assettrack.iot.handler.network.AcknowledgementHandler;
 import com.assettrack.iot.network.TrackerPipelineFactory;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
 import com.assettrack.iot.protocol.*;
@@ -32,10 +32,10 @@ public class TestConfig {
         return new PayloadValidator(); // or mock if appropriate
     }
 
-    @Bean
+    /*@Bean
     public AcknowledgementHandler acknowledgementHandler() {
         return new AcknowledgementHandler();
-    }
+    }*/
 
     @Bean
     public CacheManager cacheManager() {

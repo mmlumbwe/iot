@@ -72,16 +72,39 @@ public class AcknowledgementHandler extends ChannelOutboundHandlerAdapter {
         List<com.assettrack.iot.handler.network.AcknowledgementHandler.Entry> output = new LinkedList<>();
         synchronized (this) {
             if (msg instanceof com.assettrack.iot.handler.network.AcknowledgementHandler.Event) {
+
+                if (msg instanceof EventReceived) {
+                    log.info("Event received");
+                    if (queue == null) {
+                        queue = new LinkedList<>();
+                    }
+                } else if (msg instanceof EventDecoded event) {
+                    // Add null check for getObjects()
+                    Collection<Object> objects = event.getObjects();
+                    if (objects != null) {
+                        log.info("Event decoded {}", objects.size());
+                        waiting.addAll(objects);
+                    } else {
+                        log.warn("Received EventDecoded with null objects");
+                    }
+                } else if (msg instanceof EventHandled event) {
+                    log.info("Event handled");
+                    Object obj = event.getObject();
+                    if (obj != null) {
+                        waiting.remove(obj);
+                    }
+                }
+
                 if (msg instanceof com.assettrack.iot.handler.network.AcknowledgementHandler.EventReceived) {
-                    log.debug("Event received");
+                    log.info("Event received");
                     if (queue == null) {
                         queue = new LinkedList<>();
                     }
                 } else if (msg instanceof com.assettrack.iot.handler.network.AcknowledgementHandler.EventDecoded event) {
-                    log.debug("Event decoded {}", event.getObjects().size());
+                    log.info("Event decoded {}", event.getObjects().size());
                     waiting.addAll(event.getObjects());
                 } else if (msg instanceof com.assettrack.iot.handler.network.AcknowledgementHandler.EventHandled event) {
-                    log.debug("Event handled");
+                    log.info("Event handled");
                     waiting.remove(event.getObject());
                 }
                 if (!(msg instanceof com.assettrack.iot.handler.network.AcknowledgementHandler.EventReceived) && waiting.isEmpty()) {
@@ -89,10 +112,10 @@ public class AcknowledgementHandler extends ChannelOutboundHandlerAdapter {
                     queue = null;
                 }
             } else if (queue != null) {
-                log.debug("Message queued");
+                log.info("Message queued");
                 queue.add(new com.assettrack.iot.handler.network.AcknowledgementHandler.Entry(msg, promise));
             } else {
-                log.debug("Message sent");
+                log.info("Message sent");
                 output.add(new com.assettrack.iot.handler.network.AcknowledgementHandler.Entry(msg, promise));
             }
         }
