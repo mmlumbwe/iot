@@ -107,7 +107,10 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             }
             logger.info("PROTOCOLRESULT IS: {}", result);
             logger.info("Forcing protocolDetector.detect(data). Actual class: {}", protocolDetector.getClass().getName());
-            result = protocolDetector.detect(data);
+            //result = protocolDetector.detect(data);
+
+            logger.info("Processing packet with protocol: {}, type: {}",
+                    result.getProtocol(), result.getPacketType());
 
             // --- Route to TeltonikaHandler or GT06 handler ---
             if (result != null && "TELTONIKA".equals(result.getProtocol())) {
