@@ -40,7 +40,8 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         this.teltonikaHandler = teltonikaHandler;
         this.gt06Handler       = gt06Handler;
 
-        logger.info("TrackerPipelineFactory constructed.");
+        logger.info("TrackerPipelineFactory constructed. GT06 Handler {}available",
+                gt06Handler != null ? "" : "not ");
     }
 
     @Override

@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -78,6 +79,15 @@ public class AppConfig {
         ProtocolDetectionHandler handler = new ProtocolDetectionHandler(protocolDetector);
         logger.info("Created ProtocolDetectionHandler bean with instance ID: {}", System.identityHashCode(handler));
         return handler;
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "protocol.gt06.enabled", havingValue = "true", matchIfMissing = true)
+    public Gt06Handler gt06Handler(SessionManager sessionManager,
+                                   ProtocolDetector protocolDetector,
+                                   AcknowledgementHandler acknowledgementHandler) {
+        logger.info("Creating Gt06Handler bean with dependencies");
+        return new Gt06Handler(sessionManager, protocolDetector, acknowledgementHandler);
     }
 
 }

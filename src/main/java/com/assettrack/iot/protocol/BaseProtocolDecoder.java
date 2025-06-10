@@ -131,7 +131,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             else if ("GT06".equals(result.getProtocol())) {
                 // 1) Try Gt06Handler first if available
                 if (gt06Handler != null) {
-                    logger.info("Delegating GT06 packet to Gt06Handler: Protocol={}, PacketType={{}", result.getProtocol(), result.getPacketType());
+                    logger.info("Delegating GT06 packet to Gt06Handler: Protocol={}, PacketType={}", result.getProtocol(), result.getPacketType());
                     DeviceMessage msg = gt06Handler.handle(data, ctx);
                     if (msg != null) {
                         enrichMessageWithContext(ctx, msg);
