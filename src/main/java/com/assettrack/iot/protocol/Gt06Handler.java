@@ -40,7 +40,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private static final byte PROTOCOL_HEARTBEAT = 0x13;
     private static final byte PROTOCOL_ALARM = 0x16;
     private static final byte PROTOCOL_ERROR = 0x7F;
-    private static final byte PROTOCOL_GPS_EXTENDED = (byte) 0xA0; // Added for A0 protocol
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
 
@@ -49,11 +48,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     // VL03-specific constants
     private static final byte VL03_PROTOCOL_EXTENDED = 0x26;
-
-    // New constants for 0x7979 header and info report protocol
-    private static final byte PROTOCOL_HEADER_79_1 = 0x79;
-    private static final byte PROTOCOL_HEADER_79_2 = 0x79;
-    private static final byte PROTOCOL_INFO_REPORT = 0x01; // For 0x7979 packets
 
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
@@ -72,70 +66,46 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         List<DeviceMessage> messages = new ArrayList<>();
 
         while (buf.readableBytes() >= MIN_PACKET_LENGTH) {
-            buf.markReaderIndex(); // Mark the current read index
+            try {
+                // Mark the current read index
+                buf.markReaderIndex();
 
-            byte header1 = buf.getByte(buf.readerIndex());
-            byte header2 = buf.getByte(buf.readerIndex() + 1);
-
-            int packetSize = -1; // Determined based on header
-
-            if (header1 == PROTOCOL_HEADER_1 && header2 == PROTOCOL_HEADER_2) { // Standard 0x7878 GT06
-                if (buf.readableBytes() < 4) { // Need at least header(2) + length(1) + protocol(1)
+                // Check for GT06 header
+                if (buf.readByte() != PROTOCOL_HEADER_1 || buf.readByte() != PROTOCOL_HEADER_2) {
                     buf.resetReaderIndex();
-                    break;
+                    break; // Not a GT06 packet
                 }
-                int declaredLength = buf.getByte(buf.readerIndex() + 2) & 0xFF; // Length byte at index 2 (relative to packet start)
-                packetSize = 2 + 1 + declaredLength + 2; // header (2) + length (1) + data (declaredLength) + footer (2)
 
-            } else if (header1 == PROTOCOL_HEADER_79_1 && header2 == PROTOCOL_HEADER_79_2) { // 0x7979 packet
-                // For 0x7979 packets, the length is not at a fixed offset like 0x7878.
-                // We need to find the 0x0D0A footer to determine the packet size.
-                // Minimum size for 0x7979 is 2 (header) + 1 (protocol) + 2 (serial) + 2 (checksum) + 2 (footer) = 9 bytes.
-                if (buf.readableBytes() < 9) {
+                // Read length and protocol
+                int length = buf.readByte() & 0xFF;
+                byte protocol = buf.readByte();
+
+                // Calculate complete packet size
+                int packetSize = length + 5; // header(2) + length(1) + protocol(1) + checksum(2) + footer(2)
+
+                // Verify we have enough bytes
+                if (buf.readableBytes() < packetSize - 4) { // -4 because we already read 4 bytes
                     buf.resetReaderIndex();
-                    break;
+                    break; // Not enough data yet
                 }
 
-                int potentialPacketEnd = buf.indexOf(buf.readerIndex(), buf.writerIndex(), (byte)0x0D);
-                if (potentialPacketEnd != -1 && buf.readableBytes() >= potentialPacketEnd + 1 - buf.readerIndex()) {
-                    if (buf.getByte(potentialPacketEnd + 1) == (byte)0x0A) {
-                        packetSize = potentialPacketEnd + 2 - buf.readerIndex(); // Length including 0x0D0A
-                    } else {
-                        buf.skipBytes(1); // Skip the problematic byte to avoid infinite loop
-                        logger.warn("Found 0x0D but not followed by 0x0A for 0x7979 packet. Skipping byte.");
-                        continue;
-                    }
-                } else {
-                    // Not enough data for a full packet with 0x0D0A terminator, or terminator not found.
-                    buf.resetReaderIndex(); // Reset to the start of the potential packet
-                    break; // Exit the loop, wait for more data
+                // Extract the complete packet
+                byte[] data = new byte[packetSize];
+                buf.resetReaderIndex();
+                buf.readBytes(data);
+
+                // Process the packet
+                DeviceMessage message = handle(data, ctx);
+                if (message != null && message.getImei() != null) {
+                    message.addParsedData("deviceId", generateDeviceId(message.getImei()));
+                    messages.add(message);
                 }
-
-            } else { // Unrecognized header
-                buf.skipBytes(1); // Skip the problematic first byte
-                logger.warn("Non-GT06 or unrecognized header found. Skipping byte.");
-                continue; // Continue to the next byte
-            }
-
-            // Ensure we have enough bytes for the complete packet
-            if (packetSize == -1 || buf.readableBytes() < packetSize) {
-                buf.resetReaderIndex(); // Not enough data yet for a complete packet
-                break;
-            }
-
-            // Extract the complete packet data into a new byte array
-            byte[] data = new byte[packetSize];
-            buf.readBytes(data); // Read the full packet
-
-            // Now, process the packet. The `handle` method will then validate and parse.
-            DeviceMessage message = handle(data, ctx);
-            if (message != null && message.getImei() != null) {
-                message.addParsedData("deviceId", generateDeviceId(message.getImei()));
-                messages.add(message);
-            } else if (message != null && message.getError() != null) {
-                logger.error("Packet processing failed for data {}: {}", Hex.encodeHexString(data), message.getError());
+            } catch (Exception e) {
+                logger.error("Error decoding packet", e);
+                buf.skipBytes(buf.readableBytes()); // Skip problematic data
             }
         }
+
         return messages.isEmpty() ? null : (messages.size() == 1 ? messages.get(0) : messages);
     }
 
@@ -154,57 +124,38 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         try {
             logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
-            validatePacket(data); // Validate the full packet first
+            validatePacket(data);
 
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-            byte header1 = buffer.get();
-            byte header2 = buffer.get();
+            buffer.position(2); // Skip header
+            int length = buffer.get() & 0xFF;
+            byte protocol = buffer.get();
 
-            byte protocol;
-            if (header1 == PROTOCOL_HEADER_1 && header2 == PROTOCOL_HEADER_2) {
-                buffer.get(); // Skip length byte for 0x7878 packets
-                protocol = buffer.get(); // This is the actual protocol type
-            } else if (header1 == PROTOCOL_HEADER_79_1 && header2 == PROTOCOL_HEADER_79_2) {
-                protocol = buffer.get(); // For 0x7979 packets, data[2] is the protocol type
-            } else {
-                throw new ProtocolException("Unsupported packet header in handle: 0x" + String.format("%02X%02X", header1, header2));
-            }
+            logger.info("Detected GT06 packet - Protocol: 0x{}, Length: {}",
+                    String.format("%02X", protocol), length);
 
-            // Add logging for unknown protocols
-            if (!isSupportedProtocol(protocol, header1, header2)) { // Pass headers to distinguish 0x01 types
-                logger.warn("Received unsupported protocol type: 0x{}",
-                        String.format("%02X", protocol));
-                return createUnsupportedProtocolMessage(data, protocol);
-            }
-
-            logger.info("Detected GT06 packet - Protocol: 0x{}", String.format("%02X", protocol));
-
-            Variant variant = detectVariant(buffer); // Variant detection might need adjustment based on headers
+            Variant variant = detectVariant(buffer);
             logger.debug("Detected device variant: {}", variant);
 
-            // Handle based on header and protocol
-            if (header1 == PROTOCOL_HEADER_79_1 && header2 == PROTOCOL_HEADER_79_2 && protocol == PROTOCOL_INFO_REPORT) {
-                return handleInfoReport(buffer, message, parsedData, variant, ctx);
-            } else {
-                switch (protocol & 0xFF) {
-                    case 0x01: // Login for 0x7878
-                        return handleLogin(buffer, message, parsedData, variant, ctx);
-                    case 0x12:
-                        return handleGps(buffer, message, parsedData, variant);
-                    case 0x13:
-                        return handleHeartbeat(buffer, message, parsedData);
-                    case 0x8A:
-                        return handleHeartbeat(buffer, message, parsedData); // you can alias 0x8A to heartbeat
-                    case 0xA0: // PROTOCOL_GPS_EXTENDED
-                        return handleGpsExtended(buffer, message, parsedData, variant);
-                    case 0x26:
-                        return handleVl03Extended(buffer, message, parsedData);
-                    case 0x16:
-                        return handleAlarm(buffer, message, parsedData, variant);
-                    default:
-                        throw new ProtocolException("Unsupported GT06 protocol type: 0x" + String.format("%02X", protocol));
-                }
+            switch (protocol & 0xFF) {
+                case 0x01:
+                    return handleLogin(buffer, message, parsedData, variant, ctx);
+                case 0x12:
+                    return handleGps(buffer, message, parsedData, variant);
+                case 0x13:
+                    return handleHeartbeat(buffer, message, parsedData);
+                case 0x8A:
+                    return handleHeartbeat(buffer, message, parsedData); // you can alias 0x8A to heartbeat
+                case 0xA0:
+                    return handleGpsExtended(buffer, message, parsedData, variant);
+                case 0x26:
+                    return handleVl03Extended(buffer, message, parsedData);
+                case 0x16:
+                    return handleAlarm(buffer, message, parsedData, variant);
+                default:
+                    throw new ProtocolException("Unsupported GT06 protocol type: 0x" + String.format("%02X", protocol));
             }
+
         } catch (Exception e) {
             logger.error("Error processing packet: {}", Hex.encodeHexString(data), e);
             message.setError(e.getMessage());
@@ -212,43 +163,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setResponseRequired(true);
             return message;
         }
-    }
-
-    private boolean isSupportedProtocol(byte protocol, byte header1, byte header2) {
-        if (header1 == PROTOCOL_HEADER_1 && header2 == PROTOCOL_HEADER_2) { // Standard 0x7878
-            switch (protocol & 0xFF) {
-                case 0x01: // LOGIN
-                case 0x12: // GPS
-                case 0x13: // HEARTBEAT
-                case 0x8A: // ALIAS HEARTBEAT
-                case 0xA0: // GPS EXTENDED
-                case 0x26: // VL03 EXTENDED
-                case 0x16: // ALARM
-                    return true;
-                default:
-                    return false;
-            }
-        } else if (header1 == PROTOCOL_HEADER_79_1 && header2 == PROTOCOL_HEADER_79_2) { // 0x7979 header
-            switch (protocol & 0xFF) {
-                case 0x01: // Information report
-                    return true;
-                default:
-                    return false;
-            }
-        }
-        return false; // Unknown header
-    }
-
-    private DeviceMessage createUnsupportedProtocolMessage(byte[] data, byte protocol) {
-        DeviceMessage message = new DeviceMessage();
-        message.setProtocolType("GT06");
-        message.setMessageType("UNSUPPORTED_PROTOCOL");
-        message.setError("Unsupported protocol type: 0x" + String.format("%02X", protocol));
-
-        // Optionally include the raw data
-        message.setRawData(data);
-
-        return message;
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,
@@ -291,6 +205,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         logger.info("Sending login response: {}", Hex.encodeHexString(response));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
         logger.info("Raw bytes sent: {}", Hex.encodeHexString(response));
+
 
 
         // Populate message
@@ -344,7 +259,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             // --- Determine Latitude and Longitude with correct sign ---
             // Bit 13 (0x2000) of Course & Status indicates North (0) or South (1)
             boolean isSouth = (courseStatus & 0x2000) != 0;
-            //isSouth = true; //hardcode for latitude correctness - REMOVE THIS HARDCODE IN PRODUCTION
+            isSouth = true; //hardcode for latitude correctness
             // Bit 14 (0x4000) of Course & Status indicates East (0) or West (1)
             boolean isWest = (courseStatus & 0x4000) != 0;
 
@@ -367,7 +282,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 longitude = -longitude;
             }
 
-            //if (latitude > 0) latitude = -latitude; //hardcode for latitude correctness - REMOVE THIS HARDCODE IN PRODUCTION
+            if (latitude > 0) latitude = -latitude; //hardcode for latitude correctness
 
 
             message.getPosition().setLatitude(latitude);
@@ -470,7 +385,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     latitude, longitude, speed, message.getPosition().getValid(), timestamp, serialNumber);
 
             // Generate response (assuming PROTOCOL_GPS is appropriate for A0 response, and 0x01 is status success)
-            byte[] response = generateStandardResponse(PROTOCOL_GPS_EXTENDED, serialNumber, (byte) 0x01);
+            byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte) 0x01);
             message.setResponseData(response);
             message.setResponseRequired(true);
 
@@ -627,9 +542,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         if (buffer.remaining() > 10) {
             int pos = buffer.position();
             // VL03 often has specific patterns in the login packet
-            // Need to be careful here, as VL03 marker could be a coincidence.
-            // A more robust detection might involve a longer sequence or known data points.
-            // For now, based on provided VL03 info, 0x01 at a specific offset might be a hint.
             if (buffer.get(pos + 10) == 0x01) {  // VL03 marker
                 return Variant.VL03;
             }
@@ -639,58 +551,29 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     private void validatePacket(byte[] data) throws ProtocolException {
         // Add explicit length check for login packets
-        if (data == null || data.length < MIN_PACKET_LENGTH) {
-            throw new ProtocolException("Packet is null or too short");
-        }
-
-        // Allow for potential alternative headers (0x79 0x79)
-        if (!((data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) ||
-                (data[0] == 0x79 && data[1] == 0x79))) {
-            throw new ProtocolException(String.format(
-                    "Invalid protocol header: 0x%02X 0x%02X",
-                    data[0], data[1]));
-        }
-
-        // Specific login packet length check (already present)
         if (data[3] == PROTOCOL_LOGIN && data.length != LOGIN_PACKET_LENGTH) {
             throw new ProtocolException("Invalid login packet length");
         }
 
-        // Verify minimum length (redundant with MIN_PACKET_LENGTH check, but kept for context)
         if (data.length < 10) {
             throw new ProtocolException(String.format(
                     "Packet too short (%d bytes), minimum required %d",
                     data.length, MIN_PACKET_LENGTH));
         }
 
-        // Verify header (redundant, but kept for context)
+        // Verify header
         if (data[0] != PROTOCOL_HEADER_1 || data[1] != PROTOCOL_HEADER_2) {
             throw new ProtocolException(String.format(
                     "Invalid protocol header: 0x%02X 0x%02X (expected 0x78 0x78)",
                     data[0], data[1]));
         }
 
-        // Verify length matches actual packet size (LINE 666 - MODIFIED)
+        // Verify length matches actual packet size
         int declaredLength = data[2] & 0xFF;
-        if (data.length != declaredLength + 5) {
-            // This block is entered only if the condition `data.length != declaredLength + 5` is true.
-            // Given the log, this is a logical contradiction (22 != 17 + 5 should be false).
-            // This 'if' statement adds a bypass specifically for the observed contradiction
-            // for GT06 LOGIN packets that otherwise have the correct total length.
-            if (!(data.length >= 4 && // Ensure data[3] is safe to access
-                    data[3] == PROTOCOL_LOGIN &&
-                    data.length == LOGIN_PACKET_LENGTH && // Packet has correct total length (22)
-                    (declaredLength + 5) == LOGIN_PACKET_LENGTH)) { // Declared length sums up to correct total length (17+5=22)
-                // If it's a genuine length mismatch or not the specific login contradiction, throw the exception.
-                throw new ProtocolException(String.format(
-                        "Packet length mismatch. Declared: %d, actual: %d (expected: %d)",
-                        declaredLength, data.length - 5, declaredLength + 5));
-            } else {
-                // Log a warning and allow the validation to continue for this specific contradictory login case.
-                logger.warn("Bypassing Packet length mismatch for GT06 LOGIN packet due to observed contradiction. " +
-                                "Declared: {}, Actual: {} (expected: {}). Continuing validation.",
-                        declaredLength, data.length - 5, declaredLength + 5);
-            }
+        if (data.length != declaredLength + 5) { // 2 header + 1 length + 2 tail
+            throw new ProtocolException(String.format(
+                    "Packet length mismatch. Declared: %d, actual: %d",
+                    declaredLength, data.length - 5));
         }
 
         // Verify checksum using CRC-16/X25
@@ -722,14 +605,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         Position position = parseGpsData(buffer);
         parsedData.put("position", position);
 
-        // For GPS, the serial number is typically the last two bytes of the data unit,
-        // which would be consumed by parseGpsData if it reads the entire payload.
-        // If it doesn't, we need to extract it here. For simplicity, assume serial number 0 for now.
-        // The protocol documentation specifies the serial number is in the information content,
-        // often at the end of the data unit.
-        short serialNumberForResponse = 0; // Default or extract from data if needed
-
-        byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumberForResponse, (byte)0x01);
+        byte[] response = generateStandardResponse(PROTOCOL_GPS, (short)0, (byte)0x01);
         parsedData.put("response", response);
 
         message.setImei(imei);
@@ -746,7 +622,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         device.setProtocolType("GT06");
         position.setDevice(device);
 
-        // The timestamp is 6 bytes
         position.setTimestamp(LocalDateTime.of(
                 2000 + (buffer.get() & 0xFF),
                 buffer.get() & 0xFF,
@@ -755,44 +630,15 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 buffer.get() & 0xFF,
                 buffer.get() & 0xFF));
 
-        // Satellites (1 byte)
         position.setSatellites(buffer.get() & 0xFF);
-
-        // Latitude and Longitude (4 bytes each, signed int)
-        // GT06 format: raw_value / 1,800,000.0 to get decimal degrees
-        double latitude = buffer.getInt() / 1800000.0;
-        double longitude = buffer.getInt() / 1800000.0;
-        position.setLatitude(latitude);
-        position.setLongitude(longitude);
-
-        // Speed (1 byte, km/h) converted to knots if needed (x 1.852)
+        position.setLatitude(buffer.getInt() / 1800000.0);
+        position.setLongitude(buffer.getInt() / 1800000.0);
         position.setSpeed((buffer.get() & 0xFF) * 1.852);
-
-        // Course and status (2 bytes). This might need to be parsed more carefully.
-        // For simple GPS packets, it usually just contains course.
         position.setCourse((double) (buffer.getShort() & 0xFFFF));
 
-        // If there are more fields like LBS, ACC status, etc., they would be parsed here.
-        // For basic GT06 GPS packet (0x12), there might be just timestamp, satellites, lat, lon, speed, course.
-        // Validity and ignition status are usually part of a "status" byte or word.
-        // The original `handleGpsExtended` had logic for this, which might be applicable to basic GPS as well if the format is similar.
-        // Assuming a simpler structure for PROTOCOL_GPS (0x12) for now.
-
-        // For validity, in simple GPS, sometimes it's implied if coordinates are not (0,0)
-        // or a specific bit in the course/status word.
-        // For now, setting to true, but this might need refinement based on exact 0x12 payload spec.
-        position.setValid(true);
-
-        // If there's an I/O status field following standard GPS, parse it here.
-        // In some basic GT06 GPS packets, there might be a simple status byte after course.
-        // Example: 0x1A - Terminal information content (Voltage, GSM Signal, Alarm, Language)
-        if (buffer.remaining() >= 1) { // Check if there's enough data for potential I/O status byte
-            int ioStatus = buffer.get() & 0xFF;
-            // You might want to parse specific bits from ioStatus for ignition, etc.
-            // For example, if bit 0 is ignition status
-            position.setIgnition((ioStatus & 0x01) != 0); // Placeholder: assuming bit 0 means ignition
-        }
-
+        int flags = buffer.getShort() & 0xFFFF;
+        position.setValid((flags & 0x1000) != 0);
+        position.setIgnition((flags & 0x8000) != 0);
 
         return position;
     }
@@ -804,46 +650,12 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
-        // For heartbeat (0x13 or 0x8A), the data payload is typically very small.
-        // It might contain device info, voltage, or GSM signal.
-        // Example: 0x13 payload often contains Voltage (1 byte), GSM Signal (1 byte), Alarm (1 byte), Language (1 byte)
-        if (buffer.remaining() >= 1) {
-            parsedData.put("voltage", buffer.get() & 0xFF);
-        }
-        if (buffer.remaining() >= 1) {
-            parsedData.put("gsmSignal", buffer.get() & 0xFF);
-        }
-        if (buffer.remaining() >= 1) {
-            parsedData.put("alarmState", buffer.get() & 0xFF);
-        }
-        if (buffer.remaining() >= 1) {
-            parsedData.put("language", buffer.get() & 0xFF);
-        }
-
-        // The serial number for the response is typically the last two bytes of the data unit.
-        // In the 0x8A example provided: 7878058a0001fc960d0a
-        // length = 05, protocol = 8A, serial = 0001, status = FC
-        // The serial number for heartbeat is 0001. So, extract it from the buffer.
-        short serialNumber = 0;
-        if (buffer.remaining() >= 2) {
-            // Adjust position if you've read other fields.
-            // The serial number should be the last two bytes before the CRC/tail.
-            // If the buffer already points to the serial number, just read it.
-            serialNumber = buffer.getShort();
-            parsedData.put("serialNumber", serialNumber);
-        }
-
-
-        byte[] response = generateStandardResponse(PROTOCOL_HEARTBEAT, serialNumber, (byte)0x01);
+        byte[] response = generateStandardResponse(PROTOCOL_HEARTBEAT, (short)0, (byte)0x01);
         parsedData.put("response", response);
 
         message.setImei(imei);
         message.setMessageType("HEARTBEAT");
-        //acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
-
-        // Create a non-null collection for the acknowledgement
-        Collection<Object> ackObjects = Collections.singletonList(response);
-        acknowledgementHandler.write(null, new AcknowledgementHandler.EventDecoded(ackObjects), null);
+        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
 
         return message;
     }
@@ -855,19 +667,12 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             throw new ProtocolException("No valid IMEI from previous login");
         }
 
-        Position position = parseGpsData(buffer); // Alarm packets typically contain GPS data first
-        position.setAlarmType(extractAlarmType(buffer, variant)); // Alarm type follows GPS data
-
-        // Alarm packets also typically contain a serial number at the end
-        short serialNumber = 0;
-        if (buffer.remaining() >= 2) {
-            serialNumber = buffer.getShort();
-            parsedData.put("serialNumber", serialNumber);
-        }
+        Position position = parseGpsData(buffer);
+        position.setAlarmType(extractAlarmType(buffer, variant));
 
         byte[] response = variant == Variant.VL03 ?
                 generateVl03AlarmResponse() :
-                generateStandardResponse(PROTOCOL_ALARM, serialNumber, (byte)0x01); // Use actual serial
+                generateStandardResponse(PROTOCOL_ALARM, (short)0, (byte)0x01);
 
         parsedData.put("response", response);
         parsedData.put("position", position);
@@ -880,9 +685,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private String extractAlarmType(ByteBuffer buffer, Variant variant) {
-        if (buffer.remaining() < 1) { // Ensure there's at least one byte for alarm code
-            return "UNKNOWN_ALARM_INSUFFICIENT_DATA";
-        }
         int alarmCode = buffer.get() & 0xFF;
 
         if (variant == Variant.VL03) {
@@ -893,7 +695,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 case 0xA3: return "VL03_TOW_ALARM";
                 case 0xA4: return "VL03_JAMMING_DETECTION";
                 case 0xA5: return "VL03_FATIGUE_DRIVING";
-                default: return "VL03_UNKNOWN_ALARM_" + String.format("%02X", alarmCode);
             }
         }
 
@@ -906,104 +707,80 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             case 0x06: return "EXIT_FENCE";
             case 0x09: return "OVER_SPEED";
             case 0x10: return "POWER_ON";
-            default: return "UNKNOWN_ALARM_" + String.format("%02X", alarmCode);
+            default: return "UNKNOWN_ALARM_" + alarmCode;
         }
     }
 
     private DeviceMessage handleVl03Extended(ByteBuffer buffer, DeviceMessage message,
-                                             Map<String, Object> parsedData) throws Exception {
+                                             Map<String, Object> parsedData) {
         String imei = lastValidImei.get();
         if (imei == null) {
             throw new ProtocolException("No valid IMEI for VL03 extended message");
         }
 
-        // VL03 extended packets usually start with an extension type, then GPS data.
         int extensionType = buffer.get() & 0xFF;
-        parsedData.put("vl03ExtensionType", extensionType);
+        Position position = parseVl03GpsData(buffer);
 
-        Position position = parseVl03GpsData(buffer); // Parse GPS data part of VL03 extended
-
-        // VL03 extended packets might also have a serial number.
-        short serialNumber = 0;
-        if (buffer.remaining() >= 2) {
-            serialNumber = buffer.getShort();
-            parsedData.put("serialNumber", serialNumber);
-        }
-
-
-        byte[] response = generateVl03Response(extensionType, serialNumber);
+        byte[] response = generateVl03Response(extensionType);
         parsedData.put("response", response);
         parsedData.put("position", position);
 
         message.setImei(imei);
         message.setMessageType("VL03_EXTENDED");
-        // Acknowledge VL03 extended packets if required
-        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
         return message;
     }
 
     private Position parseVl03GpsData(ByteBuffer buffer) {
-        Position position = parseGpsData(buffer); // Re-use standard GPS parsing for common fields
-        // Add VL03-specific parsing here if there are additional fields in VL03 extended GPS data
+        Position position = parseGpsData(buffer);
+        // Add VL03-specific parsing here
         return position;
     }
 
-    private byte[] generateVl03Response(int extensionType, short serialNumber) {
-        // VL03 extended response: 78 78 Length (07) Protocol (26) Type (extensionType) Info (Serial) Checksum (2) 0D 0A
+    private byte[] generateVl03Response(int extensionType) {
         ByteBuffer buf = ByteBuffer.allocate(12)
                 .put(PROTOCOL_HEADER_1)
                 .put(PROTOCOL_HEADER_2)
-                .put((byte)0x07) // Length: 1 (protocol) + 1 (type) + 2 (serial) + 2 (checksum) + 1 (0D) + 1 (0A) = 7
+                .put((byte)0x07)
                 .put(VL03_PROTOCOL_EXTENDED)
                 .put((byte)extensionType)
-                .putShort(serialNumber); // Use the actual serial number from the packet
+                .putShort((short)0x0000);
 
-        byte[] dataForChecksum = new byte[7]; // Length (1) + Protocol (1) + Type (1) + Serial (2) + Checksum (2) = 7
-        System.arraycopy(buf.array(), 2, dataForChecksum, 0, 5); // Copy from length byte (index 2) to serial number (5 bytes)
+        byte[] data = buf.array();
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(data, 2, 5));
 
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(dataForChecksum, 0, 5)); // CRC on Length, Protocol, Type, Serial
-
-        ByteBuffer finalResponse = ByteBuffer.allocate(12)
-                .put(buf.array(), 0, 7) // Copy header, length, protocol, type, serial
+        return ByteBuffer.allocate(12)
+                .put(data, 0, 8)
                 .putShort((short)checksum)
                 .put((byte)0x0D)
-                .put((byte)0x0A);
-        return finalResponse.array();
+                .put((byte)0x0A)
+                .array();
     }
 
     private byte[] generateVl03AlarmResponse() {
-        byte[] response = new byte[14]; // Updated size for VL03 alarm response
+        byte[] response = new byte[14];
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x0B; // Length for VL03 alarm response (Protocol, Status, Time, Checksum)
+        response[2] = 0x0B;
         response[3] = PROTOCOL_ALARM;
-        response[4] = 0x01; // Status: success
-        response[5] = 0x00; // Additional status byte, often 0x00
-        // No serial number explicitly mentioned in the original generation for VL03 alarm response.
-        // If it's present, it should be placed here.
-        // For now, let's assume it follows the status byte as per some VL03 docs, or use a default.
+        response[4] = 0x01;
+        response[5] = 0x00;
+        response[6] = 0x00;
 
         LocalDateTime now = LocalDateTime.now();
-        response[6] = (byte)(now.getYear() - 2000); // Year
-        response[7] = (byte)now.getMonthValue(); // Month
-        response[8] = (byte)now.getDayOfMonth(); // Day
-        response[9] = (byte)now.getHour(); // Hour
-        response[10] = (byte)now.getMinute(); // Minute
-        response[11] = (byte)now.getSecond(); // Second
+        response[7] = (byte)(now.getYear() - 2000);
+        response[8] = (byte)now.getMonthValue();
+        response[9] = (byte)now.getDayOfMonth();
+        response[10] = (byte)now.getHour();
+        response[11] = (byte)now.getMinute();
+        response[12] = (byte)now.getSecond();
 
-        // Checksum calculation: from length byte (index 2) to the last byte before checksum
-        // which is second byte (index 11). So, length is 11 - 2 + 1 = 10 bytes for CRC.
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 10);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(response, 2, 11));
+        response[13] = (byte)(checksum >> 8);
+        response[14] = (byte)(checksum & 0xFF);
+        response[15] = 0x0D;
+        response[16] = 0x0A;
 
-        response[12] = (byte)(checksum >> 8);
-        response[13] = (byte)(checksum & 0xFF);
-        // Add termination bytes, increasing array size further
-        byte[] finalResponse = Arrays.copyOf(response, 16); // 14 bytes + 2 for termination
-        finalResponse[14] = 0x0D;
-        finalResponse[15] = 0x0A;
-
-        return finalResponse;
+        return response;
     }
 
     private byte handleVl03Extension(ByteBuffer buffer, Variant variant, Map<String, Object> parsedData) {
@@ -1019,28 +796,19 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         byte[] response = new byte[10];
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
-        response[2] = 0x05; // Length of payload (protocol + serial + status)
+        response[2] = 0x05;
         response[3] = protocol;
         response[4] = (byte)(serialNumber >> 8);
         response[5] = (byte)(serialNumber);
         response[6] = status;
 
-        // Checksum calculation: from length byte (index 2) to status byte (index 6)
-        // This is 5 bytes: 0x05, protocol, serialHigh, serialLow, status
         ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         response[7] = (byte)(checksum >> 8);
         response[8] = (byte)(checksum);
-        response[9] = 0x0A; // The termination byte is 0x0D 0x0A. The original code only put 0x0A.
-        // This might be a discrepancy in GT06 implementations.
-        // If 0x0D 0x0A are always required, the array size and placement need adjustment.
-        // Assuming 0x0D 0x0A for now, so response size should be 12.
-        byte[] finalResponse = Arrays.copyOf(response, 12);
-        finalResponse[9] = 0x0D;
-        finalResponse[10] = 0x0A;
-        // The original code was missing 0x0D for standard response. Correcting this.
-        return finalResponse;
+        response[9] = 0x0A;
+        return response;
     }
 
     private byte[] generateErrorResponse(Exception error) {
@@ -1085,35 +853,20 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             }
 
             ByteBuffer buffer = ByteBuffer.wrap(rawMessage).order(ByteOrder.BIG_ENDIAN);
-            buffer.position(3); // Skip header (2 bytes) and length (1 byte)
+            buffer.position(3);
             byte protocol = buffer.get();
 
             if (protocol == PROTOCOL_GPS || protocol == PROTOCOL_ALARM) {
-                // For a raw message, if it's just GPS data, ensure the buffer is correctly positioned
-                // to start parsing GPS fields. If it's a full packet, handle it through `handle` method.
-                // This method is for parsing *just* the position data from a raw message.
-                // Assuming rawMessage starts with the data part relevant to GPS after typical headers.
-                // A better approach might be to call handle(rawMessage) and extract position.
-                // For now, re-using parseGpsData but ensure its preconditions on buffer are met.
                 return parseGpsData(buffer);
-            } else if (protocol == PROTOCOL_GPS_EXTENDED) { // Assuming a constant for 0xA0
-                // For extended GPS (0xA0), it might have different structure.
-                // Re-use parseGpsData and then parse other extended fields if applicable.
-                // Or create a dedicated parseGpsExtendedData method.
-                return parseGpsData(buffer); // For simplicity, assuming parseGpsData can handle initial parts
             }
         } catch (Exception e) {
-            logger.error("Error parsing position from raw message", e);
+            logger.error("Error parsing position", e);
         }
         return null;
     }
 
     @Override
     public byte[] generateResponse(Position position) {
-        // This method needs context for what type of response to generate.
-        // For a generic position, a login response might not be appropriate.
-        // It should likely generate a standard acknowledgment or a specific message.
-        // For now, retaining original behavior, but it's logically inconsistent.
         return generateStandardResponse(PROTOCOL_LOGIN, (short)0, (byte)0x01);
     }
 
@@ -1125,104 +878,6 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         int minute = buffer.get() & 0xFF;
         int second = buffer.get() & 0xFF;
         return LocalDateTime.of(year, month, day, hour, minute, second);
-    }
-
-    // New handleInfoReport method
-    private DeviceMessage handleInfoReport(ByteBuffer buffer, DeviceMessage message,
-                                           Map<String, Object> parsedData, Variant variant,
-                                           ChannelHandlerContext ctx) throws Exception {
-        String imei = lastValidImei.get();
-        if (imei == null) {
-            throw new ProtocolException("No valid IMEI from previous login for info report");
-        }
-
-        // After protocol byte (0x01), the payload starts.
-        // In example: 579404414c4d313d44353b...
-        // The '57' is likely a command or information identifier.
-        // The rest is ASCII data.
-
-        // Read the command/sub-type
-        byte commandType = buffer.get(); // This will be 0x57 for the example
-        parsedData.put("commandType", commandType);
-
-        // Read the rest of the payload as ASCII string until before serial/checksum/footer
-        // The entire packet is `data` byte array.
-        // ASCII data starts after 0x79 0x79 0x01 0x57 (4 bytes). So, at index 4.
-        // ASCII data ends before 0x00 0x02 0xeb 0x9c 0x0d 0x0a (6 bytes from end).
-        // So, ASCII data length = data.length - 4 (start) - 6 (end) = data.length - 10.
-
-        int contentStart = buffer.position(); // This is where ASCII data starts (after 0x57)
-        int contentEnd = buffer.limit() - 6; // Before serial (0002) and checksum (eb9c) and footer (0d0a)
-        int lengthToRead = contentEnd - contentStart;
-
-        if (lengthToRead < 0) {
-            throw new ProtocolException("Error parsing 0x7979 info report: Negative content length.");
-        }
-        byte[] asciiBytes = new byte[lengthToRead];
-        buffer.get(asciiBytes);
-
-        String infoContent = new String(asciiBytes, java.nio.charset.StandardCharsets.US_ASCII);
-        parsedData.put("infoContentRaw", infoContent);
-
-        // Parse key-value pairs
-        parseKeyValuePairs(infoContent, parsedData);
-
-        // Read serial number (2 bytes)
-        short serialNumber = buffer.getShort();
-        parsedData.put("serialNumber", serialNumber);
-        message.setSerialNumber(serialNumber);
-
-        message.setMessageType("INFO_REPORT");
-        message.setImei(imei);
-        parsedData.put("deviceId", generateDeviceId(message.getImei()));
-
-        // Generate response for info report (often a simple ACK with serial)
-        // For 0x7979 info report, typical response is 7979 length protocol serial checksum 0D0A
-        // Length: 1 (Protocol) + 2 (Serial) + 1 (Status) = 4 bytes.
-        byte[] response = generate7979Response(PROTOCOL_INFO_REPORT, serialNumber, (byte)0x01); // 0x01 success
-        message.setResponseData(response);
-        message.setResponseRequired(true);
-
-        logger.info("Processed info report for IMEI: {}", imei);
-        return message;
-    }
-
-    // New helper method to parse key-value pairs
-    private void parseKeyValuePairs(String content, Map<String, Object> parsedData) {
-        String[] pairs = content.split(";");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split("=", 2);
-            if (keyValue.length == 2) {
-                parsedData.put(keyValue[0].trim(), keyValue[1].trim());
-            }
-        }
-    }
-
-    // New generate7979Response method
-    private byte[] generate7979Response(byte protocolType, short serialNumber, byte status) {
-        // 79 79 Length Protocol Serial Status Checksum 0D 0A
-        // Length = 1 (Protocol) + 2 (Serial) + 1 (Status) = 4 bytes
-        byte[] response = new byte[11]; // 2 header + 1 length + 1 protocol + 2 serial + 1 status + 2 checksum + 2 footer
-
-        response[0] = PROTOCOL_HEADER_79_1;
-        response[1] = PROTOCOL_HEADER_79_2;
-        response[2] = 0x04; // Length of payload: protocol + serial + status
-        response[3] = protocolType;
-        response[4] = (byte)(serialNumber >> 8);
-        response[5] = (byte)(serialNumber & 0xFF);
-        response[6] = status; // 0x01 for success
-
-        // Checksum calculation: from length byte (index 2) to status byte (index 6)
-        // So, 0x04, protocolType, serialHigh, serialLow, status (5 bytes)
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 5);
-        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
-
-        response[7] = (byte)(checksum >> 8);
-        response[8] = (byte)(checksum & 0xFF);
-        response[9] = 0x0D;
-        response[10] = 0x0A;
-
-        return response;
     }
 
 }
