@@ -90,7 +90,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             // For now, the `decode` method will handle re-detection if result is null.
         } else {
             // Unknown message type, pass it on
-            ctx.fireChannelRead(msg);
             return;
         }
 
