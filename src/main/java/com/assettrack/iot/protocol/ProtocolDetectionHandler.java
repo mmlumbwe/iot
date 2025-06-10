@@ -46,7 +46,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             result = null;
         }
 
-        // If detect() returned null, or result not detected, try fallbacks
+        // If detect() returned null or did not identify a protocol, try fallbacks
         if (result == null || !result.isDetected()) {
             if (result == null) {
                 logger.error("ProtocolDetector returned null for data: {}", hex);
@@ -66,17 +66,19 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            // 2) GT06 fallback
-            if (data.length >= 2 && data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
-                logger.info("Processing as GT06 despite detection failure");
+            // 2) GT06 fallback using Gt06Matcher for accurate packet type
+            ProtocolDetector.Gt06Matcher gt06Matcher = new ProtocolDetector.Gt06Matcher();
+            if (gt06Matcher.matches(data)) {
+                String packetType = gt06Matcher.getPacketType(data);
+                logger.info("Fallback detecting GT06 protocol: {}", packetType);
                 ctx.fireChannelRead(
-                        ProtocolDetector.ProtocolDetectionResult.success("GT06", "FALLBACK_DETECT", "1.0")
+                        ProtocolDetector.ProtocolDetectionResult.success("GT06", packetType, "1.0")
                 );
                 ctx.fireChannelRead(buf);
                 return;
             }
 
-            // 3) Total failure
+            // 3) Total failure: release buffer and propagate failure
             logger.error("No protocol detected and no fallback available");
             ReferenceCountUtil.release(buf);
             ctx.fireChannelRead(
