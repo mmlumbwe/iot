@@ -25,7 +25,7 @@ public class ProtocolDetector {
             return ProtocolDetectionResult.failure("INVALID_DATA_LENGTH");
         }
         try {
-            // 1) Teltonika fallback
+            // 1) Teltonika
             TeltonikaMatcher teltonikaMatcher = new TeltonikaMatcher();
             if (teltonikaMatcher.matches(data)) {
                 return ProtocolDetectionResult.success(
@@ -34,7 +34,8 @@ public class ProtocolDetector {
                         VERSION
                 );
             }
-            // 2) GT06 fallback
+
+            // 2) GT06
             Gt06Matcher gt06Matcher = new Gt06Matcher();
             if (gt06Matcher.matches(data)) {
                 return ProtocolDetectionResult.success(
@@ -43,7 +44,8 @@ public class ProtocolDetector {
                         VERSION
                 );
             }
-            // 3) TK103 matcher
+
+            // 3) TK103
             Tk103Matcher tk103Matcher = new Tk103Matcher();
             if (tk103Matcher.matches(data)) {
                 return ProtocolDetectionResult.success(
@@ -52,6 +54,7 @@ public class ProtocolDetector {
                         VERSION
                 );
             }
+
             // No known protocol
             return ProtocolDetectionResult.failure("UNKNOWN_PROTOCOL");
         } catch (Exception e) {
@@ -72,8 +75,10 @@ public class ProtocolDetector {
             this(valid, protocol, packetType, VERSION, null, null);
         }
 
-        public ProtocolDetectionResult(boolean valid, String protocol, String packetType,
-                                       String version, String error, Channel channel) {
+        public ProtocolDetectionResult(
+                boolean valid, String protocol, String packetType,
+                String version, String error, Channel channel
+        ) {
             this.valid = valid;
             this.protocol = protocol;
             this.packetType = packetType;
@@ -107,10 +112,6 @@ public class ProtocolDetector {
                     valid, protocol, packetType, version, error
             );
         }
-
-        public boolean isValid() {
-            return valid;
-        }
     }
 
     interface ProtocolMatcher {
@@ -125,7 +126,7 @@ public class ProtocolDetector {
             int length = data[2] & 0xFF;
             if (data.length < length + 5) return false;
             // terminator check
-            return data[data.length-2] == 0x0D && data[data.length-1] == 0x0A;
+            return data[data.length - 2] == 0x0D && data[data.length - 1] == 0x0A;
         }
 
         @Override
@@ -150,8 +151,8 @@ public class ProtocolDetector {
         public boolean matches(byte[] data) {
             if (data.length < 4) return false;
             return data[0] == 0x78 && data[1] == 0x78
-                    && data[data.length-2] == 0x0D
-                    && data[data.length-1] == 0x0A;
+                    && data[data.length - 2] == 0x0D
+                    && data[data.length - 1] == 0x0A;
         }
 
         @Override
@@ -190,15 +191,8 @@ public class ProtocolDetector {
         @Override
         public String getPacketType(byte[] data) {
             if (data.length == 17) return "IMEI";
-            if (data.length >= 12) {
-                int codec = data[8] & 0xFF;
-                return "AVL_DATA_CODEC_" + codec;
-            }
-            return "UNKNOWN_TELTONIKA";
+            int codec = data[8] & 0xFF;
+            return "AVL_DATA_CODEC_" + codec;
         }
-    }
-
-    public static class TeltonikaConstants {
-        public static final int IMEI_MIN_LENGTH = 15;
     }
 }
