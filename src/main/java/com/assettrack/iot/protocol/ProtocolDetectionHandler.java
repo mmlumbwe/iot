@@ -27,11 +27,6 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        if (msg != null) {
-            ctx.fireChannelRead(msg);
-        }
-
-
         // Retain the buffer so it can be safely used by subsequent handlers.
         // The last handler consuming the buffer is responsible for releasing it.
         buf.retain();
@@ -39,7 +34,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data); // Read data without consuming (increasing readerIndex)
 
-            logger.debug("ProtocolDetectionHandler: Detecting protocol for raw packet: {}", Hex.encodeHexString(data));
+            logger.info("ProtocolDetectionHandler: Detecting protocol for raw packet: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
             if (result != null && result.isDetected()) {
