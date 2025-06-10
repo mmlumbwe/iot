@@ -113,7 +113,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     result.getProtocol(), result.getPacketType());
 
             // --- Route to TeltonikaHandler or GT06 handler ---
-            if (result != null && "TELTONIKA".equals(result.getProtocol())) {
+            if ("TELTONIKA".equals(result.getProtocol())) {
+                // ... existing Teltonika handling ...
                 if (teltonikaHandler != null) {
                     logger.info("Delegating Teltonika packet to TeltonikaHandler: Protocol={}, PacketType={}", result.getProtocol(), result.getPacketType());
                     // Use the existing handle method in TeltonikaHandler which correctly processes IMEI/DATA packets
@@ -125,45 +126,36 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                         logger.warn("TeltonikaHandler did not return a message for protocol type: {}", result.getPacketType());
                         return null; // TeltonikaHandler couldn't process this packet
                     }
-                } else {
-                    logger.error("TeltonikaHandler is not available, but Teltonika protocol detected. Cannot process.");
-                    return null;
                 }
-            } else {
-                // If not Teltonika, assume it's GT06 or other protocols handled by `GenericProtocolDecoder`
-                logger.info("Processing as non-Teltonika packet (likely GT06): Protocol={}, PacketType={}",
-                        result != null ? result.getProtocol() : "UNKNOWN",
-                        result != null ? result.getPacketType() : "UNKNOWN");
-
-                // Manual GT06 header detection as a final fallback if ProtocolDetector didn't identify it or identified as UNKNOWN
-                if (result == null && isValidGT06Header(data)) {
-                    result = ProtocolDetector.ProtocolDetectionResult.success("GT06", "UNKNOWN_FROM_HEADER", "1.0");
-                    logger.info("Manually re-classified packet as GT06 based on header.");
-                }
-
-                if (result != null && "GT06".equals(result.getProtocol())) {
-                    // 1) Delegate to your Gt06Handler if available
-                    if (gt06Handler != null) {
-                        logger.info("Delegating GT06 packet to Gt06Handler: {}, {}", result.getProtocol(), result.getPacketType());
-                        DeviceMessage msg = gt06Handler.handle(data, ctx);
-                        if (msg != null) {
-                            enrichMessageWithContext(ctx, msg);
-                            return msg;
-                        }
-                        logger.warn("Gt06Handler returned null for packet type: {}", result.getPacketType());
+            }
+            else if ("GT06".equals(result.getProtocol())) {
+                // 1) Try Gt06Handler first if available
+                if (gt06Handler != null) {
+                    logger.info("Delegating GT06 packet to Gt06Handler: Protocol={}, PacketType={{}", result.getProtocol(), result.getPacketType());
+                    DeviceMessage msg = gt06Handler.handle(data, ctx);
+                    if (msg != null) {
+                        enrichMessageWithContext(ctx, msg);
+                        return msg;
                     }
-                    // 2) Fallback to the old GenericProtocolDecoder.handle()
-                    logger.debug("Falling back to default GT06 logic");
+                    logger.info("Gt06Handler returned null, falling back");
+                }
+
+                // 2) Fallback to default GT06 handling
+                try {
                     DeviceMessage fallback = handle(data);
                     if (fallback != null) {
                         enrichMessageWithContext(ctx, fallback);
+                        return fallback;
                     }
-                    return fallback;
-                } else {
-                    logger.debug("Packet not identified as Teltonika or GT06. Returning null.");
-                    return null; // Cannot decode this packet
+                } catch (ProtocolException e) {
+                    logger.error("GT06 handling error", e);
                 }
+
+                return null;
             }
+
+            logger.warn("Unsupported protocol: {}", result.getProtocol());
+            return null;
         } catch (Exception e) {
             logger.error("Decoding error in BaseProtocolDecoder: {}", e.getMessage(), e);
             // Don't re-throw, just log and return null so pipeline can continue
