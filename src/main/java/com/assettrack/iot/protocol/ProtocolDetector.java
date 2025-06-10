@@ -112,6 +112,10 @@ public class ProtocolDetector {
                     valid, protocol, packetType, version, error
             );
         }
+
+        public boolean isValid() {
+            return valid;
+        }
     }
 
     interface ProtocolMatcher {
