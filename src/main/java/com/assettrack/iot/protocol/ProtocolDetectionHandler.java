@@ -33,7 +33,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             buf.getBytes(buf.readerIndex(), data);
             buf.retain();
 
-            logger.debug("Protocol detection for packet: {}", Hex.encodeHexString(data));
+            logger.info("Protocol detection for packet: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
             // This check is now safe since detect() never returns null
