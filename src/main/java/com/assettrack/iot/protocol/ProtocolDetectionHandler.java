@@ -41,12 +41,16 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (!(msg instanceof ByteBuf buf)) {
+            // If the message is not a ByteBuf, pass it to the next handler
             ctx.fireChannelRead(msg);
             return;
         }
-        buf.retain();
+
+        // Copy buffer content to byte array and then release the ByteBuf
         byte[] data = new byte[buf.readableBytes()];
         buf.getBytes(buf.readerIndex(), data);
+        ReferenceCountUtil.release(buf); // Release the ByteBuf as its content has been consumed
+
         String hexData = Hex.encodeHexString(data);
         logger.info("Protocol detection for packet: {}", hexData);
 
@@ -54,7 +58,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         try {
             result = protocolDetector.detect(data);
         } catch (Exception e) {
-            logger.error("Error during detect()", e);
+            logger.error("Error during protocol detection", e);
             result = ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR");
         }
 
@@ -76,6 +80,8 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                         logger.info("Added teltonikaShortFrame for IMEI packet.");
                     }
                     teltonikaImeiHandled = true; // Mark IMEI as handled
+                    // Delegate handling of the IMEI packet to TeltonikaHandler
+                    teltonikaHandler.handle(data, ctx);
                 } else if (teltonikaImeiHandled && (packetType.startsWith("CODEC") || "UNKNOWN_TELTONIKA_CODEC".equals(packetType))) {
                     // If IMEI was handled and now an AVL-like packet is detected, switch to AVL framer.
                     if (ctx.pipeline().get("teltonikaShortFrame") != null) {
@@ -115,7 +121,6 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         } else {
             logger.error("No protocol detected for data: {}", hexData);
             ctx.fireChannelRead(result); // Fire the failure result
-            ReferenceCountUtil.release(buf); // Release buffer if no protocol detected
             return;
         }
     }
