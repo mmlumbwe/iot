@@ -16,4 +16,5 @@ public class TeltonikaConstants {
     public static final int IMEI_MAX_LENGTH = 17;
     public static final int HEADER_SIZE = 8;
     public static final int MAX_PACKET_SIZE = 10000;
+    public static final int MAX_DATA_LENGTH = 1024 * 1024; // 1 MiB;
 }

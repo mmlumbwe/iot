@@ -1,77 +1,89 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.protocol.TeltonikaConstants;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.util.ReferenceCountUtil;
+import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
+import static com.assettrack.iot.protocol.BaseProtocolDecoder.PROTOCOL_HEADER_1;
+import static com.assettrack.iot.protocol.BaseProtocolDecoder.PROTOCOL_HEADER_2;
 
-public class ProtocolDetectionHandler extends ByteToMessageDecoder {
+public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
+    private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
+    private final ProtocolDetector protocolDetector;
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
+    public ProtocolDetectionHandler(ProtocolDetector protocolDetector) {
+        this.protocolDetector = protocolDetector;
+    }
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-        if (in.readableBytes() < 2) {
-            return; // wait for enough data to detect
-        }
-
-        int readerIndex = in.readerIndex();
-        byte b1 = in.getByte(readerIndex);
-        byte b2 = in.getByte(readerIndex + 1);
-
-        String protocol;
-        LengthFieldBasedFrameDecoder frameDecoder;
-
-        // GT06: header 0x7878 or 0x7979, length field at offset 2 (2 bytes)
-        if ((b1 == 0x78 && b2 == 0x78) || (b1 == 0x79 && b2 == 0x79)) {
-            protocol = "GT06";
-            frameDecoder = new LengthFieldBasedFrameDecoder(
-                    2048,   // max frame length
-                    2,      // length field offset
-                    2,      // length field length
-                    0,      // length adjustment
-                    4       // initial bytes to strip (header + length)
-            );
-
-            // TK103: first byte 0x80, length field at offset 2 (1 byte)
-        } else if (b1 == (byte) 0x80) {
-            protocol = "TK103";
-            frameDecoder = new LengthFieldBasedFrameDecoder(
-                    1024,   // max frame length
-                    2,      // length field offset
-                    1,      // length field length
-                    0,      // length adjustment
-                    3       // strip header + length bytes
-            );
-
-            // Teltonika: first byte 0x00, 4-byte length field
-        } else if (b1 == 0x00) {
-            protocol = "TELTONIKA";
-            frameDecoder = new LengthFieldBasedFrameDecoder(
-                    65536,  // max frame length (enough for large AVL buffers)
-                    0,      // length field offset
-                    4,      // length field length
-                    0,      // length adjustment
-                    4       // strip the length field itself
-            );
-
-        } else {
-            // Unknown protocol: pass through or drop
-            LOGGER.warn("Unknown protocol, skipping detection: {} {}", b1, b2);
-            ctx.fireChannelRead(in.readBytes(in.readableBytes()));
+    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+        if (!(msg instanceof ByteBuf buf)) {
+            ctx.fireChannelRead(msg);
             return;
         }
 
-        LOGGER.info("Detected {} protocol, installing frame decoder", protocol);
-        // Replace this detector with the appropriate frame decoder
-        ChannelPipeline pipeline = ctx.pipeline();
-        pipeline.replace(this, "frameDecoder", frameDecoder);
-        // Fire through pipeline so the new decoder can take effect
-        ctx.fireChannelRead(in.readBytes(in.readableBytes()));
+        buf.retain();
+        byte[] data = new byte[buf.readableBytes()];
+        buf.getBytes(buf.readerIndex(), data);
+        String hex = Hex.encodeHexString(data);
+        logger.info("Protocol detection for packet: {}", hex);
+
+        ProtocolDetector.ProtocolDetectionResult result;
+        try {
+            result = protocolDetector.detect(data);
+        } catch (Exception e) {
+            logger.error("Protocol detection error during detect(): {}", e.getMessage(), e);
+            result = null;
+        }
+
+        // If detection failed, try fallbacks (omitted for brevity)...
+
+        // Primary detection succeeded
+        if (result != null && result.isDetected()) {
+            logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());
+
+            // ** Teltonika special handling: swap out the CRLF decoder for a length-field decoder **
+            if ("TELTONIKA".equals(result.getProtocol())) {
+                ChannelPipeline pipeline = ctx.pipeline();
+
+                // 1) Remove the existing CRLF‐based frameDecoder
+                if (pipeline.context("frameDecoder") != null) {
+                    pipeline.remove("frameDecoder");
+                    logger.info("Removed CRLF frameDecoder for Teltonika protocol");
+                }
+
+                // 2) Add a LengthFieldBasedFrameDecoder sized to header + MAX_DATA_LENGTH
+                if (pipeline.context("teltonikaFrameDecoder") == null) {
+                    int maxFrame = TeltonikaConstants.HEADER_SIZE + TeltonikaConstants.MAX_DATA_LENGTH;
+                    pipeline.addFirst("teltonikaFrameDecoder",
+                            new LengthFieldBasedFrameDecoder(
+                                    maxFrame,    // max bytes in a single packet
+                                    4,           // lengthFieldOffset: skip the 4-byte preamble
+                                    4,           // lengthFieldLength: next 4 bytes is dataLength
+                                    0,           // lengthAdjustment: no extra adjustment
+                                    0            // initialBytesToStrip: keep header in the frame
+                            )
+                    );
+                    logger.info("Installed Teltonika LengthFieldBasedFrameDecoder (maxFrameLength={})", maxFrame);
+                }
+            }
+
+            // Propagate detection and the raw buffer onward
+            ctx.fireChannelRead(result);
+            ctx.fireChannelRead(buf);
+            return;
+        }
+
+        // … fallback logic here …
+
+        // If nothing matched
+        ReferenceCountUtil.release(buf);
     }
 }

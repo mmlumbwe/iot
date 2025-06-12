@@ -76,7 +76,7 @@ public class AppConfig {
 
     @Bean
     public ProtocolDetectionHandler protocolDetectionHandler(ProtocolDetector protocolDetector, TeltonikaHandler teltonikaHandler, Gt06Handler gt06Handler) {
-        ProtocolDetectionHandler handler = new ProtocolDetectionHandler();
+        ProtocolDetectionHandler handler = new ProtocolDetectionHandler(protocolDetector);
         logger.info("Created ProtocolDetectionHandler bean with instance ID: {}", System.identityHashCode(handler));
         return handler;
     }
