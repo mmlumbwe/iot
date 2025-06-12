@@ -124,48 +124,62 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     @Override
     public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
         logger.info("Processing GT06 packet: {}", Hex.encodeHexString(data));
+        logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
+
         DeviceMessage message = new DeviceMessage();
         message.setProtocolType("GT06");
         Map<String, Object> parsedData = new HashMap<>();
         message.setParsedData(parsedData);
 
         try {
-            logger.info("Raw input packet ({} bytes): {}", data.length, bytesToHex(data));
-            validatePacket(data);
+            if (data.length < 2) {
+                throw new ProtocolException("Packet too short for header detection.");
+            }
 
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-            buffer.position(2); // Skip header
-            int length = buffer.get() & 0xFF;
-            byte protocol = buffer.get();
+            // --- Determine packet type based on header bytes ---
+            if (data[0] == PROTOCOL_HEADER_1 && data[1] == PROTOCOL_HEADER_2) {
+                // This is a standard GT06 0x7878 packet (e.g., login, GPS data, heartbeat)
+                validatePacket(data); // Validate 0x7878 packet specific structure and checksum
 
-            logger.info("Detected GT06 packet - Protocol: 0x{}, Length: {}",
-                    String.format("%02X", protocol), length);
+                ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+                buffer.position(2); // Skip header (0x7878)
+                int length = buffer.get() & 0xFF; // This is the information content length
+                byte protocol = buffer.get(); // This is the protocol number
 
-            Variant variant = detectVariant(buffer);
-            logger.debug("Detected device variant: {}", variant);
+                logger.info("Detected GT06 standard packet - Protocol: 0x{}, Information Content Length: {}",
+                        String.format("%02X", protocol), length);
 
-            switch (protocol & 0xFF) {
-                case 0x01:
-                    return handleLogin(buffer, message, parsedData, variant, ctx);
-                case 0x12:
-                    return handleGps(buffer, message, parsedData, variant);
-                case 0x13:
-                    return handleHeartbeat(buffer, message, parsedData, ctx);
-                case 0x8A:
-                    return handleHeartbeat(buffer, message, parsedData, ctx); // you can alias 0x8A to heartbeat
-                case 0xA0:
-                    return handleGpsExtended(buffer, message, parsedData, variant);
-                case 0x26:
-                    return handleVl03Extended(buffer, message, parsedData);
-                case 0x16:
-                    return handleAlarm(buffer, message, parsedData, variant);
-                case 0x57: // Handle configuration packets (0x7979 header with 0x57 protocol)
-                    if (data[0] == GT06_CONFIG_HEADER_1 && data[1] == GT06_CONFIG_HEADER_2) {
-                        return handleGt06ConfigPacket(data, ctx);
-                    }
-                    // Fall through to default if not a config packet
-                default:
-                    throw new ProtocolException("Unsupported GT06 protocol type: 0x" + String.format("%02X", protocol));
+                // You might need to adjust detectVariant or its usage if it's tied strictly to specific protocol numbers
+                Variant variant = detectVariant(buffer); // Assuming detectVariant can work with different protocol contexts
+                logger.debug("Detected device variant: {}", variant);
+
+                switch (protocol & 0xFF) {
+                    case 0x01:
+                        return handleLogin(buffer, message, parsedData, variant, ctx);
+                    case 0x12:
+                        return handleGps(buffer, message, parsedData, variant);
+                    case 0x13:
+                        return handleHeartbeat(buffer, message, parsedData, ctx);
+                    case 0x8A:
+                        return handleHeartbeat(buffer, message, parsedData, ctx); // you can alias 0x8A to heartbeat
+                    case 0xA0:
+                        return handleGpsExtended(buffer, message, parsedData, variant);
+                    case 0x26:
+                        return handleVl03Extended(buffer, message, parsedData);
+                    case 0x16:
+                        return handleAlarm(buffer, message, parsedData, variant);
+                    default:
+                        throw new ProtocolException("Unsupported GT06 standard protocol type: 0x" + String.format("%02X", protocol));
+                }
+
+            } else if (data[0] == GT06_CONFIG_HEADER_1 && data[1] == GT06_CONFIG_HEADER_2) {
+                // This is a GT06 0x7979 configuration/command packet
+                // The handleGt06ConfigPacket method should contain its own validation logic
+                logger.info("Detected GT06 configuration packet (0x7979 header).");
+                return handleGt06ConfigPacket(data, ctx);
+
+            } else {
+                throw new ProtocolException("Invalid protocol header: 0x" + String.format("%02X", data[0]) + " 0x" + String.format("%02X", data[1]) + " (expected 0x78 0x78 or 0x79 0x79)");
             }
 
         } catch (Exception e) {
