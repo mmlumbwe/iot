@@ -13,6 +13,9 @@ import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder; // Import for ByteBuffer operations
+
 /**
  * Dynamically detects protocol (Teltonika, GT06, TK103) and inserts appropriate framers.
  */
@@ -53,20 +56,32 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         }
 
         String protocol = null;
+        String packetType = null; // Variable to hold the detected packet type
+
         if (result != null && result.isDetected()) {
             protocol = result.getProtocol();
-            logger.info("Detected {} protocol: {}", protocol, result.getPacketType());
-            ctx.fireChannelRead(result);
+            packetType = result.getPacketType(); // Get packet type from successful detection
+            logger.info("Detected {} protocol: {}, Packet Type: {}", protocol, packetType, result.getPacketType());
+            ctx.fireChannelRead(result); // Fire the result for further processing downstream
         } else {
-            protocol = fallbackDetect(ctx, data);
-            if (protocol == null) {
-                // buffered data released in fallbackDetect
+            // Fallback detection logic
+            ProtocolDetector.ProtocolDetectionResult fallbackResult = fallbackDetect(ctx, data);
+            if (fallbackResult != null && fallbackResult.isDetected()) {
+                protocol = fallbackResult.getProtocol();
+                packetType = fallbackResult.getPacketType(); // Get packet type from fallback detection
+                logger.info("Fallback detected {} protocol: {}, Packet Type: {}", protocol, packetType, fallbackResult.getPacketType());
+                ctx.fireChannelRead(fallbackResult);
+            } else {
+                logger.error("No protocol detected for data: {}", hexData);
+                ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR"));
+                ReferenceCountUtil.release(buf); // Release buffer if no protocol detected
                 return;
             }
         }
 
-        // Insert frame decoder based on detected protocol
-        setupFraming(ctx.pipeline(), protocol);
+        // Insert frame decoder based on detected protocol AND packet type
+        setupFraming(ctx.pipeline(), protocol, packetType, data); // Pass packetType and original data
+
         // Remove ourselves — framing is set up for subsequent messages
         ctx.pipeline().remove(this);
 
@@ -74,56 +89,55 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         ctx.fireChannelRead(buf);
     }
 
-    private String fallbackDetect(ChannelHandlerContext ctx, byte[] data) {
-        String hexFallback = Hex.encodeHexString(data);
+    private ProtocolDetector.ProtocolDetectionResult fallbackDetect(ChannelHandlerContext ctx, byte[] data) {
         // Teltonika
-        if (teltonikaHandler != null && new ProtocolDetector.TeltonikaMatcher().matches(data)) {
-            String type = new ProtocolDetector.TeltonikaMatcher().getPacketType(data);
+        ProtocolDetector.TeltonikaMatcher teltonikaMatcher = new ProtocolDetector.TeltonikaMatcher();
+        if (teltonikaHandler != null && teltonikaMatcher.matches(data)) {
+            String type = teltonikaMatcher.getPacketType(data);
             logger.info("Fallback Teltonika detected: {}", type);
-            ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.success(
-                    "TELTONIKA", type, ProtocolDetector.VERSION));
-            return "TELTONIKA";
+            return ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", type, ProtocolDetector.VERSION);
         }
         // GT06
-        if (gt06Handler != null && new ProtocolDetector.Gt06Matcher().matches(data)) {
-            String type = new ProtocolDetector.Gt06Matcher().getPacketType(data);
+        ProtocolDetector.Gt06Matcher gt06Matcher = new ProtocolDetector.Gt06Matcher();
+        if (gt06Handler != null && gt06Matcher.matches(data)) {
+            String type = gt06Matcher.getPacketType(data);
             logger.info("Fallback GT06 detected: {}", type);
-            ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.success(
-                    "GT06", type, ProtocolDetector.VERSION));
-            return "GT06";
+            return ProtocolDetector.ProtocolDetectionResult.success("GT06", type, ProtocolDetector.VERSION);
         }
         // TK103
         ProtocolDetector.Tk103Matcher tk103 = new ProtocolDetector.Tk103Matcher();
         if (tk103.matches(data)) {
             String type = tk103.getPacketType(data);
             logger.info("Fallback TK103 detected: {}", type);
-            ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.success(
-                    "TK103", type, ProtocolDetector.VERSION));
-            return "TK103";
+            return ProtocolDetector.ProtocolDetectionResult.success("TK103", type, ProtocolDetector.VERSION);
         }
         // Unknown
-        logger.error("No protocol detected for data: {}", hexFallback);
-        ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR"));
-        return null;
+        return ProtocolDetector.ProtocolDetectionResult.failure("NO_FALLBACK_PROTOCOL_DETECTED");
     }
 
-    private void setupFraming(ChannelPipeline pipeline, String protocol) {
+    private void setupFraming(ChannelPipeline pipeline, String protocol, String packetType, byte[] initialData) {
         switch (protocol) {
             case "TELTONIKA":
-                // AVL data: skip 4-byte preamble, then 4-byte length
-                // This should be added FIRST to handle larger data packets
-                pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
-                        new LengthFieldBasedFrameDecoder(
-                                1024 * 1024, 4, 4, 0, 8, true
-                        )
-                );
-                // IMEI: 2-byte length field
-                // This should be added AFTER the AVL frame decoder
-                pipeline.addBefore("protocolDetector", "teltonikaShortFrame",
-                        new LengthFieldBasedFrameDecoder(
-                                64, 0, 2, 0, 2, true
-                        )
-                );
+                // Decide which Teltonika framer to add based on packetType
+                if ("IMEI".equals(packetType)) {
+                    // Only add the short frame decoder for IMEI packets
+                    pipeline.addBefore("protocolDetector", "teltonikaShortFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    64, 0, 2, 0, 2, true
+                            )
+                    );
+                    logger.info("Added teltonikaShortFrame for IMEI packet.");
+                } else {
+                    // For AVL data packets (or other non-IMEI Teltonika data)
+                    // You might want to be more specific here if Teltonika has other initial packet types
+                    // that are not AVL but also not IMEI. For now, assuming non-IMEI is AVL.
+                    pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    1024 * 1024, 4, 4, 0, 8, true
+                            )
+                    );
+                    logger.info("Added teltonikaAvlFrame for AVL packet.");
+                }
                 break;
             case "GT06":
             case "TK103":
@@ -134,9 +148,9 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                                 Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
                         )
                 );
+                logger.info("Added gt06Tk103Frame for {} protocol.", protocol);
                 break;
             default:
-                // Should not occur, but log if it does
                 logger.warn("No framing configured for protocol: {}", protocol);
         }
     }
