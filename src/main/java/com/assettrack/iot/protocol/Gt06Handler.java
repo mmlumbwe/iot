@@ -22,10 +22,13 @@ import java.net.SocketAddress;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 @ChannelHandler.Sharable
@@ -42,6 +45,10 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private static final byte PROTOCOL_ERROR = 0x7F;
     private static final int MIN_PACKET_LENGTH = 12;
     private static final int LOGIN_PACKET_LENGTH = 22;
+
+    // New constants for 0x7979 packets (configuration/command)
+    protected static final byte GT06_CONFIG_HEADER_1 = 0x79;
+    protected static final byte GT06_CONFIG_HEADER_2 = 0x79;
 
     private final AtomicReference<String> lastValidImei = new AtomicReference<>();
     private final Map<String, DeviceSession> activeSessions = new ConcurrentHashMap<>();
@@ -152,6 +159,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     return handleVl03Extended(buffer, message, parsedData);
                 case 0x16:
                     return handleAlarm(buffer, message, parsedData, variant);
+                case 0x79:
+                    return handleGt06ConfigPacket(buffer.array(), ctx);
                 default:
                     throw new ProtocolException("Unsupported GT06 protocol type: 0x" + String.format("%02X", protocol));
             }
@@ -163,6 +172,121 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setResponseRequired(true);
             return message;
         }
+    }
+
+    // Helper method to handle 0x7979 GT06 configuration packets
+    private DeviceMessage handleGt06ConfigPacket(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
+        // Locate the start and end of the ASCII command string
+        // Based on analysis, the ASCII part follows 79 79 (header) 01 (length of following data, often 0x01) 57 (command type)
+        // So ASCII starts after 4 bytes.
+        int asciiStart = 4;
+        // The ASCII part ends before the last 5 bytes (00 12 FB 1D 0D 0A in the example, which is 0x00 + 2 bytes CRC + 2 bytes terminators)
+        int asciiEnd = data.length - 5;
+
+        if (asciiEnd < asciiStart) {
+            throw new ProtocolException("Invalid configuration packet structure: ASCII data end before start.");
+        }
+
+        String configString = new String(data, asciiStart, asciiEnd - asciiStart, StandardCharsets.US_ASCII);
+
+        logger.info("Decoded GT06 Configuration String: {}", configString);
+
+        DeviceMessage deviceMessage = new DeviceMessage();
+        deviceMessage.setProtocol("GT06");
+        deviceMessage.setMessageType("CONFIGURATION_COMMAND");
+
+        // Parse the configuration string into a map
+        Map<String, String> configMap = parseConfigurationString(configString);
+        deviceMessage.addParsedData("config", configMap);
+
+        // Extract IMEI and ICCID from the configuration if present
+        if (configMap.containsKey("IMSI")) {
+            deviceMessage.setImei(configMap.get("IMSI").substring(0, Math.min(15, configMap.get("IMSI").length()))); // IMSI might be used as IMEI or part of it
+        }
+        if (configMap.containsKey("ICCID")) {
+            deviceMessage.addParsedData("ICCID", configMap.get("ICCID"));
+        }
+
+        // Acknowledge the configuration command.
+        // The GT06 protocol specifies a response for command packets.
+        // Often, it's a simple ACK based on the serial number from the command.
+        // Assuming the serial number is 2 bytes before the CRC in 0x7979 packets, similar to 0x7878.
+        if (data.length >= 6) { // Ensure enough bytes for serial + CRC + terminators
+            short serialForConfig = ByteBuffer.wrap(data, data.length - 6, 2).order(ByteOrder.BIG_ENDIAN).getShort();
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(generateConfigAckResponse(serialForConfig)));
+        } else {
+            logger.warn("Not enough data to extract serial number for config ACK from packet: {}", bytesToHex(data));
+        }
+
+        return deviceMessage;
+    }
+
+    // Helper method to parse the configuration string
+    private Map<String, String> parseConfigurationString(String configString) {
+        Map<String, String> configMap = new HashMap<>();
+        String[] parts = configString.split(";");
+        for (String part : parts) {
+            String[] keyValue = part.split("=", 2); // Split only on the first '='
+            if (keyValue.length == 2) {
+                configMap.put(keyValue[0].trim(), keyValue[1].trim());
+            } else if (keyValue.length == 1 && part.endsWith("=")) {
+                // Handle cases like "CENTER=" where the value is empty
+                configMap.put(keyValue[0].trim(), "");
+            } else {
+                // For FENCE, it's comma-separated, not key-value.
+                Pattern fencePattern = Pattern.compile("FENCE(\\d+),(.*)");
+                Matcher fenceMatcher = fencePattern.matcher(part);
+                if (fenceMatcher.matches()) {
+                    configMap.put("FENCE" + fenceMatcher.group(1), fenceMatcher.group(2));
+                } else {
+                    logger.warn("Unparsable config part: {}", part);
+                }
+            }
+        }
+        return configMap;
+    }
+
+    // New acknowledgment for configuration commands (0x7979 packets)
+    private byte[] generateConfigAckResponse(short serialNumber) {
+        byte[] response = new byte[10]; // Common ACK structure for GT06
+
+        // Header for command response
+        response[0] = GT06_CONFIG_HEADER_1; // Use 0x79 for config ACK
+        response[1] = GT06_CONFIG_HEADER_2; // Use 0x79 for config ACK
+
+        // Packet length (5 bytes: protocol + serial + status)
+        response[2] = 0x05;
+
+        // Protocol number (e.g., 0x57, or a generic command response protocol)
+        // This might depend on the specific command. A common GT06 command response is 0x57.
+        // Let's assume 0x57 for now based on your sample input.
+        response[3] = 0x57; // Protocol/command number for response
+
+        // Serial number (echo back the received serial number)
+        response[4] = (byte) (serialNumber >> 8);
+        response[5] = (byte) (serialNumber & 0xFF);
+
+        // Status (0x01 for success, or specific status codes)
+        response[6] = 0x01; // Success status
+
+        // Calculate CRC over bytes from Length Field (byte 2) to Status (byte 6)
+        ByteBuffer crcBuffer = ByteBuffer.wrap(response, 2, 5); // Length (1) + Protocol (1) + Serial (2) + Status (1)
+        int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuffer);
+
+        // Add CRC (big-endian)
+        response[7] = (byte) (crc >> 8);
+        response[8] = (byte) (crc & 0xFF);
+
+        // Terminator
+        response[9] = PROTOCOL_TERMINATOR_1;
+        // The 0x7979 messages often use 0x0D 0x0A terminators similar to 0x7878 messages.
+        // Double-check your device's specific command response.
+        response[9] = 0x0D;
+        response[10] = 0x0A;
+
+
+        logger.info("Generated Config ACK response for serial {}: {}", serialNumber, bytesToHex(response));
+        return response;
     }
 
     private DeviceMessage handleLogin(ByteBuffer buffer, DeviceMessage message,

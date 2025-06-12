@@ -136,6 +136,12 @@ public class ProtocolDetector {
         @Override
         public String getPacketType(byte[] data) {
             if (data.length < 4) return "UNKNOWN";
+
+            // Check for 0x7979 header (Configuration/Command Packet)
+            if (data[0] == (byte)0x79 && data[1] == (byte)0x79) {
+                return "CONFIGURATION_COMMAND_0x" + String.format("%02X", data[3]); // data[3] is likely the command type
+            }
+
             switch (data[3]) {
                 case 0x01: return "LOGIN";
                 case 0x12: return "GPS_DATA";
@@ -143,13 +149,14 @@ public class ProtocolDetector {
                 case 0x16: return "ALARM";
                 case 0x1A: return "STATUS";
                 case (byte)0x80: return "GPRS_COMMAND";
+                case (byte)0xA0: return "EXTENDED_DATA";
                 default:
                     // handle extended‐GPS (0xA0) frames:
                     if (data[3] == (byte)0xA0) {
                         return "EXTENDED_DATA";
                     }
                     if ((data[3] & 0xF0) == 0x10) {
-                        return "EXTENDED_DATA";
+                        return "EXTENDED_DATA_0x" + String.format("%02X", data[3]);
                     }
                     return "UNKNOWN_GT06_" + String.format("%02X", data[3]);
 
