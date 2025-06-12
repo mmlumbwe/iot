@@ -58,8 +58,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO));
 
         // 2. Protocol detection and dynamic framing insertion
-        pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(
-                protocolDetector, teltonikaHandler, gt06Handler));
+        pipeline.addLast("protocolDetector", new ProtocolDetectionHandler());
         logger.info("Added ProtocolDetectionHandler for channel {}", channel.id());
 
         // 3. Idle timeout monitoring
