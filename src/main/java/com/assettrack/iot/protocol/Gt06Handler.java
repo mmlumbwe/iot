@@ -173,7 +173,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 }
 
             } else if (data[0] == GT06_CONFIG_HEADER_1 && data[1] == GT06_CONFIG_HEADER_2) {
-                // This is a GT06 0x7979 configuration/command packet 
+                // This is a GT06 0x7979 configuration/command packet
                 // The handleGt06ConfigPacket method should contain its own validation logic
                 logger.info("Detected GT06 configuration packet (0x7979 header).");
                 return handleGt06ConfigPacket(data, ctx);
