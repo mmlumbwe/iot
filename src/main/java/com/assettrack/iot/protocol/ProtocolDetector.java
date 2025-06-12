@@ -18,7 +18,7 @@ import java.nio.charset.StandardCharsets;
 public class ProtocolDetector {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetector.class);
     private static final int MIN_DATA_LENGTH = 2;
-    private static final String VERSION = "1.0";
+    static final String VERSION = "1.0";
 
     public ProtocolDetectionResult detect(byte[] data) {
         if (data == null || data.length < MIN_DATA_LENGTH) {

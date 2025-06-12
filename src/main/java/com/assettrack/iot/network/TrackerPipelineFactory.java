@@ -1,14 +1,15 @@
 package com.assettrack.iot.network;
 
+import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.network.handlers.NetworkMessageHandler;
-import com.assettrack.iot.protocol.*;
 import com.assettrack.iot.session.SessionManager;
 import com.assettrack.iot.session.cache.CacheManager;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.*;
-import io.netty.handler.codec.DelimiterBasedFrameDecoder;
-import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleStateHandler;
@@ -17,6 +18,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+/**
+ * Pipeline factory that defers framing to ProtocolDetectionHandler, which inspects
+ * Teltonika, GT06 and TK103 packets and dynamically configures framing accordingly.
+ */
 @Component
 public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
@@ -40,7 +45,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         this.cacheManager = cacheManager;
         this.teltonikaHandler = teltonikaHandler;
         this.gt06Handler = gt06Handler;
-        logger.info("TrackerPipelineFactory constructed. Teltonika handler {}available, GT06 handler {}available",
+        logger.info("TrackerPipelineFactory constructed. Handlers - Teltonika: {}available, GT06: {}available",
                 teltonikaHandler != null ? "" : "not ",
                 gt06Handler != null ? "" : "not ");
     }
@@ -49,83 +54,39 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     protected void initChannel(Channel channel) {
         ChannelPipeline pipeline = channel.pipeline();
 
-        // 1. Raw inbound logging
-        if (pipeline.get("rawLogger") == null) {
-            pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO));
-        }
+        // 1. Raw inbound logging for diagnostics
+        pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO));
 
-        // 2. Teltonika length-based framing (IMEI and AVL packets)
-        if (teltonikaHandler != null && pipeline.get("teltonikaShortFrame") == null) {
-            // IMEI packets: 2-byte length, followed by that many bytes
-            pipeline.addLast("teltonikaShortFrame", new LengthFieldBasedFrameDecoder(
-                    64,        // max IMEI length
-                    0,         // length field offset
-                    2,         // length field length
-                    0,         // length adjustment
-                    2,         // strip length field
-                    true       // fail fast
-            ));
-            // AVL data: skip 4-byte preamble, then 4-byte length
-            pipeline.addLast("teltonikaAvlFrame", new LengthFieldBasedFrameDecoder(
-                    1024 * 1024, // max AVL packet size
-                    4,           // skip preamble
-                    4,           // length field length
-                    0,           // length adjustment
-                    8,           // strip preamble + length field
-                    true
-            ));
-        }
+        // 2. Protocol detection and dynamic framing insertion
+        pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(
+                protocolDetector, teltonikaHandler, gt06Handler));
+        logger.info("Added ProtocolDetectionHandler for channel {}", channel.id());
 
-        // 3. GT06 and TK103 CRLF-based framing
-        if (gt06Handler != null && pipeline.get("gt06Tk103Frame") == null) {
-            pipeline.addLast("gt06Tk103Frame", new DelimiterBasedFrameDecoder(
-                    1024,                   // max frame length
-                    true,                   // strip delimiter
-                    Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
-            ));
-        }
+        // 3. Idle timeout monitoring
+        pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
 
-        // 4. Protocol detection
-        if (pipeline.get("protocolDetector") == null) {
-            pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
-            logger.info("Added ProtocolDetectionHandler for channel {}", channel.id());
-        }
+        // 4. Common decoding and business logic handlers
+        pipeline.addLast("decoder", new GenericProtocolDecoder(
+                sessionManager, protocolDetector, teltonikaHandler, gt06Handler));
+        logger.info("Added GenericProtocolDecoder for channel {}", channel.id());
 
-        // 5. Idle state handler
-        if (pipeline.get("idleHandler") == null) {
-            pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
-        }
+        pipeline.addLast("messageHandler", new NetworkMessageHandler(sessionManager, cacheManager));
+        logger.info("Added NetworkMessageHandler for channel {}", channel.id());
 
-        // 6. Unified protocol decoder and handler chaining
-        if (pipeline.get("decoder") == null) {
-            pipeline.addLast("decoder", new GenericProtocolDecoder(
-                    sessionManager, protocolDetector, teltonikaHandler, gt06Handler
-            ));
-            logger.info("Added GenericProtocolDecoder for channel {}", channel.id());
-        }
+        // 5. Cleanup and exception handling
+        pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
+            @Override
+            public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                logger.error("Pipeline error", cause);
+                ctx.close();
+            }
 
-        // 7. Business logic
-        if (pipeline.get("messageHandler") == null) {
-            pipeline.addLast("messageHandler", new NetworkMessageHandler(sessionManager, cacheManager));
-            logger.info("Added NetworkMessageHandler for channel {}", channel.id());
-        }
-
-        // 8. Exception & cleanup
-        if (pipeline.get("exceptionHandler") == null) {
-            pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
-                @Override
-                public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                    logger.error("Pipeline error", cause);
-                    ctx.close();
-                }
-
-                @Override
-                public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-                    sessionManager.removeSession(ctx.channel());
-                    logger.info("Channel inactive, session removed: {}", ctx.channel().id());
-                    super.channelInactive(ctx);
-                }
-            });
-        }
+            @Override
+            public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                sessionManager.removeSession(ctx.channel());
+                logger.info("Channel inactive, session removed: {}", ctx.channel().id());
+                super.channelInactive(ctx);
+            }
+        });
     }
 }
