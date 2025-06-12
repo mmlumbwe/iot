@@ -84,51 +84,44 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     teltonikaHandler.handle(data, ctx);
                 } else if (teltonikaImeiHandled && (packetType.startsWith("CODEC") || "UNKNOWN_TELTONIKA_CODEC".equals(packetType))) {
                     // If IMEI was handled and now an AVL-like packet is detected, switch to AVL framer.
-                    if (ctx.pipeline().get("teltonikaShortFrame") != null) {
-                        ctx.pipeline().remove("teltonikaShortFrame");
+                    ChannelPipeline pipeline = ctx.pipeline();
+                    if (pipeline.get("teltonikaShortFrame") != null) {
+                        pipeline.remove("teltonikaShortFrame");
                         logger.info("Removed teltonikaShortFrame after detecting AVL packet post-IMEI.");
                     }
-                    if (ctx.pipeline().get("teltonikaAvlFrame") == null) {
-                        ctx.pipeline().addBefore("protocolDetector", "teltonikaAvlFrame",
+                    if (pipeline.get("teltonikaAvlFrame") == null) {
+                        // Add the AVL framer for Teltonika AVL data
+                        pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
                                 new LengthFieldBasedFrameDecoder(1024 * 1024, 4, 4, 0, 8, true));
-                        logger.info("Added teltonikaAvlFrame for AVL packet after IMEI handshake.");
+                        logger.info("Added teltonikaAvlFrame for Teltonika AVL data.");
                     }
-                    // Long-term framer is set, remove this handler.
-                    ctx.pipeline().remove(this);
-                } else if (!teltonikaImeiHandled && (packetType.startsWith("CODEC") || "UNKNOWN_TELTONIKA_CODEC".equals(packetType) || "UNKNOWN_TELTONIKA_PACKET".equals(packetType))) {
-                    // First Teltonika packet is not IMEI, assume it's an AVL data packet directly.
-                    if (ctx.pipeline().get("teltonikaAvlFrame") == null) {
-                        ctx.pipeline().addBefore("protocolDetector", "teltonikaAvlFrame",
-                                new LengthFieldBasedFrameDecoder(1024 * 1024, 4, 4, 0, 8, true));
-                        logger.info("Added teltonikaAvlFrame for initial direct AVL packet.");
-                    }
-                    // Long-term framer is set, remove this handler.
-                    ctx.pipeline().remove(this);
+                    // Delegate handling of the AVL data packet to TeltonikaHandler
+                    teltonikaHandler.handle(data, ctx);
                 } else {
-                    logger.warn("Teltonika protocol detected but unexpected packet type or state: {}, imeiHandled: {}", packetType, teltonikaImeiHandled);
-                    // For robustness, if Teltonika but unhandled, still try to add AVL framer and remove self.
-                    if (ctx.pipeline().get("teltonikaAvlFrame") == null) {
-                        ctx.pipeline().addBefore("protocolDetector", "teltonikaAvlFrame",
-                                new LengthFieldBasedFrameDecoder(1024 * 1024, 4, 4, 0, 8, true));
-                        logger.info("Added teltonikaAvlFrame as fallback for unexpected Teltonika packet type.");
-                    }
-                    ctx.pipeline().remove(this); // Remove self after attempting to add main framer
+                    logger.warn("Received Teltonika packet (Type: {}) without prior IMEI handshake or unhandled after IMEI. Closing channel.", packetType);
+                    ctx.close();
                 }
-            } else { // Handle non-Teltonika protocols (GT06, TK103)
+            } else if ("GT06".equals(protocol) || "TK103".equals(protocol)) {
                 setupFramingAndRemoveSelf(ctx.pipeline(), protocol);
+                // For GT06/TK103, pass the message to the next handler in the pipeline
+                ctx.fireChannelRead(Unpooled.wrappedBuffer(data));
+            } else {
+                logger.error("No protocol detected for data: {}", hexData);
+                result = ProtocolDetector.ProtocolDetectionResult.failure("UNDETECTED_PROTOCOL");
+                ctx.close();
             }
-            ctx.fireChannelRead(result); // Fire the result for further processing downstream
         } else {
             logger.error("No protocol detected for data: {}", hexData);
-            ctx.fireChannelRead(result); // Fire the failure result
-            return;
+            result = ProtocolDetector.ProtocolDetectionResult.failure("UNDETECTED_PROTOCOL");
+            ctx.close();
+        }
+
+        if (result != null && !result.isDetected()) {
+            logger.warn("Received undetected protocol result: {}"//, result.getReason()
+            );
         }
     }
 
-    /**
-     * Configures the pipeline with specific framers and removes this handler.
-     * This method is now specifically for GT06 and TK103, and the final removal of this handler.
-     */
     private void setupFramingAndRemoveSelf(ChannelPipeline pipeline, String protocol) {
         switch (protocol) {
             case "GT06":
