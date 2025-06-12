@@ -57,9 +57,11 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         // 2. Frame decoder: split on CRLF (0x0D 0x0A)
         if (pipeline.context("frameDecoder") == null) {
             pipeline.addLast("frameDecoder", new DelimiterBasedFrameDecoder(
-                    512,
-                    Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
-            ));
+                            512,
+                            false,  // retain CRLF so protocol detector sees full frame length
+                            Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
+                    )
+            );
         }
 
         // 3. Protocol detection handler
