@@ -143,9 +143,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                 case 0x12:
                     return handleGps(buffer, message, parsedData, variant);
                 case 0x13:
-                    return handleHeartbeat(buffer, message, parsedData);
+                    return handleHeartbeat(buffer, message, parsedData, ctx);
                 case 0x8A:
-                    return handleHeartbeat(buffer, message, parsedData); // you can alias 0x8A to heartbeat
+                    return handleHeartbeat(buffer, message, parsedData, ctx); // you can alias 0x8A to heartbeat
                 case 0xA0:
                     return handleGpsExtended(buffer, message, parsedData, variant);
                 case 0x26:
@@ -644,7 +644,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private DeviceMessage handleHeartbeat(ByteBuffer buffer, DeviceMessage message,
-                                          Map<String, Object> parsedData) throws Exception {
+                                          Map<String, Object> parsedData, ChannelHandlerContext ctx) throws Exception {
         String imei = lastValidImei.get();
         if (imei == null) {
             throw new ProtocolException("No valid IMEI from previous login");
@@ -652,11 +652,10 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         byte[] response = generateStandardResponse(PROTOCOL_HEARTBEAT, (short)0, (byte)0x01);
         parsedData.put("response", response);
-
         message.setImei(imei);
         message.setMessageType("HEARTBEAT");
-        acknowledgementHandler.write(null, new AcknowledgementHandler.EventHandled(response), null);
-
+        // write straight to the channel
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
         return message;
     }
 
