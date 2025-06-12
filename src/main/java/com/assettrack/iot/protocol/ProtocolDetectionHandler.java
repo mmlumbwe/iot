@@ -13,6 +13,10 @@ import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.assettrack.iot.protocol.ProtocolDetector;
+import com.assettrack.iot.protocol.TeltonikaHandler;
+import com.assettrack.iot.protocol.Gt06Handler;
+
 /**
  * Dynamically detects protocol (Teltonika, GT06, TK103) and inserts appropriate framers.
  */
@@ -62,14 +66,13 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             }
         }
 
-        // We have a valid detection result
         String protocol = result.getProtocol();
         String packetType = result.getPacketType();
         logger.info("Detected {} protocol: {}", protocol, packetType);
         ctx.fireChannelRead(result);
 
-        // Insert framing based on protocol & packet type
-        setupFraming(ctx.pipeline(), protocol, packetType);
+        // Insert framing based on detected protocol
+        setupFraming(ctx.pipeline(), protocol);
         // Remove this handler
         ctx.pipeline().remove(this);
 
@@ -108,27 +111,23 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         return null;
     }
 
-    private void setupFraming(ChannelPipeline pipeline, String protocol, String packetType) {
+    private void setupFraming(ChannelPipeline pipeline, String protocol) {
         switch (protocol) {
             case "TELTONIKA":
-                if ("IMEI".equals(packetType)) {
-                    pipeline.addBefore("protocolDetector", "teltonikaShortFrame",
-                            new LengthFieldBasedFrameDecoder(
-                                    64, 0, 2, 0, 2, true
-                            )
-                    );
-                } else {
-                    // AVL or other Teltonika data
-                    pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
-                            new LengthFieldBasedFrameDecoder(
-                                    1024 * 1024, 4, 4, 0, 8, true
-                            )
-                    );
-                }
+                // IMEI packets: 2-byte length prefix
+                pipeline.addBefore("decoder", "teltonikaShortFrame",
+                        new LengthFieldBasedFrameDecoder(
+                                64, 0, 2, 0, 2, true
+                        ));
+                // AVL data packets: 4-byte preamble, 4-byte length, keep header for handler
+                pipeline.addBefore("decoder", "teltonikaAvlFrame",
+                        new LengthFieldBasedFrameDecoder(
+                                1024 * 1024, 4, 4, 0, 0, true
+                        ));
                 break;
             case "GT06":
             case "TK103":
-                pipeline.addBefore("protocolDetector", "gt06Tk103Frame",
+                pipeline.addBefore("decoder", "gt06Tk103Frame",
                         new DelimiterBasedFrameDecoder(
                                 1024, true,
                                 Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
