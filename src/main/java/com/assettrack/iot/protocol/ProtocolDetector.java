@@ -2,6 +2,7 @@ package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.config.Checksum;
 import io.netty.channel.Channel;
+import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -184,22 +185,27 @@ public class ProtocolDetector {
     static class TeltonikaMatcher implements ProtocolMatcher {
         @Override
         public boolean matches(byte[] data) {
-            // IMEI packet
+            // IMEI packet: 17 bytes, starts with 0x00 0x0F
             if (data.length == 17 && data[0] == 0x00 && data[1] == 0x0F) {
                 try {
                     String imei = new String(data, 2, 15, StandardCharsets.US_ASCII);
                     return imei.matches("^\\d{15}$");
                 } catch (Exception e) {
+                    logger.debug("Teltonika IMEI match failed due to invalid IMEI string: {}", Hex.encodeHexString(data), e);
                     return false;
                 }
             }
-            // AVL data packet
-            if (data.length >= 12) {
+            // AVL data packet: Starts with 4-byte preamble (0x00000000), then 4-byte length
+            if (data.length >= 12) { // Minimum length for AVL data is 12 bytes (4 preamble + 4 length + 4 CRC)
                 try {
                     ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-                    int avlLength = buf.getInt(4);
-                    return data.length == avlLength + 12;
+                    if (buf.getInt(0) == 0x00000000) { // Preamble check
+                        int avlLength = buf.getInt(4); // Length field at offset 4
+                        // Total length = Preamble (4) + Length Field (4) + AVL Data (avlLength) + CRC (4)
+                        return data.length == avlLength + 12;
+                    }
                 } catch (Exception e) {
+                    logger.debug("Teltonika AVL match failed parsing packet: {}", Hex.encodeHexString(data), e);
                     return false;
                 }
             }
@@ -208,9 +214,35 @@ public class ProtocolDetector {
 
         @Override
         public String getPacketType(byte[] data) {
-            if (data.length == 17) return "IMEI";
-            int codec = data[8] & 0xFF;
-            return "AVL_DATA_CODEC_" + codec;
+            if (data.length == 17 && data[0] == 0x00 && data[1] == 0x0F) {
+                try {
+                    String imei = new String(data, 2, 15, StandardCharsets.US_ASCII);
+                    if (imei.matches("^\\d{15}$")) {
+                        return "IMEI";
+                    }
+                } catch (Exception e) {
+                    // Fall through if IMEI string is invalid but length matches
+                }
+            }
+
+            if (data.length >= 12) {
+                try {
+                    ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+                    if (buf.getInt(0) == 0x00000000) { // Preamble
+                        int avlLength = buf.getInt(4); // Length field
+                        if (data.length == avlLength + 12) {
+                            int codec = buf.get(8) & 0xFF; // Codec ID at offset 8
+                            if (codec == 0x08) return "CODEC8";
+                            if (codec == 0x8E) return "CODEC8_EXT";
+                            if (codec == 0x10) return "CODEC16";
+                            return "UNKNOWN_TELTONIKA_CODEC"; // Valid AVL packet structure, but unknown codec ID
+                        }
+                    }
+                } catch (Exception e) {
+                    // Fall through
+                }
+            }
+            return "UNKNOWN_TELTONIKA_PACKET"; // If none of the above matches, it's a Teltonika-like packet, but type unknown.
         }
     }
 }
