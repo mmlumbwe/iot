@@ -49,7 +49,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         String hexData = Hex.encodeHexString(data);
         logger.info("Protocol detection for packet: {}", hexData);
 
-        // Primary detection
+        // Detect protocol
         ProtocolDetector.ProtocolDetectionResult result;
         try {
             result = protocolDetector.detect(data);
@@ -57,11 +57,9 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             logger.error("Error during detect()", e);
             result = null;
         }
-        // Fallback detection if needed
         if (result == null || !result.isDetected()) {
             result = fallbackDetectResult(ctx, data);
             if (result == null) {
-                // unknown protocol, buf released in fallbackDetectResult
                 return;
             }
         }
@@ -71,31 +69,27 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         logger.info("Detected {} protocol: {}", protocol, packetType);
         ctx.fireChannelRead(result);
 
-        // Insert framing based on detected protocol
-        setupFraming(ctx.pipeline(), protocol);
-        // Remove this handler
+        // Configure framing
+        setupFraming(ctx.pipeline(), protocol, packetType);
         ctx.pipeline().remove(this);
 
-        // Replay the original buffer through new framers
+        // Replay buffer
         ctx.fireChannelRead(buf);
     }
 
     private ProtocolDetector.ProtocolDetectionResult fallbackDetectResult(ChannelHandlerContext ctx, byte[] data) {
-        // Teltonika fallback
         if (teltonikaHandler != null && new ProtocolDetector.TeltonikaMatcher().matches(data)) {
             String type = new ProtocolDetector.TeltonikaMatcher().getPacketType(data);
             logger.info("Fallback Teltonika detected: {}", type);
             return ProtocolDetector.ProtocolDetectionResult.success(
                     "TELTONIKA", type, ProtocolDetector.VERSION);
         }
-        // GT06 fallback
         if (gt06Handler != null && new ProtocolDetector.Gt06Matcher().matches(data)) {
             String type = new ProtocolDetector.Gt06Matcher().getPacketType(data);
             logger.info("Fallback GT06 detected: {}", type);
             return ProtocolDetector.ProtocolDetectionResult.success(
                     "GT06", type, ProtocolDetector.VERSION);
         }
-        // TK103 fallback
         ProtocolDetector.Tk103Matcher tk103 = new ProtocolDetector.Tk103Matcher();
         if (tk103.matches(data)) {
             String type = tk103.getPacketType(data);
@@ -103,27 +97,28 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             return ProtocolDetector.ProtocolDetectionResult.success(
                     "TK103", type, ProtocolDetector.VERSION);
         }
-        // Unknown protocol
-        String hexFallback = Hex.encodeHexString(data);
-        logger.error("No protocol detected for data: {}", hexFallback);
+        logger.error("No protocol detected for data: {}", Hex.encodeHexString(data));
         ReferenceCountUtil.release(data);
         ctx.fireChannelRead(ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR"));
         return null;
     }
 
-    private void setupFraming(ChannelPipeline pipeline, String protocol) {
+    private void setupFraming(ChannelPipeline pipeline, String protocol, String packetType) {
         switch (protocol) {
             case "TELTONIKA":
-                // IMEI packets: 2-byte length prefix
-                pipeline.addBefore("decoder", "teltonikaShortFrame",
-                        new LengthFieldBasedFrameDecoder(
-                                64, 0, 2, 0, 2, true
-                        ));
-                // AVL data packets: 4-byte preamble, 4-byte length, keep header for handler
-                pipeline.addBefore("decoder", "teltonikaAvlFrame",
-                        new LengthFieldBasedFrameDecoder(
-                                1024 * 1024, 4, 4, 0, 0, true
-                        ));
+                if ("IMEI".equals(packetType)) {
+                    pipeline.addBefore("decoder", "teltonikaShortFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    64, 0, 2, 0, 2, true
+                            )
+                    );
+                } else {
+                    pipeline.addBefore("decoder", "teltonikaAvlFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    1024 * 1024, 4, 4, 0, 8, true
+                            )
+                    );
+                }
                 break;
             case "GT06":
             case "TK103":
