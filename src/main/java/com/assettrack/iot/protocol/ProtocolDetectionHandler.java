@@ -110,16 +110,18 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private void setupFraming(ChannelPipeline pipeline, String protocol) {
         switch (protocol) {
             case "TELTONIKA":
-                // IMEI: 2-byte length field
-                pipeline.addBefore("protocolDetector", "teltonikaShortFrame",
-                        new LengthFieldBasedFrameDecoder(
-                                64, 0, 2, 0, 2, true
-                        )
-                );
                 // AVL data: skip 4-byte preamble, then 4-byte length
+                // This should be added FIRST to handle larger data packets
                 pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
                         new LengthFieldBasedFrameDecoder(
                                 1024 * 1024, 4, 4, 0, 8, true
+                        )
+                );
+                // IMEI: 2-byte length field
+                // This should be added AFTER the AVL frame decoder
+                pipeline.addBefore("protocolDetector", "teltonikaShortFrame",
+                        new LengthFieldBasedFrameDecoder(
+                                64, 0, 2, 0, 2, true
                         )
                 );
                 break;
