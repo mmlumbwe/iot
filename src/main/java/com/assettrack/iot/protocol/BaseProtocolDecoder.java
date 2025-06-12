@@ -10,7 +10,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.util.AttributeKey;
+import io.netty.util.AttributeKey; // Import AttributeKey
 import io.netty.util.ReferenceCountUtil;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
@@ -30,246 +30,167 @@ import java.util.Map;
 public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(BaseProtocolDecoder.class);
 
-    // Protocol constants
+    // Protocol constants (these seem specific to GT06/TK103 from your other files, might be moved)
     protected static final byte PROTOCOL_HEADER_1 = 0x78;
     protected static final byte PROTOCOL_HEADER_2 = 0x78;
     protected static final byte PROTOCOL_LOGIN = 0x01;
     protected static final byte PROTOCOL_TERMINATOR_1 = 0x0D;
     protected static final byte PROTOCOL_TERMINATOR_2 = 0x0A;
-    private static final AttributeKey<ProtocolDetector.ProtocolDetectionResult> ATTR_DETECTION_RESULT =
-            AttributeKey.valueOf("PROTOCOL_DETECTION_RESULT");
 
-    private final ProtocolDetector protocolDetector;
     protected final SessionManager sessionManager;
-    protected final TeltonikaHandler teltonikaHandler; // The TeltonikaHandler instance
+    protected final ProtocolDetector protocolDetector; // Kept for initial detection if no protocol is set
+    protected final TeltonikaHandler teltonikaHandler;
     protected final Gt06Handler gt06Handler;
+    // Add other handlers as needed
+
+    // Reuse the same AttributeKey from ProtocolDetectionHandler
+    private static final AttributeKey<String> DETECTED_PROTOCOL_KEY = ProtocolDetectionHandler.DETECTED_PROTOCOL_KEY;
 
 
-    @Autowired
     public BaseProtocolDecoder(
             SessionManager sessionManager,
             ProtocolDetector protocolDetector,
-            @Autowired(required = false) TeltonikaHandler teltonikaHandler,
-            @Autowired(required = false) Gt06Handler gt06Handler) {
+            TeltonikaHandler teltonikaHandler,
+            Gt06Handler gt06Handler) {
         this.sessionManager = sessionManager;
         this.protocolDetector = protocolDetector;
         this.teltonikaHandler = teltonikaHandler;
         this.gt06Handler = gt06Handler;
     }
 
-
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (msg instanceof ProtocolDetector.ProtocolDetectionResult) {
-            ProtocolDetector.ProtocolDetectionResult result = (ProtocolDetector.ProtocolDetectionResult) msg;
-            if (!result.isDetected()) {
-                logger.warn("Received undetected protocol result: {}", result.getError());
-                return;
-            }
-            ctx.channel().attr(ATTR_DETECTION_RESULT).set(result);
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (!(msg instanceof ByteBuf buf)) {
+            ctx.fireChannelRead(msg);
             return;
         }
 
-        if (msg instanceof ByteBuf) {
-            ByteBuf buf = (ByteBuf) msg;
-            ProtocolDetector.ProtocolDetectionResult result = ctx.channel().attr(ATTR_DETECTION_RESULT).get();
+        // Get a copy of the readable bytes from the buffer
+        byte[] data = new byte[buf.readableBytes()];
+        buf.getBytes(buf.readerIndex(), data);
 
-            try {
-                Object decoded = decode(ctx, buf, result);
-                if (decoded != null) {
-                    ctx.fireChannelRead(decoded);
-                }
-            } finally {
-                ReferenceCountUtil.release(buf);
-            }
+        ProtocolDetector.ProtocolDetectionResult protocolResult;
+
+        // Check if the protocol has already been detected and stored in Channel attributes
+        String detectedProtocol = ctx.channel().attr(DETECTED_PROTOCOL_KEY).get();
+
+        if (detectedProtocol != null) {
+            // Protocol already detected (e.g., by ProtocolDetectionHandler).
+            // Assume the incoming ByteBuf is a correctly framed message for this protocol.
+            // For Teltonika, after IMEI handshake, subsequent messages are AVL data.
+            // For other protocols using framers (like GT06/TK103 with DelimiterBasedFrameDecoder),
+            // they would also deliver full frames.
+            protocolResult = ProtocolDetector.ProtocolDetectionResult.success(detectedProtocol, "DATA", ProtocolDetector.VERSION); // Using a generic "DATA" packet type and common version
+            logger.info("BASEPROTOCOLDECODER: Using pre-detected protocol: {}. Packet type: DATA", detectedProtocol);
+        } else {
+            // Protocol not yet detected (this path should ideally only be taken for the very first packets if ProtocolDetectionHandler isn't handling it)
+            protocolResult = protocolDetector.detect(data);
+            logger.info("IN BASEPROTOCOLDECODER: Initial detection result: {}", protocolResult);
         }
-    }
 
-
-    protected abstract DeviceMessage handle(byte[] data) throws ProtocolException; // This is the GT06 handler
-
-    //@Override // This overrides the default `decode` behavior in BaseProtocolDecoder
-    protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
-        logger.info("Is protocolDetector null? {}", protocolDetector == null);
+        logger.info("IN BASEPROTOCOLDECODER: Decoding packet...");
+        logger.info("decode(): result passed in is null? {}", (protocolResult == null));
+        logger.info("PROTOCOLRESULT IS: {}", protocolResult);
 
         try {
-            logger.info("IN BASEPROTOCOLDECODER: Decoding packet...");
+            if (protocolResult != null && protocolResult.isValid()) {
+                ProtocolHandler handler = null;
+                switch (protocolResult.getProtocol()) {
+                    case "TELTONIKA":
+                        handler = teltonikaHandler;
+                        break;
+                    case "GT06":
+                        handler = gt06Handler;
+                        break;
+                    // Add other cases for different protocols if needed
+                    default:
+                        logger.warn("No handler found for protocol: {}", protocolResult.getProtocol());
+                        ctx.close(); // Close connection if protocol is valid but no handler
+                        return;
+                }
 
-            byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data); // Read data without consuming here, `handle` or `teltonikaHandler` will consume
-
-            logger.info("decode(): result passed in is null? {}", result == null);
-
-            // If no result provided, perform detection (fallback or if result was not passed as separate message)
-            if (result == null) {
-                logger.debug("No detection result provided, performing detection within BaseProtocolDecoder.");
-                result = protocolDetector.detect(data);
-            }
-            logger.info("PROTOCOLRESULT IS: {}", result);
-            logger.info("Forcing protocolDetector.detect(data). Actual class: {}", protocolDetector.getClass().getName());
-            //result = protocolDetector.detect(data);
-
-            logger.info("Processing packet with protocol: {}, type: {}",
-                    result.getProtocol(), result.getPacketType());
-
-            // --- Route to TeltonikaHandler or GT06 handler ---
-            if ("TELTONIKA".equals(result.getProtocol())) {
-                // ... existing Teltonika handling ...
-                if (teltonikaHandler != null) {
-                    logger.info("Delegating Teltonika packet to TeltonikaHandler: Protocol={}, PacketType={}", result.getProtocol(), result.getPacketType());
-                    // Use the existing handle method in TeltonikaHandler which correctly processes IMEI/DATA packets
-                    DeviceMessage teltonikaMessage = teltonikaHandler.handle(data, ctx); // Pass raw data and context
-                    if (teltonikaMessage != null) {
-                        enrichMessageWithContext(ctx, teltonikaMessage);
-                        return teltonikaMessage;
+                if (handler != null && handler.supports(protocolResult.getProtocol())) {
+                    // For Teltonika IMEI, the handshake and response are handled by ProtocolDetectionHandler.
+                    // If a Teltonika IMEI packet still reaches here, it might indicate a flow issue,
+                    // but for framed Teltonika AVL DATA, and other framed protocols, handle them.
+                    if ("TELTONIKA".equals(protocolResult.getProtocol()) && "IMEI".equals(protocolResult.getPacketType())) {
+                        logger.warn("IMEI packet reached BaseProtocolDecoder. This should be handled by ProtocolDetectionHandler.");
+                        // Do not process IMEI again here; let ProtocolDetectionHandler handle it.
+                        // If it's already handled, this message might be a duplicate or misrouted.
+                        return;
                     } else {
-                        logger.warn("TeltonikaHandler did not return a message for protocol type: {}", result.getPacketType());
-                        return null; // TeltonikaHandler couldn't process this packet
+                        // For correctly framed data (like Teltonika AVL data or other delimited frames),
+                        // pass the data to the appropriate handler.
+                        DeviceMessage deviceMessage = handler.handle(data, ctx); // Pass ctx if handler needs to send responses
+                        if (deviceMessage != null) {
+                            sessionManager.putMessage(deviceMessage);
+                            logger.info("Device message processed and put into session manager for device: {}", deviceMessage.getImei());
+                        } else {
+                            logger.warn("Handler for protocol {} returned null message.", protocolResult.getProtocol());
+                        }
                     }
+                } else {
+                    logger.warn("No suitable handler found or handler does not support protocol: {} with packet type: {}",
+                            protocolResult.getProtocol(), protocolResult.getPacketType());
+                    ctx.close();
                 }
+            } else {
+                logger.warn("Unsupported or invalid protocol result: {}", protocolResult != null ? protocolResult.getError() : "null result");
+                ctx.close(); // Close connection if protocol is not recognized or invalid
             }
-            else if ("GT06".equals(result.getProtocol())) {
-                // 1) Try Gt06Handler first if available
-                if (gt06Handler != null) {
-                    logger.info("Delegating GT06 packet to Gt06Handler: Protocol={}, PacketType={{}", result.getProtocol(), result.getPacketType());
-                    DeviceMessage msg = gt06Handler.handle(data, ctx);
-                    if (msg != null) {
-                        enrichMessageWithContext(ctx, msg);
-                        return msg;
-                    }
-                    logger.info("Gt06Handler returned null, falling back");
-                }
-
-                // 2) Fallback to default GT06 handling
-                try {
-                    DeviceMessage fallback = handle(data);
-                    if (fallback != null) {
-                        enrichMessageWithContext(ctx, fallback);
-                        return fallback;
-                    }
-                } catch (ProtocolException e) {
-                    logger.error("GT06 handling error", e);
-                }
-
-                return null;
-            }
-
-            logger.warn("Unsupported protocol: {}", result.getProtocol());
-            return null;
-        } catch (Exception e) {
-            logger.error("Decoding error in BaseProtocolDecoder: {}", e.getMessage(), e);
-            // Don't re-throw, just log and return null so pipeline can continue
-            return null;
+        } finally {
+            ReferenceCountUtil.release(msg); // Release the ByteBuf whether handled or not
         }
     }
 
-    boolean isValidGT06Header(byte[] data) {
-        return data.length >= 2 &&
-                data[0] == PROTOCOL_HEADER_1 &&
-                data[1] == PROTOCOL_HEADER_2;
-    }
-
-    void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
-        if (message.getProtocol() == null) {
-            // Default to GT06 if protocol is not set by the specific handler
-            message.setProtocol("GT06");
-        }
-
-        if (ctx.channel() instanceof SocketChannel) {
-            message.setChannel((SocketChannel) ctx.channel());
-        }
-        message.setRemoteAddress(ctx.channel().remoteAddress());
-
-        if (message.getImei() != null) {
-            long deviceId = generateDeviceId(message.getImei());
-            message.addParsedData("deviceId", deviceId);
-            logger.info("Generated device ID {} for IMEI {}", deviceId, message.getImei());
-        }
-    }
-
-    protected long generateDeviceId(String imei) {
-        return imei != null ? imei.hashCode() & 0xffffffffL : 0L;
-    }
-
+    // Existing helper methods like generateAckResponse, bytesToHex, generateLoginResponse (if they belong here)
     protected String bytesToHex(byte[] bytes) {
-        if (bytes == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder(bytes.length * 3);
+        StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
-            sb.append(String.format("%02X ", b));
+            sb.append(String.format("%02x", b));
         }
-        return sb.toString().trim();
+        return sb.toString();
     }
 
-    protected String extractImei(byte[] imeiBytes) throws ProtocolException {
-        if (imeiBytes == null || imeiBytes.length != 8) {
-            throw new ProtocolException("Invalid IMEI bytes length");
-        }
-
-        StringBuilder imei = new StringBuilder(16);
-        for (byte b : imeiBytes) {
-            imei.append(String.format("%02X", b));
-        }
-
-        // Remove leading zeros while maintaining 15 digits
-        while (imei.length() > 15 && imei.charAt(0) == '0') {
-            imei.deleteCharAt(0);
-        }
-
-        if (imei.length() != 15) {
-            throw new ProtocolException("Invalid IMEI length: " + imei.length());
-        }
-
-        logger.info("Extracted IMEI: {}", imei);
-        return imei.toString();
-    }
-
-    protected Position parseGpsData(ByteBuffer buffer) {
-        Position position = new Position();
-
-        // Parse timestamp (6 bytes: YY MM DD HH mm ss)
-        position.setTimestamp(LocalDateTime.of(
-                2000 + (buffer.get() & 0xFF),  // Year
-                buffer.get() & 0xFF,            // Month
-                buffer.get() & 0xFF,            // Day
-                buffer.get() & 0xFF,            // Hour
-                buffer.get() & 0xFF,            // Minute
-                buffer.get() & 0xFF             // Second
-        ));
-
-        position.setSatellites(buffer.get() & 0xFF);
-        position.setLatitude(buffer.getInt() / 1800000.0);
-        position.setLongitude(buffer.getInt() / 1800000.0);
-        position.setSpeed((buffer.get() & 0xFF) * 1.852);  // Convert knots to km/h
-        position.setCourse((double) (buffer.getShort() & 0xFFFF));
-
-        logger.debug("Parsed GPS position: {}", position);
-        return position;
-    }
-
-    protected byte[] generateLoginResponse(short serialNumber) {
+    // This method seems to be for GT06/TK103 login responses, consider moving to specific handlers if not generic
+    protected byte[] generateLoginResponse(String serialNumber) {
         byte[] response = new byte[11];
-
         // Header
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
 
-        // Packet length (5 bytes: protocol + serial + status)
-        response[2] = 0x05;
+        // Packet length (excluding header and terminator)
+        response[2] = 0x05; // Login packet length (5 bytes after length field: Protocol number + Serial number + Status)
 
         // Protocol number (login)
         response[3] = PROTOCOL_LOGIN;
 
-        // Serial number (big-endian)
-        response[4] = (byte) (serialNumber >> 8);
-        response[5] = (byte) (serialNumber & 0xFF);
+        // Serial number from device (2 bytes)
+        // Assuming serialNumber is a 2-byte hex string or short integer
+        if (serialNumber != null && serialNumber.length() >= 2) {
+            try {
+                int serial = Integer.parseInt(serialNumber.substring(serialNumber.length() - 2), 16);
+                response[4] = (byte) (serial >> 8);
+                response[5] = (byte) (serial & 0xFF);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid serial number format for login response: {}", serialNumber);
+                response[4] = 0x00; // Default to 0
+                response[5] = 0x00;
+            }
+        } else {
+            response[4] = 0x00; // Default to 0
+            response[5] = 0x00;
+        }
+
 
         // Status (success)
         response[6] = 0x01;
 
         // Calculate CRC
-        ByteBuffer crcBuffer = ByteBuffer.wrap(response, 2, 5);
+        // CRC is usually calculated over the packet content *after* the header and length,
+        // and *before* the terminator.
+        // For GT06/TK103, CRC is usually over data from protocol number to status.
+        ByteBuffer crcBuffer = ByteBuffer.wrap(response, 2, 5); // From length field (index 2) to status (index 6)
         int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuffer);
 
         // Add CRC (big-endian)
@@ -291,18 +212,18 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         response[0] = PROTOCOL_HEADER_1;
         response[1] = PROTOCOL_HEADER_2;
 
-        // Packet length (5 bytes)
+        // Packet length (5 bytes after length field)
         response[2] = 0x05;
 
-        // Protocol number (login)
-        response[3] = PROTOCOL_LOGIN;
+        // Protocol number (login - this might be wrong for generic ACK, check protocol spec)
+        response[3] = PROTOCOL_LOGIN; // Assuming ACK uses LOGIN protocol number for simplicity, verify with protocol spec.
 
-        // Empty serial number
+        // Empty serial number (2 bytes)
         response[4] = 0x00;
         response[5] = 0x00;
 
         // Calculate CRC
-        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4); // From length to serial number
         int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
 
         // Add CRC
@@ -313,7 +234,6 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         response[8] = PROTOCOL_TERMINATOR_1;
         response[9] = PROTOCOL_TERMINATOR_2;
 
-        logger.info("Generated ACK response: {}", bytesToHex(response));
         return response;
     }
 }

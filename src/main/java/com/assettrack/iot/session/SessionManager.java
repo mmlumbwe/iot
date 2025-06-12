@@ -1,5 +1,6 @@
 package com.assettrack.iot.session;
 
+import com.assettrack.iot.model.DeviceMessage;
 import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -263,5 +264,32 @@ public class SessionManager {
         }
 
         return !session.isExpired();
+    }
+
+    public void putMessage(DeviceMessage deviceMessage) {
+        if (deviceMessage == null || deviceMessage.getImei() == null) {
+            logger.warn("Attempted to put a null or invalid DeviceMessage.");
+            return;
+        }
+
+        DeviceSession session = sessionsByImei.get(deviceMessage.getImei());
+
+        if (session != null) {
+            logger.info("Received message for IMEI: {}. Further processing (e.g., saving, forwarding) needs to be implemented here.", deviceMessage.getImei());
+            // Example: If DeviceSession has a method to add messages
+            // session.addDeviceMessage(deviceMessage);
+
+            // Example: If you have a service to save messages to DB
+            // messageService.save(deviceMessage);
+
+            // Example: If you want to publish an event
+            // eventPublisher.publish(new DeviceMessageReceivedEvent(deviceMessage));
+
+        } else {
+            logger.warn("No active session found for IMEI: {} when attempting to put message. Message will not be processed.", deviceMessage.getImei());
+            // Depending on your application's logic, you might want to:
+            // - Create a new session for this IMEI if it's the first message from an unknown device.
+            // - Discard the message if it's from an unauthorized or unexpected device.
+        }
     }
 }

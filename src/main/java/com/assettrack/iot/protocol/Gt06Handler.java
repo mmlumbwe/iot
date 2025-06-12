@@ -67,7 +67,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         this.acknowledgementHandler = acknowledgementHandler;
     }
 
-    @Override
+    private long generateDeviceId(String imei) {
+        return imei.hashCode() & 0xffffffffL;
+    }
+
+    //@Override
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
         List<DeviceMessage> messages = new ArrayList<>();

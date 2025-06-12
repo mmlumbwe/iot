@@ -9,10 +9,13 @@ import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.AttributeKey; // Import AttributeKey
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -21,6 +24,9 @@ import java.nio.charset.StandardCharsets;
  */
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
+
+    // AttributeKey to store the detected protocol type in the Channel attributes
+    public static final AttributeKey<String> DETECTED_PROTOCOL_KEY = AttributeKey.valueOf("detectedProtocol");
 
     private final ProtocolDetector protocolDetector;
     private final TeltonikaHandler teltonikaHandler;
@@ -45,132 +51,84 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        // We will read a snapshot of the buffer for protocol detection
-        // The buffer's reader index is not advanced by getBytes.
+        // Get a copy of the readable bytes from the buffer for detection
         byte[] data = new byte[buf.readableBytes()];
         buf.getBytes(buf.readerIndex(), data);
 
-        logger.info("Protocol detection for packet: {}", Hex.encodeHexString(data));
+        // Retain the buffer if it will be passed downstream by fireChannelRead
+        // and released later by another handler.
+        // Or, if this handler fully consumes the buffer and does not pass it downstream,
+        // it should release it here. For initial detection, we pass it along.
+        ReferenceCountUtil.retain(msg);
 
-        ProtocolDetector.ProtocolDetectionResult protocolResult = protocolDetector.detect(data);
+        try {
+            if (!teltonikaImeiHandled) { // Only attempt protocol detection if IMEI is not handled
+                ProtocolDetector.ProtocolDetectionResult detectionResult = protocolDetector.detect(data);
 
-        if (protocolResult.isSuccess()) {
-            logger.info("Detected {} protocol: {}, Packet Type: {}",
-                    protocolResult.getProtocol(), protocolResult.getVersion(), protocolResult.getPacketType());
+                if (detectionResult.isValid() && "TELTONIKA".equals(detectionResult.getProtocol()) && "IMEI".equals(detectionResult.getPacketType())) {
+                    logger.info("Detected TELTONIKA protocol: {}, Packet Type: {}", detectionResult.getVersion(), detectionResult.getPacketType());
 
-            if (protocolResult.getProtocol().equals("TELTONIKA")) {
-                if (protocolResult.getPacketType().equals("IMEI")) {
-                    if (!teltonikaImeiHandled) {
-                        // This is the IMEI packet. ProtocolDetectionHandler will handle it directly.
-                        // Ensure we have enough data for a complete IMEI packet (17 bytes)
-                        if (buf.readableBytes() < 17) {
-                            logger.warn("Incomplete IMEI packet received. Waiting for more data.");
-                            // Retain the buffer if it's incomplete to prevent premature release
-                            ReferenceCountUtil.retain(buf);
-                            return; // Wait for more data in the next read
-                        }
+                    // Store the detected protocol in Channel attributes
+                    ctx.channel().attr(DETECTED_PROTOCOL_KEY).set(detectionResult.getProtocol());
 
-                        // Consume the 17 bytes of the IMEI packet
-                        byte[] imeiBytes = new byte[17];
-                        buf.readBytes(imeiBytes); // This advances the reader index of the ByteBuf
+                    // Setup appropriate framers and remove this handler from the pipeline
+                    setupFramingAndRemoveSelf(ctx.pipeline(), detectionResult.getProtocol());
 
-                        try {
-                            // Process IMEI and send 0x01 response
-                            teltonikaHandler.handle(imeiBytes, ctx);
-                            logger.info("Accepted IMEI: {}", new String(imeiBytes, 2, 15, StandardCharsets.US_ASCII));
-                            teltonikaImeiHandled = true; // Mark IMEI as handled
-                        } catch (Exception e) {
-                            logger.error("Error handling Teltonika IMEI packet", e);
-                            ReferenceCountUtil.release(buf); // Release the buffer on error
-                            ctx.close();
-                            return;
-                        }
-
-                        // IMEI handshake is complete. Now add the AVL data framer.
-                        // Ensure 'teltonikaAvlFrame' is not already in the pipeline before adding
-                        if (ctx.pipeline().get("teltonikaAvlFrame") == null) {
-                            ctx.pipeline().addBefore("protocolDetector", "teltonikaAvlFrame",
-                                    new LengthFieldBasedFrameDecoder(
-                                            1024 * 1024, // maxFrameLength: 1MB (Teltonika AVL data can be large)
-                                            4,            // lengthFieldOffset: from beginning of AVL data (after preamble)
-                                            4,            // lengthFieldLength: 4 bytes for data length
-                                            0,            // lengthAdjustment: no adjustment needed for AVL
-                                            8,            // initialBytesToStrip: 4 bytes for preamble + 4 bytes for data length
-                                            true          // failFast: immediately close if frame is too long
-                                    )
-                            );
-                            logger.info("Added teltonikaAvlFrame for Teltonika AVL data.");
-                        }
-
-                        // This handler has completed its dynamic framing role for Teltonika. Remove itself.
-                        // Ensure 'protocolDetector' (this handler) is still in the pipeline before attempting to remove
-                        if (ctx.pipeline().get("protocolDetector") != null) {
-                            ctx.pipeline().remove(this);
-                            logger.info("ProtocolDetectionHandler removed for Teltonika protocol.");
-                        }
-
-                        // If there's remaining data in the buffer after processing IMEI,
-                        // re-fire channelRead so the newly added teltonikaAvlFrame can process it.
-                        // This is crucial if AVL data immediately follows the IMEI in the same ByteBuf.
-                        if (buf.readableBytes() > 0) {
-                            ctx.fireChannelRead(buf);
-                        } else {
-                            ReferenceCountUtil.release(buf); // Release the buffer if it's empty after IMEI processing
-                        }
-                        return; // Done processing this buffer in this handler
-                    } else {
-                        // If teltonikaImeiHandled is true, and this is another IMEI packet, it's unexpected.
-                        // Or if the handler somehow wasn't removed and it's an AVL data packet.
-                        // The primary goal is that this handler should be removed after the initial setup.
-                        logger.warn("Unexpected Teltonika IMEI packet after handshake or handler not removed. Passing to next handler.");
-                        ctx.fireChannelRead(buf); // Pass to next handler, expecting teltonikaAvlFrame to process it
-                        return;
-                    }
-                } else { // Teltonika but not IMEI (i.e., AVL data)
-                    if (teltonikaImeiHandled) {
-                        // This indicates an AVL data packet after IMEI handshake.
-                        // If this handler is still here, it implies a logic error where it wasn't removed
-                        // or previous buffer had more data. The teltonikaAvlFrame should already be in pipeline and handle it.
-                        logger.warn("ProtocolDetectionHandler still active after Teltonika IMEI handshake and receiving AVL data. This should not happen. Passing to next handler.");
-                        ctx.fireChannelRead(buf); // Let the teltonikaAvlFrame handle it
-                        return;
-                    } else {
-                        // Teltonika protocol detected, but it's not IMEI and IMEI handshake hasn't happened.
-                        // This is an invalid state. Close the connection.
-                        logger.error("Teltonika protocol detected but not IMEI packet before IMEI handshake. Closing channel.");
-                        ReferenceCountUtil.release(buf);
-                        ctx.close();
-                        return;
-                    }
+                    // After adding framer, immediately respond to IMEI
+                    ctx.writeAndFlush(Unpooled.copiedBuffer(new byte[]{0x01}));
+                    logger.info("Sent login request (0x01) to device: {}", Hex.encodeHexString(data).substring(4)); // Extract IMEI
+                    teltonikaImeiHandled = true; // Mark IMEI as handled
+                } else {
+                    logger.warn("Unknown protocol or packet type: {}", detectionResult);
+                    // Attempt to detect other protocols or close channel if not handled
+                    // This will also remove the ProtocolDetectionHandler if a framer is added
+                    // or if no specific framing is needed and it's time to remove it.
+                    setupFramingAndRemoveSelf(ctx.pipeline(), detectionResult.getProtocol());
+                    ctx.close(); // Close if initial detection fails for expected protocols
+                    return; // Prevent passing to downstream if channel is closed
                 }
-            } else {
-                // Handle GT06/TK103 or other protocols by setting up their framing and removing self
-                setupFramingAndRemoveSelf(ctx.pipeline(), protocolResult.getProtocol());
-                // After framer is set and this handler removed, re-read so the new framer gets the data.
-                ReferenceCountUtil.release(buf); // Release the initial buffer as it's been processed and now the new framer will handle it.
-                ctx.read(); // Trigger a read operation for the newly added framer to process the current (or next) inbound data
-                return;
             }
-        } else {
-            logger.error("No protocol detected for data: {}", Hex.encodeHexString(data));
-            ReferenceCountUtil.release(buf); // Release the buffer
-            ctx.close(); // Close connection for unknown protocols
-            return;
+            // Always pass the original message along the pipeline so it can be handled by other handlers
+            // If teltonikaImeiHandled is true, framers are already in place and will process this buffer
+            // before it reaches GenericProtocolDecoder.
+            ctx.fireChannelRead(msg);
+        } finally {
+            // No need to release here if retain was called and it's passed downstream
+            // Netty's pipeline handles release for handlers that pass ByteBufs.
         }
     }
 
-    /**
-     * Helper method to setup framing and remove this handler for other protocols (GT06, TK103).
-     * This method ensures the ProtocolDetectionHandler is removed after it has set up the specific framer.
-     *
-     * @param pipeline The channel pipeline.
-     * @param protocol The detected protocol type.
-     */
     private void setupFramingAndRemoveSelf(ChannelPipeline pipeline, String protocol) {
         switch (protocol) {
+            case "TELTONIKA":
+                // IMEI handshake is 1 byte ACK. AVL data requires LengthFieldBasedFrameDecoder
+                // Add LengthFieldBasedFrameDecoder for IMEI responses (1-byte ACK). This is usually handled by the response itself.
+                // The main Teltonika framing for AVL data needs to be after IMEI.
+                // The 'teltonikaImeiFrame' is likely for receiving the initial IMEI. This part might need re-evaluation
+                // if it's meant for framing the IMEI packet itself, which is fixed length.
+                if (pipeline.get("teltonikaImeiFrame") == null) {
+                    pipeline.addBefore("protocolDetector", "teltonikaImeiFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    1024 * 1024, 0, 2, 0, 2, true // maxFrameLength, lengthFieldOffset, lengthFieldLength, lengthAdjustment, initialBytesToStrip, failFast
+                            )
+                    );
+                    logger.info("Added teltonikaImeiFrame for Teltonika IMEI.");
+                }
+
+                // AVL data: skip 4-byte preamble, then 4-byte length.
+                // CRITICAL FIX: lengthAdjustment should be 4 (for the 4-byte CRC after AVL data payload)
+                if (pipeline.get("teltonikaAvlFrame") == null) {
+                    pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    1024 * 1024, 4, 4, 4, 8, true // maxFrameLength, lengthFieldOffset, lengthFieldLength, lengthAdjustment, initialBytesToStrip, failFast
+                            )
+                    );
+                    logger.info("Added teltonikaAvlFrame for Teltonika AVL data.");
+                }
+                break;
             case "GT06":
             case "TK103":
-                // Check if the specific framer for GT06/TK103 is already in the pipeline before adding
+                // Both GT06 and TK103 use CRLF terminator
                 if (pipeline.get("gt06Tk103Frame") == null) {
                     pipeline.addBefore("protocolDetector", "gt06Tk103Frame",
                             new DelimiterBasedFrameDecoder(
