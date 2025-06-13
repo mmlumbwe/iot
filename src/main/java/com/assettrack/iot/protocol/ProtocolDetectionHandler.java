@@ -51,6 +51,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
         try {
             String detected = ctx.channel().attr(DETECTED_PROTOCOL_KEY).get();
+            logger.info("Detecting protocol for raw packet in BASEPROTOCOLDETECTIONHANDLER: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
             if (detected == null) {

@@ -12,6 +12,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.util.AttributeKey; // Import AttributeKey
 import io.netty.util.ReferenceCountUtil;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +69,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         // Get a copy of the readable bytes from the buffer
         byte[] data = new byte[buf.readableBytes()];
         buf.getBytes(buf.readerIndex(), data);
+
+        logger.info("Detecting protocol for raw packet in BASEPROTOCOLDETECTOR: {}", Hex.encodeHexString(data));
 
         ProtocolDetector.ProtocolDetectionResult protocolResult;
 
