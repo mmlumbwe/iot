@@ -87,7 +87,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
 
         // 4. Protocol detection
         if (pipeline.get("protocolDetector") == null) {
-            pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
+            pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector,teltonikaHandler,gt06Handler));
             logger.info("Added ProtocolDetectionHandler for channel {}", channel.id());
         }
 

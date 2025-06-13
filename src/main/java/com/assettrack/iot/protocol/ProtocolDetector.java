@@ -116,6 +116,10 @@ public class ProtocolDetector {
         public boolean isValid() {
             return valid;
         }
+
+        public boolean isSuccess() {
+            return valid;
+        }
     }
 
     interface ProtocolMatcher {
