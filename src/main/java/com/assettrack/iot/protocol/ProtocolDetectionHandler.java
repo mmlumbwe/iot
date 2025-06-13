@@ -49,9 +49,10 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         buf.getBytes(buf.readerIndex(), data);
         ReferenceCountUtil.retain(msg);
 
+        logger.info("Detecting protocol for raw packet in BASEPROTOCOLDETECTIONHANDLER: {}", Hex.encodeHexString(data));
+
         try {
             String detected = ctx.channel().attr(DETECTED_PROTOCOL_KEY).get();
-            logger.info("Detecting protocol for raw packet in BASEPROTOCOLDETECTIONHANDLER: {}", Hex.encodeHexString(data));
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
 
             if (detected == null) {
@@ -63,8 +64,8 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     ChannelPipeline pipeline = ctx.pipeline();
 
                     if (!teltonikaImeiHandled && "IMEI".equals(type)) {
-                        // 1) Add IMEI framer
-                        pipeline.addBefore("protocolDetector", "teltonikaImeiFrame",
+                        // 1) Add IMEI framer after detection, so detection always sees raw bytes first
+                        pipeline.addAfter("protocolDetector", "teltonikaImeiFrame",
                                 new LengthFieldBasedFrameDecoder(
                                         64,  // small max for the 17-byte IMEI packet
                                         0, 2, 0, 2, true
@@ -86,7 +87,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     // 2) GT06/TK103 framing
                     String proto = result.getProtocol();
                     ChannelPipeline pipeline = ctx.pipeline();
-                    pipeline.addBefore("protocolDetector", "gt06Tk103Frame",
+                    pipeline.addAfter("protocolDetector", "gt06Tk103Frame",
                             new DelimiterBasedFrameDecoder(
                                     1024, true,
                                     Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
@@ -105,12 +106,13 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 }
             }
 
-            // If Teltonika handshake done and now receiving data packets
+            // If Teltonika IMEI handshake done and now receiving data packets
             if ("TELTONIKA".equals(detected) && teltonikaImeiHandled) {
                 ProtocolDetector.ProtocolDetectionResult second = result;
                 String type = second.getPacketType();
                 if (!"IMEI".equals(type)) {
                     ChannelPipeline pipeline = ctx.pipeline();
+                    // Replace IMEI framer with AVL framer
                     if (pipeline.get("teltonikaImeiFrame") != null) {
                         pipeline.replace("teltonikaImeiFrame", "teltonikaAvlFrame",
                                 new LengthFieldBasedFrameDecoder(
@@ -119,7 +121,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                                 )
                         );
                     } else if (pipeline.get("teltonikaAvlFrame") == null) {
-                        pipeline.addBefore("protocolDetector", "teltonikaAvlFrame",
+                        pipeline.addAfter("protocolDetector", "teltonikaAvlFrame",
                                 new LengthFieldBasedFrameDecoder(
                                         1024 * 1024,
                                         4, 4, 4, 8, true
