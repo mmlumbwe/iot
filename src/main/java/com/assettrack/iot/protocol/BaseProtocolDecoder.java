@@ -194,7 +194,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         // populate it from the session.
         if (session != null && (message.getImei() == null || message.getImei().isEmpty())) {
             message.setImei(session.getImei());
-            logger.debug("Enriched DeviceMessage with IMEI {} from session for channel {}.", session.getImei(), ctx.channel().id());
+            logger.info("Enriched DeviceMessage with IMEI {} from session for channel {}.", session.getImei(), ctx.channel().id());
         }
 
         // Existing logic for setting deviceId if not already set
