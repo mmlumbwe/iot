@@ -36,6 +36,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     protected static final byte PROTOCOL_LOGIN = 0x01;
     protected static final byte PROTOCOL_TERMINATOR_1 = 0x0D;
     protected static final byte PROTOCOL_TERMINATOR_2 = 0x0A;
+    public static final String NAME = "decoder";
     private static final AttributeKey<ProtocolDetector.ProtocolDetectionResult> ATTR_DETECTION_RESULT =
             AttributeKey.valueOf("PROTOCOL_DETECTION_RESULT");
 
