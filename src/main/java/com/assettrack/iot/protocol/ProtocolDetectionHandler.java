@@ -49,8 +49,6 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         buf.getBytes(buf.readerIndex(), data);
         ReferenceCountUtil.retain(msg);
 
-        logger.info("Detecting protocol for raw packet in BASEPROTOCOLDETECTIONHANDLER: {}", Hex.encodeHexString(data));
-
         try {
             String detected = ctx.channel().attr(DETECTED_PROTOCOL_KEY).get();
             ProtocolDetector.ProtocolDetectionResult result = protocolDetector.detect(data);
