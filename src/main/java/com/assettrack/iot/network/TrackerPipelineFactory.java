@@ -54,49 +54,18 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO));
         }
 
-        // 2. Teltonika length-based framing (IMEI and AVL packets)
-        if (teltonikaHandler != null && pipeline.get("teltonikaShortFrame") == null) {
-            // IMEI packets: 2-byte length, followed by that many bytes
-            pipeline.addLast("teltonikaShortFrame", new LengthFieldBasedFrameDecoder(
-                    64,        // max IMEI length
-                    0,         // length field offset
-                    2,         // length field length
-                    0,         // length adjustment
-                    2,         // strip length field
-                    true       // fail fast
-            ));
-            // AVL data: skip 4-byte preamble, then 4-byte length
-            pipeline.addLast("teltonikaAvlFrame", new LengthFieldBasedFrameDecoder(
-                    1024 * 1024, // max AVL packet size
-                    4,           // skip preamble
-                    4,           // length field length
-                    0,           // length adjustment
-                    8,           // strip preamble + length field
-                    true
-            ));
-        }
-
-        // 3. GT06 and TK103 CRLF-based framing
-        if (gt06Handler != null && pipeline.get("gt06Tk103Frame") == null) {
-            pipeline.addLast("gt06Tk103Frame", new DelimiterBasedFrameDecoder(
-                    1024,                   // max frame length
-                    true,                   // strip delimiter
-                    Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
-            ));
-        }
-
-        // 4. Protocol detection
+        // 2. Protocol detection (moved before any frame decoders)
         if (pipeline.get("protocolDetector") == null) {
             pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector,teltonikaHandler,gt06Handler));
             logger.info("Added ProtocolDetectionHandler for channel {}", channel.id());
         }
 
-        // 5. Idle state handler
+        // 3. Idle state handler
         if (pipeline.get("idleHandler") == null) {
             pipeline.addLast("idleHandler", new IdleStateHandler(30, 0, 0));
         }
 
-        // 6. Unified protocol decoder and handler chaining
+        // 4. Unified protocol decoder and handler chaining
         if (pipeline.get("decoder") == null) {
             pipeline.addLast("decoder", new GenericProtocolDecoder(
                     sessionManager, protocolDetector, teltonikaHandler, gt06Handler
