@@ -72,7 +72,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 // === TELTONIKA ===
                 if ("TELTONIKA".equalsIgnoreCase(protocol)) {
 
-                    // 1) IMEI handshake
+                    // 1) IMEI handshake 
                     if ("IMEI".equalsIgnoreCase(packetType)) {
                         // only send the login reply once per channel
                         if (ctx.channel().attr(TELTONIKA_AVL_ADDED).get() == null) {
