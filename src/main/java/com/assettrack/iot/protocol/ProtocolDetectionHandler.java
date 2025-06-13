@@ -66,32 +66,23 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     if ("IMEI".equalsIgnoreCase(packetType)
                             && ctx.channel().attr(TELTONIKA_AVL_ADDED).get() == null) {
 
-                        // 1) send proper login ACK
-                        byte[] loginAck = generateLoginResponse((short) 0);
-                        ctx.writeAndFlush(Unpooled.wrappedBuffer(loginAck));
+                        // 1) send Teltonika login ACK (echo serial=1)
+                        byte[] resp = generateLoginResponse((short) 1);
+                        ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
                         logger.info("Sent Teltonika login ACK");
 
-                        // 2) install length-frame decoder for AVL packets
-                        pipeline.addBefore(
-                                "decoder",
-                                "teltonikaFrame",
+                        // 2) install AVL length-frame decoder
+                        ChannelPipeline p = ctx.pipeline();
+                        p.addBefore("decoder", "teltonikaFrame",
                                 new LengthFieldBasedFrameDecoder(
-                                        1024 * 1024,  // max frame size
-                                        4,            // length field offset
-                                        4,            // length field length
-                                        0,            // lengthAdjustment
-                                        4,            // initialBytesToStrip (skip header+length)
-                                        true          // failFast
+                                        1024 * 1024, 4, 4, 0, 0, true
                                 )
                         );
                         ctx.channel().attr(TELTONIKA_AVL_ADDED).set(true);
 
-                        // 3) remove this detector (we no longer need it)
-                        pipeline.remove(this);
-
-                        // 4) forward detection result + raw buffer downstream
-                        ctx.fireChannelRead(result);
-                        ctx.fireChannelRead(buf.retain());
+                        // 3) remove detector and consume IMEI buffer
+                        p.remove(this);
+                        buf.release();
                         return;
                     }
 
