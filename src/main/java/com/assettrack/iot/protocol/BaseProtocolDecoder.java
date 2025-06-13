@@ -122,6 +122,21 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     DeviceMessage teltonikaMessage = teltonikaHandler.handle(data, ctx); // Pass raw data and context
                     if (teltonikaMessage != null) {
                         enrichMessageWithContext(ctx, teltonikaMessage);
+
+                        // --- START OF CORRECTED CODE ---
+                        // After the IMEI packet is processed and DeviceMessage is enriched,
+                        // ensure the device is associated with the channel's session.
+                        if ("IMEI".equalsIgnoreCase(teltonikaMessage.getMessageType()) && teltonikaMessage.getImei() != null) {
+                            sessionManager.getOrCreateSession(
+                                    teltonikaMessage.getImei(),
+                                    teltonikaMessage.getProtocol(), // "TELTONIKA"
+                                    ctx.channel(),
+                                    ctx.channel().remoteAddress()
+                            );
+                            logger.info("Session updated/created for IMEI {} and channel {}.", teltonikaMessage.getImei(), ctx.channel().id());
+                        }
+                        // --- END OF CORRECTED CODE ---
+
                         return teltonikaMessage;
                     } else {
                         logger.warn("TeltonikaHandler did not return a message for protocol type: {}", result.getPacketType());
