@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import com.assettrack.iot.session.DeviceSession;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -185,22 +186,36 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 data[1] == PROTOCOL_HEADER_2;
     }
 
-    void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
-        if (message.getProtocol() == null) {
-            // Default to GT06 if protocol is not set by the specific handler
-            message.setProtocol("GT06");
+    protected void enrichMessageWithContext(ChannelHandlerContext ctx, DeviceMessage message) {
+        // Retrieve the session for the current channel
+        DeviceSession session = sessionManager.getSessionByChannel(ctx.channel());
+
+        // If a session exists and the message's IMEI is null or empty,
+        // populate it from the session.
+        if (session != null && (message.getImei() == null || message.getImei().isEmpty())) {
+            message.setImei(session.getImei());
+            logger.debug("Enriched DeviceMessage with IMEI {} from session for channel {}.", session.getImei(), ctx.channel().id());
         }
 
-        if (ctx.channel() instanceof SocketChannel) {
-            message.setChannel((SocketChannel) ctx.channel());
+        // Existing logic for setting deviceId if not already set
+        if (message.getDeviceId() == 0) { // Only set if not already set by specific handler
+            // Generate a device ID from the IMEI if available, otherwise from channel ID
+            long deviceId;
+            String imei = message.getImei(); // Now potentially updated from session
+            if (imei != null && !imei.isEmpty()) {
+                deviceId = generateDeviceId(imei);
+                logger.info("Generated device ID {} for IMEI {}", deviceId, imei);
+            } else {
+                deviceId = ctx.channel().id().asLongText().hashCode(); // Fallback
+                logger.warn("No IMEI found in message, using channel ID hash {} as device ID.", deviceId);
+            }
+            message.setDeviceId(deviceId);
         }
+
+        // Set other context information, assuming 'result' field is passed or accessible
+        // (If 'result' is not a field, you'd need to pass it as a parameter to this method)
+        // message.setProtocol(result.getProtocol());
         message.setRemoteAddress(ctx.channel().remoteAddress());
-
-        if (message.getImei() != null) {
-            long deviceId = generateDeviceId(message.getImei());
-            message.addParsedData("deviceId", deviceId);
-            logger.info("Generated device ID {} for IMEI {}", deviceId, message.getImei());
-        }
     }
 
     protected long generateDeviceId(String imei) {

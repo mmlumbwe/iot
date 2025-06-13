@@ -268,6 +268,11 @@ public class DeviceMessage {
         return null;
     }
 
+    // CORRECTED METHOD
+    public synchronized void setDeviceId(long deviceId) {
+        this.parsedData.put("deviceId", deviceId);
+    }
+
     public synchronized void setSpeed(double speed) {
         if (this.position == null) {
             this.position = new Position();
