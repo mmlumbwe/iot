@@ -9,7 +9,6 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.timeout.IdleStateEvent;
-import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,15 +18,14 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
 
-    // Marks that we've installed the Teltonika AVL frame decoder for this channel
-    private static final AttributeKey<Boolean> TELTONIKA_AVL_ADDED =
-            AttributeKey.valueOf("TELTONIKA_AVL_ADDED");
-
-    // Pipeline name for detection handler
+    // Pipeline name for this handler in the pipeline
     public static final String NAME = "protocolDetector";
 
     private final ProtocolDetector protocolDetector;
     private final Gt06Handler gt06Handler;
+
+    // Tracks whether we've completed the Teltonika IMEI handshake on this channel
+    private boolean teltonikaImeiHandled = false;
 
     public ProtocolDetectionHandler(ProtocolDetector protocolDetector,
                                     Gt06Handler gt06Handler) {
@@ -42,89 +40,93 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        // We only need the first 2 bytes to detect IMEI login
+        // Require at least 2 bytes to detect the protocol header
         if (buf.readableBytes() < 2) {
             ctx.fireChannelRead(buf);
             return;
         }
 
-        buf.retain();
-        try {
-            byte[] data = new byte[buf.readableBytes()];
-            buf.getBytes(buf.readerIndex(), data);
+        byte[] data = new byte[buf.readableBytes()];
+        buf.getBytes(buf.readerIndex(), data);
+        var result = protocolDetector.detect(data);
 
-            var result = protocolDetector.detect(data);
-            if (result.isSuccess()) {
-                String protocol = result.getProtocol();
-                String packetType = result.getPacketType();
-                ChannelPipeline pipeline = ctx.pipeline();
+        if (result.isSuccess()) {
+            String protocol = result.getProtocol();
+            String packetType = result.getPacketType();
+            ChannelPipeline pipeline = ctx.pipeline();
 
-                // ---- TELTONIKA handshake ----
-                if ("TELTONIKA".equalsIgnoreCase(protocol)) {
+            // === TELTONIKA ===
+            if ("TELTONIKA".equalsIgnoreCase(protocol)) {
 
-                    // IMEI login
-                    if ("IMEI".equalsIgnoreCase(packetType)
-                            && ctx.channel().attr(TELTONIKA_AVL_ADDED).get() == null) {
+                // 1) IMEI handshake: ACK and swallow
+                if ("IMEI".equalsIgnoreCase(packetType) && !teltonikaImeiHandled) {
+                    byte[] ack = generateLoginResponse((short) 1);
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(ack));
+                    logger.info("Sent Teltonika login ACK");
 
-                        // 1) send Teltonika login ACK (echo serial=1)
-                        byte[] resp = generateLoginResponse((short) 1);
-                        ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
-                        logger.info("Sent Teltonika login ACK");
-
-                        // 2) install AVL length-frame decoder
-                        ChannelPipeline p = ctx.pipeline();
-                        p.addBefore("decoder", "teltonikaFrame",
-                                new LengthFieldBasedFrameDecoder(
-                                        1024 * 1024, 4, 4, 0, 0, true
-                                )
-                        );
-                        ctx.channel().attr(TELTONIKA_AVL_ADDED).set(true);
-
-                        // 3) remove detector and consume IMEI buffer
-                        p.remove(this);
-                        buf.release();
-                        return;
-                    }
-
-                    // Any other Teltonika packet before framing just pass through
-                    ctx.fireChannelRead(result);
-                    ctx.fireChannelRead(buf.retain());
+                    teltonikaImeiHandled = true;
+                    buf.release();
                     return;
                 }
 
-                // ---- GT06 / TK103 ----
-                if ("GT06".equalsIgnoreCase(protocol) || "TK103".equalsIgnoreCase(protocol)) {
-                    if (pipeline.get("gt06Frame") == null) {
-                        pipeline.addBefore(
-                                NAME,
-                                "gt06Frame",
-                                new DelimiterBasedFrameDecoder(
-                                        1024,
-                                        true,
-                                        Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
-                                )
-                        );
-                        logger.info("Installed GT06/TK103 frame decoder");
-                    }
+                // 2) First AVL packet: install frame decoder, remove self, then forward
+                if (teltonikaImeiHandled && !"IMEI".equalsIgnoreCase(packetType)) {
+                    pipeline.addBefore(
+                            "decoder",
+                            "teltonikaFrame",
+                            new LengthFieldBasedFrameDecoder(
+                                    1024 * 1024, // max frame length = 1 MB
+                                    4,           // lengthFieldOffset
+                                    4,           // lengthFieldLength
+                                    0,           // lengthAdjustment
+                                    0,           // initialBytesToStrip
+                                    true         // failFast
+                            )
+                    );
                     pipeline.remove(this);
+
+                    // 2a) store detection result for the next decoder
                     ctx.fireChannelRead(result);
+                    // 2b) forward the buffer for framing
                     ctx.fireChannelRead(buf.retain());
                     return;
                 }
 
-                // ---- Unknown or unsupported ----
-                pipeline.remove(this);
-                logger.warn("Unknown protocol '{}' — removed detection handler", protocol);
-                ctx.fireChannelRead(buf);
+                // 3) Any other Teltonika fragment before or after handshake: pass through
+                ctx.fireChannelRead(result);
+                ctx.fireChannelRead(buf.retain());
                 return;
             }
 
-            // Detection failed → just pass the raw buffer
-            ctx.fireChannelRead(buf);
+            // === GT06 / TK103 ===
+            if ("GT06".equalsIgnoreCase(protocol) || "TK103".equalsIgnoreCase(protocol)) {
+                if (pipeline.get("gt06Frame") == null) {
+                    pipeline.addBefore(
+                            NAME,
+                            "gt06Frame",
+                            new DelimiterBasedFrameDecoder(
+                                    1024,
+                                    true,
+                                    Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
+                            )
+                    );
+                    logger.info("Installed GT06/TK103 frame decoder");
+                }
+                pipeline.remove(this);
+                ctx.fireChannelRead(result);
+                ctx.fireChannelRead(buf.retain());
+                return;
+            }
 
-        } finally {
-            buf.release();
+            // === Unknown protocol ===
+            pipeline.remove(this);
+            logger.warn("Unknown protocol '" + protocol + "' — removed detection handler");
+            ctx.fireChannelRead(buf);
+            return;
         }
+
+        // Detection failed: forward raw
+        ctx.fireChannelRead(buf);
     }
 
     @Override
@@ -150,14 +152,12 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         byte[] resp = new byte[11];
         resp[0] = 0x78;
         resp[1] = 0x78;
-        resp[2] = 0x05;          // length
-        resp[3] = 0x01;          // protocol = login
+        resp[2] = 0x05;
+        resp[3] = 0x01;
         resp[4] = (byte) (serial >> 8);
         resp[5] = (byte) (serial & 0xFF);
-        resp[6] = 0x01;          // status = OK
-        // CRC16 (bytes 2..6)
-        var crcBuf = ByteBuffer.wrap(resp, 2, 5);
-        int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuf);
+        resp[6] = 0x01;
+        int crc = Checksum.crc16(Checksum.CRC16_X25, ByteBuffer.wrap(resp, 2, 5));
         resp[7] = (byte) (crc >> 8);
         resp[8] = (byte) crc;
         resp[9] = 0x0D;
