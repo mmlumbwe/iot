@@ -205,11 +205,11 @@ public class TeltonikaHandler implements ProtocolHandler {
             );
 
             // 2) Data-length (new log)
-            int dataLength = buffer.getInt();
+            int dataLengthLog = buffer.getInt();
             logger.info(
                     "→ TeltonikaHandler.handleDataPacket: dataLength={}, expectedTotalBytes={}",
-                    dataLength,
-                    dataLength + TeltonikaConstants.HEADER_SIZE
+                    dataLengthLog,
+                    dataLengthLog + TeltonikaConstants.HEADER_SIZE
             );
 
             // Validate packet structure
