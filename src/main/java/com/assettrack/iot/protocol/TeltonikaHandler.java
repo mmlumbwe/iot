@@ -515,24 +515,17 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     private void skipIoElements(ByteBuffer buffer, int codecId) {
-        // This method needs to read the counts for each type of IO element (1-byte, 2-byte, 4-byte, 8-byte)
-        // and then skip the corresponding data.
-        // The counts themselves are 1 byte each.
-        // Format: N1 (count of 1-byte I/O) [1-byte IDs and values] N2 (count of 2-byte I/O) [2-byte IDs and values] ...
-
-        // Ensure there are enough bytes to read the count byte itself before proceeding.
-        // Teltonika protocol dictates that these count bytes are always present, even if 0.
+        logger.debug("→ Entering skipIoElements; buffer.position={}, remainingBytes={}", buffer.position(), buffer.remaining());
 
         // Read N1 (number of 1-byte I/O properties)
         if (buffer.remaining() > 0) {
             int numOneByte = buffer.get() & 0xFF;
+            logger.debug("→ skipIoElements: numOneByte={}", numOneByte); // Added logging
             int bytesToSkip = numOneByte * (1 + 1); // 1 byte for ID, 1 byte for value
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
             } else {
                 logger.warn("Not enough bytes to skip 1-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numOneByte);
-                // It's crucial to stop processing if the buffer is malformed to avoid cascading errors.
-                // Throwing an exception is more appropriate here than trying to continue with bad data.
                 throw new ProtocolException("Malformed I/O data: not enough bytes for 1-byte I/O elements.");
             }
         } else {
@@ -542,6 +535,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         // Read N2 (number of 2-byte I/O properties)
         if (buffer.remaining() > 0) {
             int numTwoByte = buffer.get() & 0xFF;
+            logger.debug("→ skipIoElements: numTwoByte={}", numTwoByte); // Added logging
             int bytesToSkip = numTwoByte * (1 + 2); // 1 byte for ID, 2 bytes for value
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
@@ -556,6 +550,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         // Read N4 (number of 4-byte I/O properties)
         if (buffer.remaining() > 0) {
             int numFourByte = buffer.get() & 0xFF;
+            logger.debug("→ skipIoElements: numFourByte={}", numFourByte); // Added logging
             int bytesToSkip = numFourByte * (1 + 4); // 1 byte for ID, 4 bytes for value
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
@@ -568,9 +563,9 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
 
         // Read N8 (number of 8-byte I/O properties) - Only for CODEC_8, CODEC_8_EXT, CODEC_16
-        // This is the last block of IO elements.
         if (buffer.remaining() > 0) {
             int numEightByte = buffer.get() & 0xFF;
+            logger.debug("→ skipIoElements: numEightByte={}", numEightByte); // Added logging
             int bytesToSkip = numEightByte * (1 + 8); // 1 byte for ID, 8 bytes for value
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
@@ -579,10 +574,9 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Malformed I/O data: not enough bytes for 8-byte I/O elements.");
             }
         } else {
-            // For Codec 8/8E/16, the 8-byte count should always be present, even if 0.
-            // If it's not there, it's a malformed packet.
             throw new ProtocolException("Malformed I/O data: missing 8-byte I/O count.");
         }
+        logger.debug("→ Exiting skipIoElements; new buffer.position={}", buffer.position());
     }
 
     private String cleanImei(String rawImei) {
