@@ -215,9 +215,9 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Packet too short");
             }
 
-            if (buffer.getInt() != 0) {  // Preamble check
+            /*if (buffer.getInt() != 0) {  // Preamble check
                 throw new ProtocolException("Invalid preamble");
-            }
+            }*/
 
             int dataLength = buffer.getInt();
             if (data.length < dataLength + 8) {
