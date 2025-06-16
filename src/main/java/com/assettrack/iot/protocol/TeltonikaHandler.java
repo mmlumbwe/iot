@@ -197,28 +197,37 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
+            // Entry
             logger.info("→ Entered handleDataPacket; totalBytes={}, wrapping buffer", data.length);
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
             logger.info("→ Buffer wrapped; remainingBytes={}", buffer.remaining());
 
-            // 1) Packet-length field (4 bytes)
+            // 1) Skip Teltonika “preamble” (always zero)
+            int preamble = buffer.getInt();
+            logger.info("→ Skipped preamble; value=0x{} ({})",
+                    Integer.toHexString(preamble), preamble);
+
+            // 2) Read dataLength (actual packet length)
             int packetLength = buffer.getInt();
-            logger.info("→ packetLength field={}", packetLength);
+            logger.info("→ Read packetLength field={}; will process next {} bytes",
+                    packetLength, buffer.remaining());
+            if (data.length < packetLength + TeltonikaConstants.HEADER_SIZE) {
+                logger.error("→ Packet too short: totalBytes={} < packetLength+HEADER={}",
+                        data.length, packetLength + TeltonikaConstants.HEADER_SIZE);
+                throw new ProtocolException("Invalid data length");
+            }
 
-            // 2) Codec ID (1 byte)
-            int codecId = buffer.get() & 0xFF;
-            logger.info("→ codecId={}", codecId);
-
-            // 3) Record count (1 byte)
+            // 3) Read codec and count
+            int codecId    = buffer.get() & 0xFF;
             int recordCount = buffer.get() & 0xFF;
-            logger.info("→ recordCount={}", recordCount);
+            logger.info("→ codecId={}, recordCount={}", codecId, recordCount);
 
-            // 4) Set up message
-            String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
-            message.setProtocolVersion(protocolVersion);
+            // 4) Prepare message
+            String version = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
+            message.setProtocolVersion(version);
             message.setMessageType("DATA");
 
-            // 5) Dispatch into codec parser
+            // 5) Dispatch
             switch (codecId) {
                 case CODEC_8:
                 case CODEC_8_EXT:
@@ -237,7 +246,6 @@ public class TeltonikaHandler implements ProtocolHandler {
             throw new ProtocolException("Failed to handle data packet", e);
         }
     }
-
 
 
     private DeviceMessage processCodec8Packet(
