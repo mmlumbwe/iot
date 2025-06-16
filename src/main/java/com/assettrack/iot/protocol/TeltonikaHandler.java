@@ -17,7 +17,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Pattern;
 
 @Component
@@ -261,52 +263,65 @@ public class TeltonikaHandler implements ProtocolHandler {
 
 
     private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
-        // Entry log: confirm buffer state
+        // Entry log
         logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
                 buffer.position(), buffer.remaining());
 
         message.setMessageType("DATA");
 
-        // 1) Read record count
-        int records = buffer.get() & 0xFF;
-        logger.info("→ processCodec8Packet: recordCount={}", records);
-        message.addParsedData("records", records);
+        // Read record count
+        int recordCount = buffer.get() & 0xFF;
+        logger.info("→ processCodec8Packet: recordCount={}", recordCount);
+        message.addParsedData("records", recordCount);
 
-        // 2) Parse first record if present
-        if (records > 0 && buffer.remaining() >= 8) {
+        List<Position> positions = new ArrayList<>();
+
+        // Loop through each record
+        for (int i = 0; i < recordCount; i++) {
+            if (buffer.remaining() < 12) {
+                logger.warn("→ processCodec8Packet: not enough bytes for record #{} (remaining={})",
+                        i + 1, buffer.remaining());
+                break;
+            }
+            logger.info("→ processCodec8Packet: parsing record #{}/{}", i + 1, recordCount);
             try {
-                logger.info("→ processCodec8Packet: parsing first record");
                 Position position = parseCodec8Data(buffer);
-                logger.info("→ processCodec8Packet: parsed Position(timestamp={}, lat={}, lon={})",
+                logger.info(
+                        "→ processCodec8Packet: record #{} parsed: timestamp={}, lat={}, lon={}",
+                        i + 1,
                         position.getTimestamp(),
                         position.getLatitude(),
-                        position.getLongitude());
+                        position.getLongitude()
+                );
 
-                // Attach device info if available
+                // Associate device
                 if (message.getImei() != null) {
                     Device device = new Device();
                     device.setImei(message.getImei());
                     device.setProtocolType("TELTONIKA");
                     position.setDevice(device);
-                    logger.info("→ processCodec8Packet: associated Device IMEI={}", message.getImei());
                 }
 
-                message.addParsedData("position", position);
-                message.setTimestamp(position.getTimestamp());
+                positions.add(position);
             } catch (ProtocolException e) {
-                logger.warn("→ processCodec8Packet: Failed to parse position data", e);
+                logger.warn("→ processCodec8Packet: failed to parse record #{}", i + 1, e);
             }
-        } else {
-            logger.info("→ processCodec8Packet: no records to parse or insufficient bytes (remaining={})",
-                    buffer.remaining());
         }
 
-        // 3) Build and log response
+        // Attach all parsed positions
+        message.addParsedData("positions", positions);
+
+        // Use timestamp of last position (optional)
+        if (!positions.isEmpty()) {
+            message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
+        }
+
+        // Build and log ACK
         ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0);          // Preamble
-        response.putInt(records);    // Number of accepted records
+        response.putInt(0);              // Preamble/zero
+        response.putInt(recordCount);    // Echo back the number you accepted
         message.addParsedData("response", response.array());
-        logger.info("→ processCodec8Packet: generated response; acceptedRecords={}", records);
+        logger.info("→ processCodec8Packet: generated response; acceptedRecords={}", recordCount);
 
         return message;
     }
