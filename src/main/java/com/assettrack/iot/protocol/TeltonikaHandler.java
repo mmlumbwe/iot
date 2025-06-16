@@ -193,58 +193,72 @@ public class TeltonikaHandler implements ProtocolHandler {
         return message;
     }
 
+    //@Override
     public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
+            // 1) Entry log
+            logger.info("→ Entered handleDataPacket; totalBytes={}, preparing to wrap buffer", data.length);
+
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+            logger.info("→ Buffer wrapped; remainingBytes={}", buffer.remaining());
 
-            /*// 1) Packet-length field
-            int lengthField = buffer.getInt();
-            logger.info(
-                    "→ TeltonikaHandler.handleDataPacket: lengthField={} bytes, totalBufferLength={}",
-                    lengthField, data.length
-            );
-
-            // 2) The next int *is* actually the Codec ID / data-count field:
-            int codecIdLog = buffer.get() & 0xFF;
-            int recordCount = buffer.get() & 0xFF;
-            logger.info("→ codecId=0x{}, recordCount={}", Integer.toHexString(codecIdLog), recordCount);*/
-
-
-            // Validate packet structure
+            // 2) Minimum-length check
             if (buffer.remaining() < 12) {
+                logger.error("→ Packet too short; remainingBytes={}", buffer.remaining());
                 throw new ProtocolException("Packet too short");
             }
+            logger.info("→ Packet length OK");
 
-            if (buffer.getInt() != 0) {  // Preamble check
+            // 3) Preamble check
+            int preamble = buffer.getInt();
+            logger.info("→ Read preamble; value=0x{} ({})", Integer.toHexString(preamble), preamble);
+            if (preamble != 0) {
+                logger.error("→ Invalid preamble; expected 0 but was 0x{} ({})",
+                        Integer.toHexString(preamble), preamble);
                 throw new ProtocolException("Invalid preamble");
             }
 
+            // 4) Data-length field
             int dataLength = buffer.getInt();
+            logger.info("→ Read dataLength field={}", dataLength);
             if (data.length < dataLength + 8) {
+                logger.error("→ Packet length mismatch; totalBytes={} < dataLength+8={}",
+                        data.length, dataLength + 8);
                 throw new ProtocolException("Packet length mismatch");
             }
 
+            // 5) Codec ID & version
             int codecId = buffer.get() & 0xFF;
+            logger.info("→ Read codecId={}", codecId);
             String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
+            logger.info("→ Resolved protocolVersion={}", protocolVersion);
             message.setProtocolVersion(protocolVersion);
             message.setMessageType("DATA");
 
-            // Process based on codec type
+            // 6) Dispatch to codec‐specific parser
+            logger.info("→ Dispatching to codec handler for codecId={}", codecId);
             switch (codecId) {
                 case CODEC_8:
                 case CODEC_8_EXT:
+                    logger.info("→ Calling processCodec8Packet");
                     return processCodec8Packet(buffer, message);
                 case CODEC_16:
+                    logger.info("→ Calling processCodec16Packet");
                     return processCodec16Packet(buffer, message);
                 default:
+                    logger.error("→ Unsupported codec: {}", codecId);
                     throw new ProtocolException("Unsupported codec: " + codecId);
             }
+
         } catch (Exception e) {
+            // 7) Error handling
+            logger.error("→ Error handling Teltonika data packet", e);
             message.setMessageType("ERROR");
             message.addParsedData("error", e.getMessage());
             throw new ProtocolException("Failed to handle data packet", e);
         }
     }
+
 
     private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
         message.setMessageType("DATA");
