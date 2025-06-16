@@ -217,12 +217,12 @@ public class TeltonikaHandler implements ProtocolHandler {
 
             /*if (buffer.getInt() != 0) {  // Preamble check
                 throw new ProtocolException("Invalid preamble");
-            }*/
+            }
 
             int dataLength = buffer.getInt();
             if (data.length < dataLength + 8) {
                 throw new ProtocolException("Packet length mismatch");
-            }
+            }*/
 
             int codecId = buffer.get() & 0xFF;
             String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
