@@ -30,6 +30,7 @@ public class Position {
     private Double speed; // in knots
     private Double course;
     private Boolean valid;
+    private Short altitude;
 
     // Common attributes
     private Double batteryLevel;

@@ -18,7 +18,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -195,65 +194,43 @@ public class TeltonikaHandler implements ProtocolHandler {
         return message;
     }
 
-    //@Override
+
     public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
-            // 1) Entry log
-            logger.info("→ Entered handleDataPacket; totalBytes={}, preparing to wrap buffer", data.length);
-
+            logger.info("→ Entered handleDataPacket; totalBytes={}, wrapping buffer", data.length);
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
             logger.info("→ Buffer wrapped; remainingBytes={}", buffer.remaining());
 
-            // 2) Minimum-length check
-            if (buffer.remaining() < 12) {
-                logger.error("→ Packet too short; remainingBytes={}", buffer.remaining());
-                throw new ProtocolException("Packet too short");
-            }
-            logger.info("→ Packet length OK");
+            // 1) Packet-length field (4 bytes)
+            int packetLength = buffer.getInt();
+            logger.info("→ packetLength field={}", packetLength);
 
-            // 3) Preamble check
-            int preamble = buffer.getInt();
-            logger.info("→ Read preamble; value=0x{} ({})", Integer.toHexString(preamble), preamble);
-            if (preamble != 0) {
-                logger.error("→ Invalid preamble; expected 0 but was 0x{} ({})",
-                        Integer.toHexString(preamble), preamble);
-                throw new ProtocolException("Invalid preamble");
-            }
-
-            // 4) Data-length field
-            int dataLength = buffer.getInt();
-            logger.info("→ Read dataLength field={}", dataLength);
-            if (data.length < dataLength + TeltonikaConstants.HEADER_SIZE) {
-                logger.error("→ Packet length mismatch; totalBytes={} < dataLength+TeltonikaConstants.HEADER_SIZE={}",
-                        data.length, dataLength + TeltonikaConstants.HEADER_SIZE);
-                throw new ProtocolException("Invalid data length");
-            }
-
-            // 5) Codec ID & version
+            // 2) Codec ID (1 byte)
             int codecId = buffer.get() & 0xFF;
-            logger.info("→ Read codecId={}", codecId);
+            logger.info("→ codecId={}", codecId);
+
+            // 3) Record count (1 byte)
+            int recordCount = buffer.get() & 0xFF;
+            logger.info("→ recordCount={}", recordCount);
+
+            // 4) Set up message
             String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
-            logger.info("→ Resolved protocolVersion={}", protocolVersion);
             message.setProtocolVersion(protocolVersion);
             message.setMessageType("DATA");
 
-            // 6) Dispatch to codec‐specific parser
-            logger.info("→ Dispatching to codec handler for codecId={}", codecId);
+            // 5) Dispatch into codec parser
             switch (codecId) {
                 case CODEC_8:
                 case CODEC_8_EXT:
-                    logger.info("→ Calling processCodec8Packet");
-                    return processCodec8Packet(buffer, message);
+                    return processCodec8Packet(buffer, message, recordCount);
                 case CODEC_16:
-                    logger.info("→ Calling processCodec16Packet");
-                    return processCodec16Packet(buffer, message);
+                    return processCodec16Packet(buffer, message, recordCount);
                 default:
                     logger.error("→ Unsupported codec: {}", codecId);
                     throw new ProtocolException("Unsupported codec: " + codecId);
             }
 
         } catch (Exception e) {
-            // 7) Error handling
             logger.error("→ Error handling Teltonika data packet", e);
             message.setMessageType("ERROR");
             message.addParsedData("error", e.getMessage());
@@ -262,66 +239,53 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
 
-    private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
-        // Entry log
+
+    private DeviceMessage processCodec8Packet(
+            ByteBuffer buffer,
+            DeviceMessage message,
+            int recordCount) {
+
         logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
                 buffer.position(), buffer.remaining());
 
-        message.setMessageType("DATA");
-
-        // Read record count
-        int recordCount = buffer.get() & 0xFF;
-        logger.info("→ processCodec8Packet: recordCount={}", recordCount);
-        message.addParsedData("records", recordCount);
-
-        List<Position> positions = new ArrayList<>();
-
         // Loop through each record
+        List<Position> positions = new ArrayList<>();
         for (int i = 0; i < recordCount; i++) {
-            if (buffer.remaining() < 12) {
-                logger.warn("→ processCodec8Packet: not enough bytes for record #{} (remaining={})",
-                        i + 1, buffer.remaining());
+            if (buffer.remaining() < 23) {  // min bytes for one record
+                logger.warn("→ Not enough bytes for record #{} (remaining={})", i + 1, buffer.remaining());
                 break;
             }
-            logger.info("→ processCodec8Packet: parsing record #{}/{}", i + 1, recordCount);
+            logger.info("→ Parsing record #{}/{}", i + 1, recordCount);
             try {
-                Position position = parseCodec8Data(buffer);
-                logger.info(
-                        "→ processCodec8Packet: record #{} parsed: timestamp={}, lat={}, lon={}",
-                        i + 1,
-                        position.getTimestamp(),
-                        position.getLatitude(),
-                        position.getLongitude()
-                );
+                Position pos = parseCodec8Data(buffer);
+                logger.info("→ Parsed record #{}: ts={}, lat={}, lon={}",
+                        i + 1, pos.getTimestamp(), pos.getLatitude(), pos.getLongitude());
 
-                // Associate device
+                // associate device
                 if (message.getImei() != null) {
-                    Device device = new Device();
-                    device.setImei(message.getImei());
-                    device.setProtocolType("TELTONIKA");
-                    position.setDevice(device);
+                    Device d = new Device();
+                    d.setImei(message.getImei());
+                    d.setProtocolType("TELTONIKA");
+                    pos.setDevice(d);
                 }
 
-                positions.add(position);
-            } catch (ProtocolException e) {
-                logger.warn("→ processCodec8Packet: failed to parse record #{}", i + 1, e);
+                positions.add(pos);
+            } catch (ProtocolException ex) {
+                logger.warn("→ Failed to parse record #{}", i + 1, ex);
             }
         }
 
-        // Attach all parsed positions
         message.addParsedData("positions", positions);
-
-        // Use timestamp of last position (optional)
         if (!positions.isEmpty()) {
             message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
         }
 
-        // Build and log ACK
-        ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0);              // Preamble/zero
-        response.putInt(recordCount);    // Echo back the number you accepted
-        message.addParsedData("response", response.array());
-        logger.info("→ processCodec8Packet: generated response; acceptedRecords={}", recordCount);
+        // ACK: echo back recordCount
+        ByteBuffer ack = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
+        ack.putInt(0);
+        ack.putInt(recordCount);
+        message.addParsedData("response", ack.array());
+        logger.info("→ processCodec8Packet: generated ACK for {} records", recordCount);
 
         return message;
     }
@@ -329,49 +293,49 @@ public class TeltonikaHandler implements ProtocolHandler {
     private Position parseCodec8Data(ByteBuffer buffer) throws ProtocolException {
         Position position = new Position();
 
-        // 1) Timestamp
-        long timestamp = buffer.getLong();
-        if (timestamp <= 0) {
+        // 1) Timestamp (8 bytes)
+        long ts = buffer.getLong();
+        if (ts <= 0) {
             throw new ProtocolException("Invalid timestamp");
         }
-        position.setTimestamp(LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(timestamp),
-                ZoneId.systemDefault()
-        ));
+        position.setTimestamp(LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault()));
 
-        // 2) Priority (just drop it)
+        // 2) Priority (1 byte) — drop
         int priority = buffer.get() & 0xFF;
         logger.debug("→ parseCodec8Data: priority={}", priority);
 
-        // 3) Coordinates: *longitude* then *latitude*
-        double longitude = buffer.getInt() / 1e7;
-        double latitude  = buffer.getInt()  / 1e7;
+        // 3) Coordinates: LONG first, then LAT (each 4 bytes, scaled 1e7)
+        int lonRaw = buffer.getInt();
+        int latRaw = buffer.getInt();
+        double longitude = lonRaw / 1e7;
+        double latitude  = latRaw / 1e7;
         validateCoordinates(latitude, longitude);
         position.setLatitude(latitude);
         position.setLongitude(longitude);
         logger.info("→ parseCodec8Data: lat={}, lon={}", latitude, longitude);
 
-        // 4) Altitude (skip if you don't need it)
-        buffer.getShort();
+        // 4) Altitude (2 bytes)
+        position.setAltitude(buffer.getShort());
 
-        // 5) Course (angle)
-        position.setCourse((double) (buffer.getShort() & 0xFFFF));
+        // 5) Course (2 bytes)
+        position.setCourse((double)(buffer.getShort() & 0xFFFF));
 
         // 6) Satellites & validity
-        int satellites = buffer.get() & 0xFF;
-        position.setValid(satellites > 0);
+        int sats = buffer.get() & 0xFF;
+        position.setValid(sats > 0);
 
-        // 7) Speed (knots → km/h)
+        // 7) Speed (2 bytes, knots → km/h)
         double speedKnots = buffer.getShort() & 0xFFFF;
         position.setSpeed(speedKnots * 1.852);
 
-        // 8) The rest of the I/O elements
+        // 8) I/O elements (variable length)
         skipIoElements(buffer, CODEC_8);
 
         return position;
     }
-    
-    private DeviceMessage processCodec16Packet(ByteBuffer buffer, DeviceMessage message) {
+
+
+    private DeviceMessage processCodec16Packet(ByteBuffer buffer, DeviceMessage message, int recordCount) {
         int records = buffer.get() & 0xFF;
         message.addParsedData("records", records);
 
