@@ -92,6 +92,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
 
     //@Override // This overrides the default `decode` behavior in BaseProtocolDecoder
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf, ProtocolDetector.ProtocolDetectionResult result) {
+        logger.info("TeltonikaHandler instance: {}", teltonikaHandler);
         logger.info("Is protocolDetector null? {}", protocolDetector == null);
 
         try {
