@@ -2,6 +2,7 @@ package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.protocol.ProtocolDetector.ProtocolDetectionResult;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -47,6 +48,9 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf buf = (ByteBuf) msg;
         try {
+            // Log raw received data in hexadecimal
+            logger.info("Raw Received Data (Hex): {}", ByteBufUtil.hexDump(buf).toUpperCase());
+
             if (buf.readableBytes() == 0) {
                 return;
             }
