@@ -265,7 +265,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
         // Entry log
         logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
-                buffer.position(), buffer.remaining());
+                buffer.position(), buffer.remaining());  
 
         message.setMessageType("DATA");
 
