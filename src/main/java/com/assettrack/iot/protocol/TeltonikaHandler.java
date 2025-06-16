@@ -197,7 +197,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-            // 1) Packet-length field
+            /*// 1) Packet-length field
             int lengthField = buffer.getInt();
             logger.info(
                     "→ TeltonikaHandler.handleDataPacket: lengthField={} bytes, totalBufferLength={}",
@@ -207,7 +207,7 @@ public class TeltonikaHandler implements ProtocolHandler {
             // 2) The next int *is* actually the Codec ID / data-count field:
             int codecIdLog = buffer.get() & 0xFF;
             int recordCount = buffer.get() & 0xFF;
-            logger.info("→ codecId=0x{}, recordCount={}", Integer.toHexString(codecIdLog), recordCount);
+            logger.info("→ codecId=0x{}, recordCount={}", Integer.toHexString(codecIdLog), recordCount);*/
 
 
             // Validate packet structure
@@ -215,14 +215,14 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Packet too short");
             }
 
-            /*if (buffer.getInt() != 0) {  // Preamble check
+            if (buffer.getInt() != 0) {  // Preamble check
                 throw new ProtocolException("Invalid preamble");
             }
 
             int dataLength = buffer.getInt();
             if (data.length < dataLength + 8) {
                 throw new ProtocolException("Packet length mismatch");
-            }*/
+            }
 
             int codecId = buffer.get() & 0xFF;
             String protocolVersion = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
