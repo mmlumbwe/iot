@@ -223,10 +223,10 @@ public class TeltonikaHandler implements ProtocolHandler {
             // 4) Data-length field
             int dataLength = buffer.getInt();
             logger.info("→ Read dataLength field={}", dataLength);
-            if (data.length < dataLength + 8) {
-                logger.error("→ Packet length mismatch; totalBytes={} < dataLength+8={}",
-                        data.length, dataLength + 8);
-                throw new ProtocolException("Packet length mismatch");
+            if (data.length < dataLength + TeltonikaConstants.HEADER_SIZE) {
+                logger.error("→ Packet length mismatch; totalBytes={} < dataLength+TeltonikaConstants.HEADER_SIZE={}",
+                        data.length, dataLength + TeltonikaConstants.HEADER_SIZE);
+                throw new ProtocolException("Invalid data length");
             }
 
             // 5) Codec ID & version
@@ -265,7 +265,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
         // Entry log
         logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
-                buffer.position(), buffer.remaining());  
+                buffer.position(), buffer.remaining());
 
         message.setMessageType("DATA");
 
@@ -329,37 +329,48 @@ public class TeltonikaHandler implements ProtocolHandler {
     private Position parseCodec8Data(ByteBuffer buffer) throws ProtocolException {
         Position position = new Position();
 
-        // Timestamp
+        // 1) Timestamp
         long timestamp = buffer.getLong();
         if (timestamp <= 0) {
             throw new ProtocolException("Invalid timestamp");
         }
         position.setTimestamp(LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(timestamp),
-                ZoneId.systemDefault()));
+                ZoneId.systemDefault()
+        ));
 
-        // Coordinates
-        double latitude = buffer.getInt() / 10000000.0;
-        double longitude = buffer.getInt() / 10000000.0;
+        // 2) Priority (just drop it)
+        int priority = buffer.get() & 0xFF;
+        logger.debug("→ parseCodec8Data: priority={}", priority);
+
+        // 3) Coordinates: *longitude* then *latitude*
+        double longitude = buffer.getInt() / 1e7;
+        double latitude  = buffer.getInt()  / 1e7;
         validateCoordinates(latitude, longitude);
         position.setLatitude(latitude);
         position.setLongitude(longitude);
+        logger.info("→ parseCodec8Data: lat={}, lon={}", latitude, longitude);
 
-        // Course and speed
+        // 4) Altitude (skip if you don't need it)
+        buffer.getShort();
+
+        // 5) Course (angle)
         position.setCourse((double) (buffer.getShort() & 0xFFFF));
+
+        // 6) Satellites & validity
         int satellites = buffer.get() & 0xFF;
         position.setValid(satellites > 0);
 
-        // Convert knots to km/h
+        // 7) Speed (knots → km/h)
         double speedKnots = buffer.getShort() & 0xFFFF;
         position.setSpeed(speedKnots * 1.852);
 
-        // Skip remaining fields
+        // 8) The rest of the I/O elements
         skipIoElements(buffer, CODEC_8);
 
         return position;
     }
-
+    
     private DeviceMessage processCodec16Packet(ByteBuffer buffer, DeviceMessage message) {
         int records = buffer.get() & 0xFF;
         message.addParsedData("records", records);
