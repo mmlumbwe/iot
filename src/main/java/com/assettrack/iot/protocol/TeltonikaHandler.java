@@ -301,42 +301,35 @@ public class TeltonikaHandler implements ProtocolHandler {
     private Position parseCodec8Data(ByteBuffer buffer) throws ProtocolException {
         Position position = new Position();
 
-        // 1) Timestamp (8 bytes)
-        long ts = buffer.getLong();
-        if (ts <= 0) {
+        // 1) Timestamp (8 bytes, ms since epoch)
+        long timestamp = buffer.getLong();
+        if (timestamp <= 0) {
             throw new ProtocolException("Invalid timestamp");
         }
-        position.setTimestamp(LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault()));
+        position.setTimestamp(LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(timestamp),
+                ZoneId.systemDefault()
+        ));
 
-        // 2) Priority (1 byte) — drop
-        int priority = buffer.get() & 0xFF;
-        logger.debug("→ parseCodec8Data: priority={}", priority);
-
-        // 3) Coordinates: LONG first, then LAT (each 4 bytes, scaled 1e7)
-        int lonRaw = buffer.getInt();
-        int latRaw = buffer.getInt();
-        double longitude = lonRaw / 1e7;
-        double latitude  = latRaw / 1e7;
+        // 2) Latitude & longitude (4 bytes each, scale 1e7)
+        double latitude  = buffer.getInt() / 1e7;
+        double longitude = buffer.getInt() / 1e7;
         validateCoordinates(latitude, longitude);
         position.setLatitude(latitude);
         position.setLongitude(longitude);
-        logger.info("→ parseCodec8Data: lat={}, lon={}", latitude, longitude);
 
-        // 4) Altitude (2 bytes)
-        position.setAltitude(buffer.getShort());
-
-        // 5) Course (2 bytes)
+        // 3) Course (2 bytes)
         position.setCourse((double)(buffer.getShort() & 0xFFFF));
 
-        // 6) Satellites & validity
+        // 4) Satellites & validity (1 byte)
         int sats = buffer.get() & 0xFF;
         position.setValid(sats > 0);
 
-        // 7) Speed (2 bytes, knots → km/h)
+        // 5) Speed (2 bytes, knots → km/h)
         double speedKnots = buffer.getShort() & 0xFFFF;
         position.setSpeed(speedKnots * 1.852);
 
-        // 8) I/O elements (variable length)
+        // 6) Skip any remaining I/O elements
         skipIoElements(buffer, CODEC_8);
 
         return position;
