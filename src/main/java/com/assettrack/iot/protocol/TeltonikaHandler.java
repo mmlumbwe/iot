@@ -300,37 +300,38 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     private Position parseCodec8Data(ByteBuffer buffer) throws ProtocolException {
         Position position = new Position();
+        logger.info("→ parseCodec8Data: starting at buffer.position={}", buffer.position());
 
-        // 1) Timestamp (8 bytes, ms since epoch)
+        // 1) Timestamp (8 bytes)
         long timestamp = buffer.getLong();
         if (timestamp <= 0) {
-            throw new ProtocolException("Invalid timestamp");
+            throw new ProtocolException("Invalid timestamp: " + timestamp);
         }
-        position.setTimestamp(LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(timestamp),
-                ZoneId.systemDefault()
-        ));
+        position.setTimestamp(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault())
+        );
 
-        // 2) Latitude & longitude (4 bytes each, scale 1e7)
+        // 2) Latitude (4 bytes) then Longitude (4 bytes), each scaled by 1e7
         double latitude  = buffer.getInt() / 1e7;
         double longitude = buffer.getInt() / 1e7;
         validateCoordinates(latitude, longitude);
         position.setLatitude(latitude);
         position.setLongitude(longitude);
+        logger.info("→ parseCodec8Data: coords lat={} lon={}", latitude, longitude);
 
-        // 3) Course (2 bytes)
-        position.setCourse((double)(buffer.getShort() & 0xFFFF));
-
-        // 4) Satellites & validity (1 byte)
+        // 3) Course (2 bytes), Satellites (1), Speed (2 bytes, knots→km/h)
+        double course = (double)(buffer.getShort() & 0xFFFF);
+        position.setCourse(course);
         int sats = buffer.get() & 0xFF;
         position.setValid(sats > 0);
-
-        // 5) Speed (2 bytes, knots → km/h)
         double speedKnots = buffer.getShort() & 0xFFFF;
         position.setSpeed(speedKnots * 1.852);
+        logger.info("→ parseCodec8Data: course={}°, sats={}, speed={}km/h",
+                course, sats, position.getSpeed());
 
-        // 6) Skip any remaining I/O elements
+        // 4) Skip all I/O elements
         skipIoElements(buffer, CODEC_8);
+        logger.info("→ parseCodec8Data: finished at buffer.position={}", buffer.position());
 
         return position;
     }
@@ -419,12 +420,13 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
     private void skipIoElementsOfSize(ByteBuffer buffer, int sizeBytes) {
-        if (buffer.remaining() > 0) {
-            int count = buffer.get() & 0xFF;
-            int bytesToSkip = count * (1 + sizeBytes);
-            if (buffer.remaining() >= bytesToSkip) {
-                buffer.position(buffer.position() + bytesToSkip);
-            }
+        if (buffer.remaining() <= 0) return;
+        int count = buffer.get() & 0xFF;
+        int bytesToSkip = count * (1 + sizeBytes);
+        if (buffer.remaining() >= bytesToSkip) {
+            buffer.position(buffer.position() + bytesToSkip);
+        } else {
+            logger.warn("→ skipIoElementsOfSize: not enough bytes to skip {} entries of {}B", count, sizeBytes);
         }
     }
 
