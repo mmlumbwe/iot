@@ -197,20 +197,18 @@ public class TeltonikaHandler implements ProtocolHandler {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
-            // 1) Preamble
-            int preamble = buffer.getInt();
+            // 1) Packet-length field
+            int lengthField = buffer.getInt();
             logger.info(
-                    "→ TeltonikaHandler.handleDataPacket(...) called; preamble=0x{} ({}), data.length={}",
-                    Integer.toHexString(preamble), preamble, data.length
+                    "→ TeltonikaHandler.handleDataPacket: lengthField={} bytes, totalBufferLength={}",
+                    lengthField, data.length
             );
 
-            // 2) Data-length (new log)
-            int dataLengthLog = buffer.getInt();
-            logger.info(
-                    "→ TeltonikaHandler.handleDataPacket: dataLength={}, expectedTotalBytes={}",
-                    dataLengthLog,
-                    dataLengthLog + TeltonikaConstants.HEADER_SIZE
-            );
+            // 2) The next int *is* actually the Codec ID / data-count field:
+            int codecIdLog = buffer.get() & 0xFF;
+            int recordCount = buffer.get() & 0xFF;
+            logger.info("→ codecId=0x{}, recordCount={}", Integer.toHexString(codecIdLog), recordCount);
+
 
             // Validate packet structure
             if (buffer.remaining() < 12) {
