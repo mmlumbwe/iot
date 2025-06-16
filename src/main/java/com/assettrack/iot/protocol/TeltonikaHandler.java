@@ -261,35 +261,52 @@ public class TeltonikaHandler implements ProtocolHandler {
 
 
     private DeviceMessage processCodec8Packet(ByteBuffer buffer, DeviceMessage message) {
+        // Entry log: confirm buffer state
+        logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
+                buffer.position(), buffer.remaining());
+
         message.setMessageType("DATA");
 
+        // 1) Read record count
         int records = buffer.get() & 0xFF;
+        logger.info("→ processCodec8Packet: recordCount={}", records);
         message.addParsedData("records", records);
 
+        // 2) Parse first record if present
         if (records > 0 && buffer.remaining() >= 8) {
             try {
+                logger.info("→ processCodec8Packet: parsing first record");
                 Position position = parseCodec8Data(buffer);
+                logger.info("→ processCodec8Packet: parsed Position(timestamp={}, lat={}, lon={})",
+                        position.getTimestamp(),
+                        position.getLatitude(),
+                        position.getLongitude());
 
-                // Ensure device is set from session
+                // Attach device info if available
                 if (message.getImei() != null) {
                     Device device = new Device();
                     device.setImei(message.getImei());
                     device.setProtocolType("TELTONIKA");
                     position.setDevice(device);
+                    logger.info("→ processCodec8Packet: associated Device IMEI={}", message.getImei());
                 }
 
                 message.addParsedData("position", position);
                 message.setTimestamp(position.getTimestamp());
             } catch (ProtocolException e) {
-                logger.warn("Failed to parse position data", e);
+                logger.warn("→ processCodec8Packet: Failed to parse position data", e);
             }
+        } else {
+            logger.info("→ processCodec8Packet: no records to parse or insufficient bytes (remaining={})",
+                    buffer.remaining());
         }
 
-        // Generate response
+        // 3) Build and log response
         ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0); // Preamble
-        response.putInt(records); // Number of accepted records
+        response.putInt(0);          // Preamble
+        response.putInt(records);    // Number of accepted records
         message.addParsedData("response", response.array());
+        logger.info("→ processCodec8Packet: generated response; acceptedRecords={}", records);
 
         return message;
     }
