@@ -104,6 +104,7 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     @Override
     public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
+        logger.info("→ TeltonikaHandler.handle(...) called; data.length={}, ctx={}", data.length, ctx);
         // Your existing implementation that uses the ChannelHandlerContext
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
@@ -190,6 +191,9 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
+            int preamble = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN).getInt();
+            logger.info("→ TeltonikaHandler.handleDataPacket(...) called; preamble=0x{} ({}), data.length={:d}",
+                    Integer.toHexString(preamble), preamble, data.length);
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
             // Validate packet structure
