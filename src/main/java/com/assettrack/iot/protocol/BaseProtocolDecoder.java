@@ -198,7 +198,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
         }
 
         // Existing logic for setting deviceId if not already set
-        if (message.getDeviceId() == 0) { // Only set if not already set by specific handler
+        if (message.getDeviceId() == null || message.getDeviceId() == 0) { // Check for null before comparing to 0
             // Generate a device ID from the IMEI if available, otherwise from channel ID
             long deviceId;
             String imei = message.getImei(); // Now potentially updated from session
