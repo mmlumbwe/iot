@@ -44,4 +44,8 @@ public class Position {
     public boolean isValid() {
         return true;
     }
+
+    public LocalDateTime getFixTime() {
+        return this.timestamp;
+    }
 }
