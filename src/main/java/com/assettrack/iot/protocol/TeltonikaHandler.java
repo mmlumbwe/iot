@@ -195,6 +195,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
 
+    //@Override
     public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
             // Entry
@@ -246,6 +247,7 @@ public class TeltonikaHandler implements ProtocolHandler {
             throw new ProtocolException("Failed to handle data packet", e);
         }
     }
+
 
 
     private DeviceMessage processCodec8Packet(
