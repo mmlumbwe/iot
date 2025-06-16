@@ -195,7 +195,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
 
-    public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
+    private DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
             // Entry
             logger.info("→ Entered handleDataPacket; totalBytes={}, wrapping buffer", data.length);
@@ -251,7 +251,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     private DeviceMessage processCodec8Packet(
             ByteBuffer buffer,
             DeviceMessage message,
-            int recordCount) throws ProtocolException { // Added throws ProtocolException
+            int recordCount) throws ProtocolException {
 
         logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
                 buffer.position(), buffer.remaining());
@@ -514,70 +514,64 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
     }
 
-    private void skipIoElements(ByteBuffer buffer, int codecId) {
+    // Refactored skipIoElements to directly implement the logic
+    // from the most recent correction, instead of delegating to skipIoElementsOfSize
+    private void skipIoElements(ByteBuffer buffer, int codecId) throws ProtocolException {
         logger.debug("→ Entering skipIoElements; buffer.position={}, remainingBytes={}", buffer.position(), buffer.remaining());
 
-        // Read N1 (number of 1-byte I/O properties)
-        if (buffer.remaining() > 0) {
-            int numOneByte = buffer.get() & 0xFF;
-            logger.debug("→ skipIoElements: numOneByte={}", numOneByte); // Added logging
-            int bytesToSkip = numOneByte * (1 + 1); // 1 byte for ID, 1 byte for value
-            if (buffer.remaining() >= bytesToSkip) {
-                buffer.position(buffer.position() + bytesToSkip);
-            } else {
-                logger.warn("Not enough bytes to skip 1-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numOneByte);
-                throw new ProtocolException("Malformed I/O data: not enough bytes for 1-byte I/O elements.");
-            }
-        } else {
-            throw new ProtocolException("Malformed I/O data: missing 1-byte I/O count.");
-        }
+        // Process 1-byte I/O elements
+        skipIoElementsOfSpecificSize(buffer, 1);
 
-        // Read N2 (number of 2-byte I/O properties)
-        if (buffer.remaining() > 0) {
-            int numTwoByte = buffer.get() & 0xFF;
-            logger.debug("→ skipIoElements: numTwoByte={}", numTwoByte); // Added logging
-            int bytesToSkip = numTwoByte * (1 + 2); // 1 byte for ID, 2 bytes for value
-            if (buffer.remaining() >= bytesToSkip) {
-                buffer.position(buffer.position() + bytesToSkip);
-            } else {
-                logger.warn("Not enough bytes to skip 2-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numTwoByte);
-                throw new ProtocolException("Malformed I/O data: not enough bytes for 2-byte I/O elements.");
-            }
-        } else {
-            throw new ProtocolException("Malformed I/O data: missing 2-byte I/O count.");
-        }
+        // Process 2-byte I/O elements
+        skipIoElementsOfSpecificSize(buffer, 2);
 
-        // Read N4 (number of 4-byte I/O properties)
-        if (buffer.remaining() > 0) {
-            int numFourByte = buffer.get() & 0xFF;
-            logger.debug("→ skipIoElements: numFourByte={}", numFourByte); // Added logging
-            int bytesToSkip = numFourByte * (1 + 4); // 1 byte for ID, 4 bytes for value
-            if (buffer.remaining() >= bytesToSkip) {
-                buffer.position(buffer.position() + bytesToSkip);
-            } else {
-                logger.warn("Not enough bytes to skip 4-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numFourByte);
-                throw new ProtocolException("Malformed I/O data: not enough bytes for 4-byte I/O elements.");
-            }
-        } else {
-            throw new ProtocolException("Malformed I/O data: missing 4-byte I/O count.");
-        }
+        // Process 4-byte I/O elements
+        skipIoElementsOfSpecificSize(buffer, 4);
 
-        // Read N8 (number of 8-byte I/O properties) - Only for CODEC_8, CODEC_8_EXT, CODEC_16
-        if (buffer.remaining() > 0) {
-            int numEightByte = buffer.get() & 0xFF;
-            logger.debug("→ skipIoElements: numEightByte={}", numEightByte); // Added logging
-            int bytesToSkip = numEightByte * (1 + 8); // 1 byte for ID, 8 bytes for value
-            if (buffer.remaining() >= bytesToSkip) {
-                buffer.position(buffer.position() + bytesToSkip);
-            } else {
-                logger.warn("Not enough bytes to skip 8-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numEightByte);
-                throw new ProtocolException("Malformed I/O data: not enough bytes for 8-byte I/O elements.");
-            }
-        } else {
-            throw new ProtocolException("Malformed I/O data: missing 8-byte I/O count.");
+        // Process 8-byte I/O elements (conditional for specific codecs)
+        if (codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16) {
+            skipIoElementsOfSpecificSize(buffer, 8);
         }
         logger.debug("→ Exiting skipIoElements; new buffer.position={}", buffer.position());
     }
+
+    // New helper method for skipping I/O elements of a specific size,
+    // handling insufficient bytes by advancing to the end of the buffer.
+    private void skipIoElementsOfSpecificSize(ByteBuffer buffer, int sizeBytes) throws ProtocolException {
+        if (buffer.remaining() > 0) {
+            int count = buffer.get() & 0xFF; // Reads one byte for count
+            logger.debug("→ skipIoElementsOfSpecificSize ({} bytes): count={}", sizeBytes, count);
+            int expectedBytesForIoElements = count * (1 + sizeBytes);
+
+            if (buffer.remaining() >= expectedBytesForIoElements) {
+                // Enough bytes available, advance position normally
+                buffer.position(buffer.position() + expectedBytesForIoElements);
+            } else {
+                // Not enough bytes, log a warning and throw an exception for malformed data.
+                // It's critical to throw here because if we just advance to the limit,
+                // the next record's start will be completely unpredictable.
+                logger.warn("Not enough bytes to skip {}-byte I/O elements. Remaining in buffer: {}, Expected to skip: {} (Count: {})",
+                        sizeBytes, buffer.remaining(), expectedBytesForIoElements, count);
+                throw new ProtocolException("Malformed I/O data: not enough bytes for " + sizeBytes + "-byte I/O elements (Count: " + count + ").");
+            }
+        } else {
+            // This is a ProtocolException because the count byte itself is missing.
+            throw new ProtocolException("Malformed I/O data: missing " + sizeBytes + "-byte I/O count.");
+        }
+    }
+
+    // Removed the old skipIoElementsOfSize as its functionality is now in skipIoElementsOfSpecificSize
+    /*
+    private void skipIoElementsOfSize(ByteBuffer buffer, int sizeBytes) {
+        if (buffer.remaining() > 0) {
+            int count = buffer.get() & 0xFF;
+            int bytesToSkip = count * (1 + sizeBytes);
+            if (buffer.remaining() >= bytesToSkip) {
+                buffer.position(buffer.position() + bytesToSkip);
+            }
+        }
+    }
+    */
 
     private String cleanImei(String rawImei) {
         return rawImei != null ? rawImei.replaceAll("[^0-9]", "") : "";
