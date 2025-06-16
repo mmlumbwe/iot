@@ -195,15 +195,22 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     public DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
         try {
-            ByteBuffer temp = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-            int preamble = temp.getInt();
+            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+
+            // 1) Preamble
+            int preamble = buffer.getInt();
             logger.info(
                     "→ TeltonikaHandler.handleDataPacket(...) called; preamble=0x{} ({}), data.length={}",
-                    Integer.toHexString(preamble),
-                    preamble,
-                    data.length
+                    Integer.toHexString(preamble), preamble, data.length
             );
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+
+            // 2) Data-length (new log)
+            int dataLength = buffer.getInt();
+            logger.info(
+                    "→ TeltonikaHandler.handleDataPacket: dataLength={}, expectedTotalBytes={}",
+                    dataLength,
+                    dataLength + TeltonikaConstants.HEADER_SIZE
+            );
 
             // Validate packet structure
             if (buffer.remaining() < 12) {
