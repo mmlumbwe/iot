@@ -263,20 +263,20 @@ public class TeltonikaHandler implements ProtocolHandler {
             int recordStartPosition = buffer.position();
             logger.info("→ Parsing record #{}/{} starting at buffer position {}", i + 1, recordCount, recordStartPosition);
 
-            // Minimum bytes for one record (fixed part) - adjust if needed for your specific AVL record structure
-            // This is roughly: Timestamp (8) + Priority (1) + Lon (4) + Lat (4) + Altitude (2) + Course (2) + Sats (1) + Speed (2) = 24 bytes
-            // The original code had 23, but if it includes speed (2 bytes), it should be 24.
-            // Let's assume the fixed part is 24 bytes based on parseCodec8Data fields
-            if (buffer.remaining() < 24) {
-                logger.warn("→ Not enough bytes for fixed part of record #{} (remaining={})", i + 1, buffer.remaining());
-                break; // Exit loop if not enough bytes for even the fixed part
+            // Minimum bytes for one record (fixed part + 1 byte Event ID)
+            // Fixed part: Timestamp (8) + Priority (1) + Lon (4) + Lat (4) + Altitude (2) + Course (2) + Sats (1) + Speed (2) = 24 bytes
+            // Event ID (1 byte) = 1 byte
+            // Total = 25 bytes
+            if (buffer.remaining() < 25) { // Updated to 25 bytes
+                logger.warn("→ Not enough bytes for fixed part + Event ID of record #{} (remaining={})", i + 1, buffer.remaining());
+                break; // Exit loop if not enough bytes for even the fixed part and Event ID
             }
             try {
-                Position pos = parseCodec8Data(buffer);
+                Position pos = parseCodec8Data(buffer); // parseCodec8Data now consumes fixed part + Event ID
                 logger.info("→ Parsed fixed part of record #{}: ts={}, lat={}, lon={}",
                         i + 1, pos.getTimestamp(), pos.getLatitude(), pos.getLongitude());
 
-                // Now skip the I/O elements for *this* record
+                // Now skip the I/O elements for *this* record (starting from I/O counts)
                 skipIoElements(buffer, CODEC_8);
                 logger.info("→ Skipped I/O elements for record #{}; new buffer position={}", i + 1, buffer.position());
 
@@ -292,11 +292,29 @@ public class TeltonikaHandler implements ProtocolHandler {
                 positions.add(pos);
             } catch (ProtocolException ex) {
                 logger.warn("→ Failed to parse record #{}", i + 1, ex);
-                // Depending on validationMode, you might choose to skip this record's bytes
-                // to try and parse the next, or throw the exception.
-                // For now, we just log and continue to the next record, which might also fail.
-                // A more robust solution might involve calculating the expected end position
-                // of the current record and setting the buffer's position there if parsing fails.
+                // In case of a parsing failure for a record, attempt to advance the buffer
+                // by the expected size of a fixed record + event ID (25 bytes) if possible,
+                // to try and parse subsequent records. This assumes the error is within
+                // the I/O elements part or that the fixed part was read partially.
+                // A more robust error recovery might try to determine the end of the current
+                // malformed record. For now, we skip forward 25 bytes if we failed due to
+                // coordinate/timestamp, assuming the buffer is still roughly at the start
+                // of the fixed part + event ID for the next record.
+                if (buffer.remaining() >= 25) { // Try to advance past the expected fixed part + Event ID
+                    buffer.position(recordStartPosition + 25); // Move to the start of where the IO counts *should* have been
+                    // And then try to skip the (potentially malformed) IO elements
+                    try {
+                        skipIoElements(buffer, CODEC_8);
+                        logger.info("→ Attempted to recover buffer position for record #{} after parsing failure. New position: {}", i + 1, buffer.position());
+                    } catch (Exception ioEx) {
+                        logger.warn("→ Further error during I/O element skipping during recovery for record #{}: {}", i + 1, ioEx.getMessage());
+                        // If I/O skipping also fails, we can't reliably determine the next record's start.
+                        // Break or skip to the end of the buffer to avoid further errors.
+                        buffer.position(buffer.limit()); // Mark buffer as fully consumed
+                    }
+                } else {
+                    buffer.position(buffer.limit()); // Not enough bytes to even recover
+                }
             }
         }
 
@@ -353,8 +371,15 @@ public class TeltonikaHandler implements ProtocolHandler {
         double speedKnots = buffer.getShort() & 0xFFFF;
         position.setSpeed(speedKnots * 1.852);
 
-        // 8) I/O elements (variable length) - REMOVED from here, moved to processCodec8Packet
-        // skipIoElements(buffer, CODEC_8);
+        // --- NEW ADDITION: Skip Event ID (1 byte) ---
+        if (buffer.remaining() > 0) {
+            int eventId = buffer.get() & 0xFF;
+            logger.debug("→ parseCodec8Data: skipped Event ID={}", eventId);
+        } else {
+            // This indicates a malformed packet if we expect an Event ID but it's not there.
+            throw new ProtocolException("Missing Event ID after fixed AVL data.");
+        }
+        // --- END NEW ADDITION ---
 
         return position;
     }
@@ -377,35 +402,22 @@ public class TeltonikaHandler implements ProtocolHandler {
             int recordStartPosition = buffer.position();
             logger.info("→ Parsing Codec16 record #{}/{} starting at buffer position {}", i + 1, recordCount, recordStartPosition);
 
-            // Minimum bytes for one record (fixed part) - same as Codec8 for the base fields
-            if (buffer.remaining() < 24) { // Assuming 24 bytes fixed part for Codec16 as well before I/O
-                logger.warn("→ Not enough bytes for fixed part of Codec16 record #{} (remaining={})", i + 1, buffer.remaining());
+            // Minimum bytes for one record (fixed part + 1 byte Event ID) - same as Codec8 for base fields + event ID
+            if (buffer.remaining() < 25) { // Assuming 25 bytes fixed part + Event ID for Codec16
+                logger.warn("→ Not enough bytes for fixed part + Event ID of Codec16 record #{} (remaining={})", i + 1, buffer.remaining());
                 break;
             }
 
             try {
-                // Use the same parsing as Codec8 for base fields
-                Position position = parseCodec8Data(buffer); // Now only parses fixed part
+                // Use the same parsing as Codec8 for base fields + Event ID
+                Position position = parseCodec8Data(buffer); // Now parses fixed part + Event ID
                 logger.info("→ Parsed fixed part of Codec16 record #{}: ts={}, lat={}, lon={}",
                         i + 1, position.getTimestamp(), position.getLatitude(), position.getLongitude());
 
                 // Handle Codec16 specific fields - this primarily means skipping I/O elements
-                // The original code had `buffer.get(); // Skip additional byte if present`
-                // This might be for a specific Codec16 variant, ensure its purpose.
-                // For now, let's keep it if it's a known part of your Codec16 implementation.
-                // However, the primary issue is skipping IO elements correctly.
-                if (buffer.remaining() > 0) {
-                    // Check if an extra byte exists before IO Elements, typical in some Teltonika Codec16 formats
-                    // This byte might be for AVL data quantity, which is already `recordCount`
-                    // or a single byte for IO data count before 1-byte IO elements start.
-                    // Re-evaluating Teltonika Codec16 structure: usually, it's just the IO elements after fixed part.
-                    // The `buffer.get()` might be for an unknown purpose or a specific IO property structure.
-                    // For now, assuming direct skip of IO elements after the fixed part.
-                    // If there's truly an extra byte *before* the IO element counts for Codec16, you'd add:
-                    // buffer.get(); // Skip additional byte if specific to your Codec16 variant
-                    skipIoElements(buffer, CODEC_16);
-                    logger.info("→ Skipped I/O elements for Codec16 record #{}; new buffer position={}", i + 1, buffer.position());
-                }
+                // The `skipIoElements` method will now correctly start from the I/O counts.
+                skipIoElements(buffer, CODEC_16);
+                logger.info("→ Skipped I/O elements for Codec16 record #{}; new buffer position={}", i + 1, buffer.position());
 
                 if (message.getImei() != null) {
                     Device d = new Device();
@@ -416,6 +428,19 @@ public class TeltonikaHandler implements ProtocolHandler {
                 positions.add(position);
             } catch (ProtocolException e) {
                 logger.warn("Failed to parse Codec16 record #{}", i + 1, e);
+                // Recovery mechanism similar to processCodec8Packet
+                if (buffer.remaining() >= 25) {
+                    buffer.position(recordStartPosition + 25);
+                    try {
+                        skipIoElements(buffer, CODEC_16);
+                        logger.info("→ Attempted to recover buffer position for Codec16 record #{} after parsing failure. New position: {}", i + 1, buffer.position());
+                    } catch (Exception ioEx) {
+                        logger.warn("→ Further error during I/O element skipping during recovery for Codec16 record #{}: {}", i + 1, ioEx.getMessage());
+                        buffer.position(buffer.limit());
+                    }
+                } else {
+                    buffer.position(buffer.limit());
+                }
             }
         }
         message.addParsedData("positions", positions); // Store all positions
@@ -436,13 +461,16 @@ public class TeltonikaHandler implements ProtocolHandler {
     private Position parseCodec16Data(ByteBuffer buffer) throws ProtocolException {
         // This method is called by parsePosition directly when only one position is expected.
         // It needs to handle skipping I/O elements itself in this context.
-        Position position = parseCodec8Data(buffer); // Parse fixed part
+        Position position = parseCodec8Data(buffer); // Parse fixed part + Event ID
+
+        // The `skipIoElements` will now correctly start from the I/O counts.
+        // The Teltonika Codec16 structure might have an additional single byte
+        // before the I/O property counts, which some implementations skip.
+        // If your Codec16 stream consistently has an extra byte here before
+        // the I/O counts, uncomment the following line and add proper logging.
+        // if (buffer.remaining() > 0) { buffer.get(); } // Skip potential additional byte specific to Codec16
 
         if (buffer.remaining() > 0) {
-            // if (buffer.remaining() > 0) { // original condition was here
-            // buffer.get(); // Skip additional byte if present - if this is consistently part of codec16 for single record
-            // For now, let's remove this if it's not a general Codec16 specification for single AVL records.
-            // If it *is* part of your specific Codec16 implementation, uncomment it and add logging.
             skipIoElements(buffer, CODEC_16); // Skip I/O elements for this single record
         }
 
@@ -492,6 +520,9 @@ public class TeltonikaHandler implements ProtocolHandler {
         // The counts themselves are 1 byte each.
         // Format: N1 (count of 1-byte I/O) [1-byte IDs and values] N2 (count of 2-byte I/O) [2-byte IDs and values] ...
 
+        // Ensure there are enough bytes to read the count byte itself before proceeding.
+        // Teltonika protocol dictates that these count bytes are always present, even if 0.
+
         // Read N1 (number of 1-byte I/O properties)
         if (buffer.remaining() > 0) {
             int numOneByte = buffer.get() & 0xFF;
@@ -499,10 +530,13 @@ public class TeltonikaHandler implements ProtocolHandler {
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
             } else {
-                logger.warn("Not enough bytes to skip 1-byte I/O elements. Remaining: {}, Expected: {}", buffer.remaining(), bytesToSkip);
-                // Handle error: perhaps throw ProtocolException or adjust buffer to end to avoid further errors.
-                // For robustness, it's better to throw an exception if data is malformed.
+                logger.warn("Not enough bytes to skip 1-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numOneByte);
+                // It's crucial to stop processing if the buffer is malformed to avoid cascading errors.
+                // Throwing an exception is more appropriate here than trying to continue with bad data.
+                throw new ProtocolException("Malformed I/O data: not enough bytes for 1-byte I/O elements.");
             }
+        } else {
+            throw new ProtocolException("Malformed I/O data: missing 1-byte I/O count.");
         }
 
         // Read N2 (number of 2-byte I/O properties)
@@ -512,8 +546,11 @@ public class TeltonikaHandler implements ProtocolHandler {
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
             } else {
-                logger.warn("Not enough bytes to skip 2-byte I/O elements. Remaining: {}, Expected: {}", buffer.remaining(), bytesToSkip);
+                logger.warn("Not enough bytes to skip 2-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numTwoByte);
+                throw new ProtocolException("Malformed I/O data: not enough bytes for 2-byte I/O elements.");
             }
+        } else {
+            throw new ProtocolException("Malformed I/O data: missing 2-byte I/O count.");
         }
 
         // Read N4 (number of 4-byte I/O properties)
@@ -523,36 +560,30 @@ public class TeltonikaHandler implements ProtocolHandler {
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
             } else {
-                logger.warn("Not enough bytes to skip 4-byte I/O elements. Remaining: {}, Expected: {}", buffer.remaining(), bytesToSkip);
+                logger.warn("Not enough bytes to skip 4-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numFourByte);
+                throw new ProtocolException("Malformed I/O data: not enough bytes for 4-byte I/O elements.");
             }
+        } else {
+            throw new ProtocolException("Malformed I/O data: missing 4-byte I/O count.");
         }
 
         // Read N8 (number of 8-byte I/O properties) - Only for CODEC_8, CODEC_8_EXT, CODEC_16
-        if (codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16) {
-            if (buffer.remaining() > 0) {
-                int numEightByte = buffer.get() & 0xFF;
-                int bytesToSkip = numEightByte * (1 + 8); // 1 byte for ID, 8 bytes for value
-                if (buffer.remaining() >= bytesToSkip) {
-                    buffer.position(buffer.position() + bytesToSkip);
-                } else {
-                    logger.warn("Not enough bytes to skip 8-byte I/O elements. Remaining: {}, Expected: {}", buffer.remaining(), bytesToSkip);
-                }
-            }
-        }
-        // The old `skipIoElementsOfSize` was simpler but less accurate if the counts were not handled sequentially.
-        // The above implementation assumes the counts (N1, N2, N4, N8) are present for each size group in order.
-    }
-
-    // Removed the now redundant skipIoElementsOfSize as its logic is merged into skipIoElements
-    /*private void skipIoElementsOfSize(ByteBuffer buffer, int sizeBytes) {
+        // This is the last block of IO elements.
         if (buffer.remaining() > 0) {
-            int count = buffer.get() & 0xFF;
-            int bytesToSkip = count * (1 + sizeBytes);
+            int numEightByte = buffer.get() & 0xFF;
+            int bytesToSkip = numEightByte * (1 + 8); // 1 byte for ID, 8 bytes for value
             if (buffer.remaining() >= bytesToSkip) {
                 buffer.position(buffer.position() + bytesToSkip);
+            } else {
+                logger.warn("Not enough bytes to skip 8-byte I/O elements. Remaining: {}, Expected: {} (Count: {})", buffer.remaining(), bytesToSkip, numEightByte);
+                throw new ProtocolException("Malformed I/O data: not enough bytes for 8-byte I/O elements.");
             }
+        } else {
+            // For Codec 8/8E/16, the 8-byte count should always be present, even if 0.
+            // If it's not there, it's a malformed packet.
+            throw new ProtocolException("Malformed I/O data: missing 8-byte I/O count.");
         }
-    }*/
+    }
 
     private String cleanImei(String rawImei) {
         return rawImei != null ? rawImei.replaceAll("[^0-9]", "") : "";
@@ -599,9 +630,6 @@ public class TeltonikaHandler implements ProtocolHandler {
         return "TELTONIKA".equalsIgnoreCase(protocol) &&
                 (version == null || version.startsWith("CODEC8") || version.startsWith("CODEC16"));
     }
-
-    /*public void setValidationMode(ValidationMode validationMode) {
-    }*/
 
 
     public enum ValidationMode {
