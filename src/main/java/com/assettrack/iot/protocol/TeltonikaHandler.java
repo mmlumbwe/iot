@@ -521,30 +521,29 @@ public class TeltonikaHandler implements ProtocolHandler {
     // Refactored skipIoElements to directly implement the logic
     // from the most recent correction, instead of delegating to skipIoElementsOfSize
     private void skipIoElements(ByteBuffer buffer, int codecId) throws ProtocolException {
-        // The 1-, 2-, 4- and (for codec 8) 8-byte groups, in order:
-        int[] sizes = { 1, 2, 4, 8 };
+        int before = buffer.position();
+        int[] sizes = {1, 2, 4, 8};
         for (int size : sizes) {
-            if (size == 8 && !(codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16)) {
-                continue; // only skip 8-byte elements for those codecs
-            }
-            // Need at least one byte to read the count:
+            if (size == 8 && codecId != CODEC_8) continue;
             if (buffer.remaining() < 1) {
-                throw new ProtocolException("Malformed I/O data: missing " + size + "-byte count");
+                throw new ProtocolException("Missing " + size + "-byte count");
             }
             int count = buffer.get() & 0xFF;
-            logger.debug("→ skipping {}-byte I/O elements: count={}", size, count);
-            // For each element: 1 byte ID + `size` bytes of data
+            logger.debug("→ I/O group: {}-byte elements, count={}", size, count);
             for (int i = 0; i < count; i++) {
                 if (buffer.remaining() < 1 + size) {
-                    throw new ProtocolException(
-                            "Malformed I/O data: expected " + size + " bytes of data, but only "
-                                    + buffer.remaining() + " left (element " + (i+1) + "/" + count + ")");
+                    throw new ProtocolException("Not enough bytes for "
+                            + size + "-byte element " + (i + 1) + "/" + count
+                            + " (remaining=" + buffer.remaining() + ")");
                 }
-                buffer.get();                   // element ID
-                buffer.position(buffer.position() + size);  // skip the data bytes
+                buffer.get();                  // element ID
+                buffer.position(buffer.position() + size); // skip payload
             }
         }
+        int after = buffer.position();
+        logger.info("→ skipIoElements: consumed {} bytes", after - before);
     }
+
 
 
     // New helper method for skipping I/O elements of a specific size,
