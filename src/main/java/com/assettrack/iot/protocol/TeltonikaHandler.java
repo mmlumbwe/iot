@@ -521,28 +521,45 @@ public class TeltonikaHandler implements ProtocolHandler {
     // Refactored skipIoElements to directly implement the logic
     // from the most recent correction, instead of delegating to skipIoElementsOfSize
     private void skipIoElements(ByteBuffer buffer, int codecId) throws ProtocolException {
-        int before = buffer.position();
+        int beforeAll = buffer.position();
         int[] sizes = {1, 2, 4, 8};
         for (int size : sizes) {
+            // only 8‐byte for codec 8
             if (size == 8 && codecId != CODEC_8) continue;
+
+            // grab the count
             if (buffer.remaining() < 1) {
-                throw new ProtocolException("Missing " + size + "-byte count");
+                throw new ProtocolException("Missing count for " + size + "-byte group");
             }
             int count = buffer.get() & 0xFF;
-            logger.debug("→ I/O group: {}-byte elements, count={}", size, count);
+            int beforeGroup = buffer.position();
+
+            logger.info("→ I/O group {}-byte: count = {}", size, count);
+
+            // skip each element: 1‐byte ID + `size`‐byte payload
             for (int i = 0; i < count; i++) {
                 if (buffer.remaining() < 1 + size) {
-                    throw new ProtocolException("Not enough bytes for "
-                            + size + "-byte element " + (i + 1) + "/" + count
-                            + " (remaining=" + buffer.remaining() + ")");
+                    throw new ProtocolException(
+                            "Not enough bytes for " + size + "-byte element " +
+                                    "(" + (i+1) + "/" + count + "), remaining=" + buffer.remaining()
+                    );
                 }
-                buffer.get();                  // element ID
-                buffer.position(buffer.position() + size); // skip payload
+                buffer.get();                                    // ID
+                buffer.position(buffer.position() + size);       // payload
             }
+
+            int afterGroup = buffer.position();
+            int consumed = afterGroup - beforeGroup;
+            int expected = count * (1 + size);
+            logger.info(
+                    "   → Group {}-byte: expected to skip {} bytes, actually skipped {} bytes",
+                    size, expected, consumed
+            );
         }
-        int after = buffer.position();
-        logger.info("→ skipIoElements: consumed {} bytes", after - before);
+        int afterAll = buffer.position();
+        logger.info("→ skipIoElements: total consumed = {} bytes", afterAll - beforeAll);
     }
+
 
 
 
