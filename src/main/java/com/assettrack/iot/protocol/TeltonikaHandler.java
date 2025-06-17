@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map; // Import Map
 import java.util.regex.Pattern;
 
 @Component
@@ -95,22 +96,23 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
     }
 
-
-    // In TeltonikaHandler.java
+    // This is the method required by the ProtocolHandler interface
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
-        // Implementation for when no ChannelHandlerContext is available
-        return handle(data, null);
+        // This method will not have ChannelHandlerContext directly.
+        // We will call the existing method, passing null for ctx.
+        // The existing method must handle null ctx gracefully.
+        return handle(data, null); // Delegate to the method with ChannelHandlerContext
     }
 
-    @Override
+
+    // Removed @Override because this specific signature is likely not from the interface
     public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
         logger.info(
                 "→ TeltonikaHandler.handle(...) called; data.length={}, ctx={}",
                 data.length,
                 ctx
         );
-        // Your existing implementation that uses the ChannelHandlerContext
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
 
@@ -118,6 +120,7 @@ public class TeltonikaHandler implements ProtocolHandler {
             if (isImeiPacket(data)) {
                 message = handleImeiPacket(data, message);
                 if (ctx != null) {
+                    // IMEI ACK should be a single byte 0x01
                     ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}));
                     logger.info("Sent login request (0x01) to device: {}", message.getImei());
                 }
@@ -125,7 +128,16 @@ public class TeltonikaHandler implements ProtocolHandler {
             } else if (isDataPacket(data)) {
                 message = handleDataPacket(data, message);
                 if (ctx != null) {
-                    ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x00}));
+                    // Corrected line: First get the map, then extract the value by key
+                    Map<String, Object> parsedData = message.getParsedData(); // Call getParsedData() with no arguments
+                    byte[] responseBytes = (byte[]) parsedData.get("response"); // Get "response" from the map
+
+                    if (responseBytes != null && responseBytes.length > 0) {
+                        ctx.writeAndFlush(Unpooled.wrappedBuffer(responseBytes));
+                        logger.info("Sent data acknowledgment ({} bytes) to device.", responseBytes.length);
+                    } else {
+                        logger.warn("No acknowledgment response generated for data packet. Not sending ACK.");
+                    }
                 }
                 return message;
             }
@@ -328,9 +340,8 @@ public class TeltonikaHandler implements ProtocolHandler {
             message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
         }
 
-        // ACK: echo back recordCount of *processed* records
-        ByteBuffer ack = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        ack.putInt(0);
+        // ACK: echo back recordCount of *processed* records as a 4-byte integer
+        ByteBuffer ack = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN); // Allocate only 4 bytes
         ack.putInt(positions.size()); // Acknowledge only the records that were successfully processed
         message.addParsedData("response", ack.array());
         logger.info("→ processCodec8Packet: generated ACK for {} records", positions.size());
@@ -343,11 +354,6 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // 1) Timestamp (8 bytes)
         long ts = buffer.getLong();
-        // long now = System.currentTimeMillis(); // Commented out to ignore timestamp validation
-        // if (ts <= 0 || ts > now + 60_000) { // Commented out to ignore timestamp validation
-        //     throw new ProtocolException("Invalid timestamp: " + ts
-        //             + " (now=" + now + ")");
-        // }
         position.setTimestamp(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault())
         );
@@ -361,7 +367,6 @@ public class TeltonikaHandler implements ProtocolHandler {
         int latRaw = buffer.getInt();
         double longitude = lonRaw / 1e7;
         double latitude  = latRaw / 1e7;
-        // validateCoordinates(latitude, longitude); // This line is commented out to ignore invalid coordinates
         position.setLatitude(latitude);
         position.setLongitude(longitude);
         logger.info("→ parseCodec8Data: lat={}, lon={}", latitude, longitude);
@@ -395,13 +400,6 @@ public class TeltonikaHandler implements ProtocolHandler {
 
 
     private DeviceMessage processCodec16Packet(ByteBuffer buffer, DeviceMessage message, int recordCount) throws ProtocolException { // Added throws ProtocolException
-        // Codec16 has a 1-byte AVL data count. The `recordCount` passed in here is from the main header.
-        // It's possible for Codec16 that recordCount from the main header might not directly map to AVL data count.
-        // However, assuming for simplicity that `recordCount` here refers to the AVL data count within the Codec16 packet.
-        // For Codec16, after the codec ID, there's a 1-byte 'quantity' field for the number of AVL data records.
-        // The current `handleDataPacket` reads `recordCount` from the main header, which is then passed here.
-        // Let's assume this `recordCount` is correct for the purpose of this fix.
-
         logger.info("→ Entered processCodec16Packet; buffer.position={}, remainingBytes={}",
                 buffer.position(), buffer.remaining());
 
@@ -462,9 +460,8 @@ public class TeltonikaHandler implements ProtocolHandler {
             message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
         }
 
-        // Generate response
-        ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        response.putInt(0);
+        // Generate response (4-byte integer)
+        ByteBuffer response = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
         response.putInt(positions.size()); // Acknowledge only the records that were successfully processed
         message.addParsedData("response", response.array());
 
@@ -475,13 +472,6 @@ public class TeltonikaHandler implements ProtocolHandler {
         // This method is called by parsePosition directly when only one position is expected.
         // It needs to handle skipping I/O elements itself in this context.
         Position position = parseCodec8Data(buffer); // Parse fixed part + Event ID
-
-        // The `skipIoElements` will now correctly start from the I/O counts.
-        // The Teltonika Codec16 structure might have an additional single byte
-        // before the I/O property counts, which some implementations skip.
-        // If your Codec16 stream consistently has an extra byte here before
-        // the I/O counts, uncomment the following line and add proper logging.
-        // if (buffer.remaining() > 0) { buffer.get(); } // Skip potential additional byte specific to Codec16
 
         if (buffer.remaining() > 0) {
             skipIoElements(buffer, CODEC_16); // Skip I/O elements for this single record
@@ -571,8 +561,6 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
 
-
-
     // New helper method for skipping I/O elements of a specific size,
     // handling insufficient bytes by advancing to the end of the buffer.
     private void skipIoElementsOfSpecificSize(ByteBuffer buffer, int sizeBytes) throws ProtocolException {
@@ -597,19 +585,6 @@ public class TeltonikaHandler implements ProtocolHandler {
             throw new ProtocolException("Malformed I/O data: missing " + sizeBytes + "-byte I/O count.");
         }
     }
-
-    // Removed the old skipIoElementsOfSize as its functionality is now in skipIoElementsOfSpecificSize
-    /*
-    private void skipIoElementsOfSize(ByteBuffer buffer, int sizeBytes) {
-        if (buffer.remaining() > 0) {
-            int count = buffer.get() & 0xFF;
-            int bytesToSkip = count * (1 + sizeBytes);
-            if (buffer.remaining() >= bytesToSkip) {
-                buffer.position(buffer.position() + bytesToSkip);
-            }
-        }
-    }
-    */
 
     private String cleanImei(String rawImei) {
         return rawImei != null ? rawImei.replaceAll("[^0-9]", "") : "";
@@ -639,10 +614,10 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     @Override
     public byte[] generateResponse(Position position) {
-        // Allocate only 4 bytes for the acknowledgment
+        // This method is likely for single-position responses, not the data packet ACK.
+        // It should also return a 4-byte count if used for data acknowledgments.
         ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
-        // Put the number of accepted data packets (e.g., 1 if you processed one record)
-        buffer.putInt(1);
+        buffer.putInt(1); // Acknowledge 1 record
         return buffer.array();
     }
 
