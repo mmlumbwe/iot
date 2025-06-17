@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map; // Import Map
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @Component
@@ -302,11 +302,7 @@ public class TeltonikaHandler implements ProtocolHandler {
                 }
 
                 positions.add(pos);
-                // Break after the first valid record is processed
-                if (!positions.isEmpty()) {
-                    logger.info("→ Processed first valid record; ignoring subsequent records.");
-                    break;
-                }
+                // Removed: if (!positions.isEmpty()) { break; } // This line was causing early exit
             } catch (ProtocolException ex) {
                 logger.warn("→ Failed to parse record #{}", i + 1, ex);
                 // In case of a parsing failure for a record, attempt to advance the buffer
@@ -337,6 +333,7 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         message.addParsedData("positions", positions);
         if (!positions.isEmpty()) {
+            // Set timestamp to the timestamp of the last processed position
             message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
         }
 
@@ -432,11 +429,7 @@ public class TeltonikaHandler implements ProtocolHandler {
                     position.setDevice(d);
                 }
                 positions.add(position);
-                // Break after the first valid record is processed
-                if (!positions.isEmpty()) {
-                    logger.info("→ Processed first valid record; ignoring subsequent Codec16 records.");
-                    break;
-                }
+                // Removed: if (!positions.isEmpty()) { break; } // This line was causing early exit
             } catch (ProtocolException e) {
                 logger.warn("Failed to parse Codec16 record #{}", i + 1, e);
                 // Recovery mechanism similar to processCodec8Packet
@@ -457,6 +450,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         message.addParsedData("positions", positions); // Store all positions
 
         if (!positions.isEmpty()) {
+            // Set timestamp to the timestamp of the last processed position
             message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
         }
 
