@@ -338,11 +338,11 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // 1) Timestamp (8 bytes)
         long ts = buffer.getLong();
-        long now = System.currentTimeMillis();
-        if (ts <= 0 || ts > now + 60_000) {
-            throw new ProtocolException("Invalid timestamp: " + ts
-                    + " (now=" + now + ")");
-        }
+        // long now = System.currentTimeMillis(); // Commented out to ignore timestamp validation
+        // if (ts <= 0 || ts > now + 60_000) { // Commented out to ignore timestamp validation
+        //     throw new ProtocolException("Invalid timestamp: " + ts
+        //             + " (now=" + now + ")");
+        // }
         position.setTimestamp(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault())
         );
@@ -356,7 +356,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         int latRaw = buffer.getInt();
         double longitude = lonRaw / 1e7;
         double latitude  = latRaw / 1e7;
-        // validateCoordinates(latitude, longitude); // This line is now commented out to ignore invalid coordinates
+        // validateCoordinates(latitude, longitude); // This line is commented out to ignore invalid coordinates
         position.setLatitude(latitude);
         position.setLongitude(longitude);
         logger.info("→ parseCodec8Data: lat={}, lon={}", latitude, longitude);
