@@ -290,6 +290,11 @@ public class TeltonikaHandler implements ProtocolHandler {
                 }
 
                 positions.add(pos);
+                // Break after the first valid record is processed
+                if (!positions.isEmpty()) {
+                    logger.info("→ Processed first valid record; ignoring subsequent records.");
+                    break;
+                }
             } catch (ProtocolException ex) {
                 logger.warn("→ Failed to parse record #{}", i + 1, ex);
                 // In case of a parsing failure for a record, attempt to advance the buffer
@@ -323,12 +328,12 @@ public class TeltonikaHandler implements ProtocolHandler {
             message.setTimestamp(positions.get(positions.size() - 1).getTimestamp());
         }
 
-        // ACK: echo back recordCount
+        // ACK: echo back recordCount of *processed* records
         ByteBuffer ack = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
         ack.putInt(0);
-        ack.putInt(recordCount);
+        ack.putInt(positions.size()); // Acknowledge only the records that were successfully processed
         message.addParsedData("response", ack.array());
-        logger.info("→ processCodec8Packet: generated ACK for {} records", recordCount);
+        logger.info("→ processCodec8Packet: generated ACK for {} records", positions.size());
 
         return message;
     }
@@ -393,7 +398,6 @@ public class TeltonikaHandler implements ProtocolHandler {
         // Codec16 has a 1-byte AVL data count. The `recordCount` passed in here is from the main header.
         // It's possible for Codec16 that recordCount from the main header might not directly map to AVL data count.
         // However, assuming for simplicity that `recordCount` here refers to the AVL data count within the Codec16 packet.
-        // Teltonika's Codec16 is slightly different in structure compared to Codec8 regarding the data count.
         // For Codec16, after the codec ID, there's a 1-byte 'quantity' field for the number of AVL data records.
         // The current `handleDataPacket` reads `recordCount` from the main header, which is then passed here.
         // Let's assume this `recordCount` is correct for the purpose of this fix.
@@ -430,6 +434,11 @@ public class TeltonikaHandler implements ProtocolHandler {
                     position.setDevice(d);
                 }
                 positions.add(position);
+                // Break after the first valid record is processed
+                if (!positions.isEmpty()) {
+                    logger.info("→ Processed first valid record; ignoring subsequent Codec16 records.");
+                    break;
+                }
             } catch (ProtocolException e) {
                 logger.warn("Failed to parse Codec16 record #{}", i + 1, e);
                 // Recovery mechanism similar to processCodec8Packet
@@ -456,7 +465,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         // Generate response
         ByteBuffer response = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
         response.putInt(0);
-        response.putInt(recordCount); // Acknowledge the number of records received
+        response.putInt(positions.size()); // Acknowledge only the records that were successfully processed
         message.addParsedData("response", response.array());
 
         return message;
