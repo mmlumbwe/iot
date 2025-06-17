@@ -639,9 +639,10 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     @Override
     public byte[] generateResponse(Position position) {
-        ByteBuffer buffer = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN);
-        buffer.putInt(0); // Preamble
-        buffer.putInt(1); // Number of accepted data packets
+        // Allocate only 4 bytes for the acknowledgment
+        ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+        // Put the number of accepted data packets (e.g., 1 if you processed one record)
+        buffer.putInt(1);
         return buffer.array();
     }
 
