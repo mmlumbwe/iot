@@ -338,10 +338,14 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // 1) Timestamp (8 bytes)
         long ts = buffer.getLong();
-        if (ts <= 0) {
-            throw new ProtocolException("Invalid timestamp");
+        long now = System.currentTimeMillis();
+        if (ts <= 0 || ts > now + 60_000) {
+            throw new ProtocolException("Invalid timestamp: " + ts
+                    + " (now=" + now + ")");
         }
-        position.setTimestamp(LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault()));
+        position.setTimestamp(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault())
+        );
 
         // 2) Priority (1 byte) — drop
         int priority = buffer.get() & 0xFF;
@@ -517,23 +521,31 @@ public class TeltonikaHandler implements ProtocolHandler {
     // Refactored skipIoElements to directly implement the logic
     // from the most recent correction, instead of delegating to skipIoElementsOfSize
     private void skipIoElements(ByteBuffer buffer, int codecId) throws ProtocolException {
-        logger.debug("→ Entering skipIoElements; buffer.position={}, remainingBytes={}", buffer.position(), buffer.remaining());
-
-        // Process 1-byte I/O elements
-        skipIoElementsOfSpecificSize(buffer, 1);
-
-        // Process 2-byte I/O elements
-        skipIoElementsOfSpecificSize(buffer, 2);
-
-        // Process 4-byte I/O elements
-        skipIoElementsOfSpecificSize(buffer, 4);
-
-        // Process 8-byte I/O elements (conditional for specific codecs)
-        if (codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16) {
-            skipIoElementsOfSpecificSize(buffer, 8);
+        // The 1-, 2-, 4- and (for codec 8) 8-byte groups, in order:
+        int[] sizes = { 1, 2, 4, 8 };
+        for (int size : sizes) {
+            if (size == 8 && !(codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16)) {
+                continue; // only skip 8-byte elements for those codecs
+            }
+            // Need at least one byte to read the count:
+            if (buffer.remaining() < 1) {
+                throw new ProtocolException("Malformed I/O data: missing " + size + "-byte count");
+            }
+            int count = buffer.get() & 0xFF;
+            logger.debug("→ skipping {}-byte I/O elements: count={}", size, count);
+            // For each element: 1 byte ID + `size` bytes of data
+            for (int i = 0; i < count; i++) {
+                if (buffer.remaining() < 1 + size) {
+                    throw new ProtocolException(
+                            "Malformed I/O data: expected " + size + " bytes of data, but only "
+                                    + buffer.remaining() + " left (element " + (i+1) + "/" + count + ")");
+                }
+                buffer.get();                   // element ID
+                buffer.position(buffer.position() + size);  // skip the data bytes
+            }
         }
-        logger.debug("→ Exiting skipIoElements; new buffer.position={}", buffer.position());
     }
+
 
     // New helper method for skipping I/O elements of a specific size,
     // handling insufficient bytes by advancing to the end of the buffer.
