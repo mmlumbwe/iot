@@ -105,7 +105,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 if (protocol.equals("GT06") || protocol.equals("TK103")) {
                     // GT06/TK103 devices use a delimiter (0x0D0A) based framing.
                     // Only add if not already present to avoid multiple additions on channel reconnect/reset.
-                    if (pipeline.get("gt06-delimiter-decoder") == null) {
+                    /*if (pipeline.get("gt06-delimiter-decoder") == null) {
                         pipeline.addBefore(BaseProtocolDecoder.NAME, "gt06-delimiter-decoder",
                                 new DelimiterBasedFrameDecoder(
                                         1024, // maxFrameLength
@@ -116,6 +116,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                         logger.info("Added GT06/TK103 delimiter frame decoder");
                     }
                     pipeline.remove(this); // Remove once the specific decoder is added
+                    */
                     ctx.fireChannelRead(result);
                     ctx.fireChannelRead(buf.retain());
                     return;

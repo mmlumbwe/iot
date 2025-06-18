@@ -44,7 +44,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     private static final byte PROTOCOL_ALARM = 0x16;
     private static final byte PROTOCOL_ERROR = 0x7F;
     private static final int MIN_PACKET_LENGTH = 12;
-    private static final int LOGIN_PACKET_LENGTH = 20;
+    private static final int LOGIN_PACKET_LENGTH = 22;
 
     // New constants for 0x7979 packets (configuration/command)
     protected static final byte GT06_CONFIG_HEADER_1 = 0x79;
@@ -72,46 +72,44 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                             ProtocolDetector.ProtocolDetectionResult result) {
         List<DeviceMessage> messages = new ArrayList<>();
 
-        // Loop as long as there's enough data to at least check for header, length, and protocol
-        while (buf.readableBytes() >= 4) { // Needs at least 4 bytes for 78 78 Length Protocol
-            buf.markReaderIndex();
+        while (buf.readableBytes() >= MIN_PACKET_LENGTH) {
+            try {
+                // Mark the current read index
+                buf.markReaderIndex();
 
-            // Check for GT06 header
-            if (buf.readByte() != PROTOCOL_HEADER_1 || buf.readByte() != PROTOCOL_HEADER_2) {
+                // Check for GT06 header
+                if (buf.readByte() != PROTOCOL_HEADER_1 || buf.readByte() != PROTOCOL_HEADER_2) {
+                    buf.resetReaderIndex();
+                    break; // Not a GT06 packet
+                }
+
+                // Read length and protocol
+                int length = buf.readByte() & 0xFF;
+                byte protocol = buf.readByte();
+
+                // Calculate complete packet size
+                int packetSize = length + 5; // header(2) + length(1) + protocol(1) + checksum(2) + footer(2)
+
+                // Verify we have enough bytes
+                if (buf.readableBytes() < packetSize - 4) { // -4 because we already read 4 bytes
+                    buf.resetReaderIndex();
+                    break; // Not enough data yet
+                }
+
+                // Extract the complete packet
+                byte[] data = new byte[packetSize];
                 buf.resetReaderIndex();
-                // If not GT06 header, skip one byte and try again to avoid infinite loop on malformed data
-                buf.skipBytes(1);
-                continue;
-            }
+                buf.readBytes(data);
 
-            // Read 'Packet Length' (information content length) and Protocol Type
-            // This 'length' (e.g., 0x11 = 17) defines the bytes from Protocol Type up to (but not including) 0x0D0A
-            int informationContentLength = buf.readByte() & 0xFF;
-            byte protocolType = buf.readByte();
-
-            // Calculate the total expected packet size *as received by this handler*
-            // This is Header (2 bytes) + Length Field (1 byte) + InformationContent (informationContentLength bytes)
-            // It assumes the 0x0D0A terminators are stripped by an upstream frame decoder.
-            int expectedPacketSize = 2 + 1 + informationContentLength;
-
-            // Verify we have enough bytes in the buffer for the *full expected packet*
-            // The buffer's readableBytes() is from the current readerIndex (after reading 4 bytes).
-            // So we need to check if remaining bytes are enough for (expectedPacketSize - 4)
-            if (buf.readableBytes() < (expectedPacketSize - 4)) {
-                buf.resetReaderIndex();
-                break; // Not enough data for the complete packet, wait for more
-            }
-
-            // Extract the complete packet into a byte array
-            byte[] data = new byte[expectedPacketSize]; // Create array with the correct 20-byte size
-            buf.resetReaderIndex(); // Reset to read from the beginning of the packet (0x7878)
-            buf.readBytes(data); // Read the full expected packet bytes into 'data'
-
-            // Process the packet
-            DeviceMessage message = handle(data, ctx);
-            if (message != null && message.getImei() != null) {
-                message.addParsedData("deviceId", generateDeviceId(message.getImei()));
-                messages.add(message);
+                // Process the packet
+                DeviceMessage message = handle(data, ctx);
+                if (message != null && message.getImei() != null) {
+                    message.addParsedData("deviceId", generateDeviceId(message.getImei()));
+                    messages.add(message);
+                }
+            } catch (Exception e) {
+                logger.error("Error decoding packet", e);
+                buf.skipBytes(buf.readableBytes()); // Skip problematic data
             }
         }
 
@@ -732,11 +730,11 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         }
 
         // Verify termination bytes
-        /*if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
+        if (data[data.length - 2] != 0x0D || data[data.length - 1] != 0x0A) {
             throw new ProtocolException(String.format(
                     "Invalid packet termination: 0x%02X 0x%02X (expected 0x0D 0x0A)",
                     data[data.length - 2], data[data.length - 1]));
-        }*/
+        }
     }
 
     private DeviceMessage handleGps(ByteBuffer buffer, DeviceMessage message,
