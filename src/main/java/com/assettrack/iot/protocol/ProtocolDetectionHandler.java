@@ -11,6 +11,7 @@ import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.AttributeKey;
+import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,6 +48,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf buf = (ByteBuf) msg;
+        buf.retain();
         try {
             // Log raw received data in hexadecimal
             logger.info("Raw Received Data (Hex): {}", ByteBufUtil.hexDump(buf).toUpperCase());
@@ -60,7 +62,21 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             byte[] rawData = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), rawData); // Copies bytes without modifying readerIndex
 
-            ProtocolDetectionResult result = protocolDetector.detect(rawData); // Use the byte array for detection
+            String hex = Hex.encodeHexString(rawData);
+            logger.info("Protocol detection for packet: {}", hex);
+
+            //ProtocolDetectionResult result = protocolDetector.detect(rawData); // Use the byte array for detection
+            //ChannelPipeline pipeline = ctx.pipeline();
+            //String protocol = result.getProtocol();
+
+            ProtocolDetector.ProtocolDetectionResult result;
+            try {
+                result = protocolDetector.detect(rawData);
+            } catch (Exception e) {
+                logger.error("Protocol detection error during detect(): {}", e.getMessage(), e);
+                result = null;
+            }
+
             ChannelPipeline pipeline = ctx.pipeline();
             String protocol = result.getProtocol();
 
