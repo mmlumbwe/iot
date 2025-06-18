@@ -54,6 +54,16 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             pipeline.addLast("rawLogger", new LoggingHandler("Raw-Inbound", LogLevel.INFO));
         }
 
+        // 2. Frame decoder: split on CRLF (0x0D 0x0A)
+        if (pipeline.context("frameDecoder") == null) {
+            pipeline.addLast("frameDecoder", new DelimiterBasedFrameDecoder(
+                            512,
+                            false,  // retain CRLF so protocol detector sees full frame length
+                            Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
+                    )
+            );
+        }
+
         // 2. Protocol detection (moved before any frame decoders)
         if (pipeline.get("protocolDetector") == null) {
             pipeline.addLast("protocolDetector", new ProtocolDetectionHandler(protocolDetector));
@@ -73,13 +83,13 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             logger.info("Added GenericProtocolDecoder for channel {}", channel.id());
         }
 
-        // 7. Business logic
+        // 5. Business logic
         if (pipeline.get("messageHandler") == null) {
             pipeline.addLast("messageHandler", new NetworkMessageHandler(sessionManager, cacheManager));
             logger.info("Added NetworkMessageHandler for channel {}", channel.id());
         }
 
-        // 8. Exception & cleanup
+        // 6. Exception & cleanup
         if (pipeline.get("exceptionHandler") == null) {
             pipeline.addLast("exceptionHandler", new ChannelDuplexHandler() {
                 @Override
