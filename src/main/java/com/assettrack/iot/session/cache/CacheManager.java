@@ -20,13 +20,13 @@ public class CacheManager {
     public void addDevice(long deviceId) {
         // This method can be used to mark a device as "present" or "active" in the cache
         devicePresenceCache.put(deviceId, new Object());
-        logger.debug("Added device {} to presence cache.", deviceId);
+        logger.info("Added device {} to presence cache.", deviceId);
     }
 
     public void removeDevice(long deviceId) {
         devicePresenceCache.remove(deviceId);
         deviceLatestPositionCache.remove(deviceId); // Also remove from position cache
-        logger.debug("Removed device {} from all caches.", deviceId);
+        logger.info("Removed device {} from all caches.", deviceId);
     }
 
     public boolean containsDevice(long deviceId) {
