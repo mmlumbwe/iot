@@ -87,3 +87,16 @@ java.net.BindException: Address already in use
 2025-06-20 16:00:42 [main] INFO  o.a.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-8080"]
 2025-06-20 16:00:42 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 8080 (http) with context path '/'
 2025-06-20 16:00:42 [main] INFO  com.assettrack.iot.IotApplication - Started IotApplication in 9.175 seconds (process running for 9.569)
+2025-06-20 17:22:49 [SpringApplicationShutdownHook] INFO  o.s.b.w.e.tomcat.GracefulShutdown - Commencing graceful shutdown. Waiting for active requests to complete
+2025-06-20 17:22:49 [tomcat-shutdown] INFO  o.s.b.w.e.tomcat.GracefulShutdown - Graceful shutdown complete
+2025-06-20 17:22:49 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.GpsServer - Shutting down GPS Server...
+2025-06-20 17:22:49 [SpringApplicationShutdownHook] INFO  TRAFFIC - SERVER_SHUTDOWN_INITIATED
+2025-06-20 17:22:49 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xbb459d71, L:/0.0.0.0:5023] CLOSE
+2025-06-20 17:22:49 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xbb459d71, L:/0.0.0.0:5023] INACTIVE
+2025-06-20 17:22:49 [nioEventLoopGroup-2-1] INFO  i.n.handler.logging.LoggingHandler - [id: 0xbb459d71, L:/0.0.0.0:5023] UNREGISTERED
+2025-06-20 17:22:51 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.GpsServer - GPS Server shutdown complete
+2025-06-20 17:22:51 [SpringApplicationShutdownHook] INFO  TRAFFIC - SERVER_SHUTDOWN_COMPLETED
+2025-06-20 17:22:51 [SpringApplicationShutdownHook] INFO  c.assettrack.iot.service.UdpServer - UDP server stopped
+2025-06-20 17:22:51 [SpringApplicationShutdownHook] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2025-06-20 17:22:51 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-06-20 17:22:51 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
