@@ -15,7 +15,10 @@ public class DynamicProtocolFramer extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof ProtocolDetector.ProtocolDetectionResult result) {
+            logger.info("DynamicProtocolFramer: got ProtocolDetectionResult(protocol={}, packetType={})",
+                    result.getProtocol(), result.getPacketType());
             if (result.isDetected()) {
+                logger.info("DynamicProtocolFramer: configuring pipeline for {}", result.getProtocol());
                 String protocol = result.getProtocol();
                 logger.info("Dynamically configuring pipeline for protocol: {}", protocol);
 
@@ -23,6 +26,7 @@ public class DynamicProtocolFramer extends ChannelInboundHandlerAdapter {
                 ctx.pipeline().remove(this);
 
                 if ("TELTONIKA".equalsIgnoreCase(protocol)) {
+                    logger.info("DynamicProtocolFramer: adding Teltonika LengthFieldBasedFrameDecoder");
                     // Teltonika (e.g., Codec 8) packet structure:
                     // Preamble (4 bytes, 0x00000001)
                     // Data Length (4 bytes, specifies length of AVL Data from Codec ID to CRC)

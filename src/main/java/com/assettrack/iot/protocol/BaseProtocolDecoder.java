@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -101,11 +102,16 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data); // Read data without consuming here, `handle` or `teltonikaHandler` will consume
 
+            logger.info("BaseProtocolDecoder: ENTER decode, raw bytes={}…", Arrays.toString(Arrays.copyOf(data, Math.min(data.length, 16)))+"…");
+
+            logger.info("BaseProtocolDecoder: using detector {}, previous result={}", protocolDetector.getClass().getSimpleName(), result);
+
+
             logger.info("decode(): result passed in is null? {}", result == null);
 
             // If no result provided, perform detection (fallback or if result was not passed as separate message)
             if (result == null) {
-                logger.debug("No detection result provided, performing detection within BaseProtocolDecoder.");
+                logger.info("BaseProtocolDecoder: no detection result, running protocolDetector.detect()");
                 result = protocolDetector.detect(data);
             }
             logger.info("PROTOCOLRESULT IS: {}", result);
@@ -138,6 +144,9 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                             logger.info("Session updated/created for IMEI {} and channel {}.", teltonikaMessage.getImei(), ctx.channel().id());
                         }
                         // --- END OF CORRECTED CODE ---
+                        if (teltonikaMessage == null) {
+                            logger.warn("BaseProtocolDecoder: TeltonikaHandler returned null for packetType={}", result.getPacketType());
+                        }
 
                         return teltonikaMessage;
                     } else {

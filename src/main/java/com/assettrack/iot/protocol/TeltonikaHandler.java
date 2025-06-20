@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -105,6 +106,15 @@ public class TeltonikaHandler implements ProtocolHandler {
         return handle(data, null); // Delegate to the method with ChannelHandlerContext
     }
 
+    /** Convert a byte array to a hex string (uppercase, no separators). */
+    private static String toHexString(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b));
+        }
+        return sb.toString();
+    }
+
 
     // Removed @Override because this specific signature is likely not from the interface
     public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
@@ -116,7 +126,58 @@ public class TeltonikaHandler implements ProtocolHandler {
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
 
-        try {
+
+
+
+        logger.info("TeltonikaHandler: ENTER handle, data.length={}, firstBytes={}", data.length,
+                data.length>4 ? String.format("%02X%02X%02X%02X", data[0],data[1],data[2],data[3]) : toHexString(data));
+        logger.info("TeltonikaHandler: ENTER handle, data.length={}, first4={}",
+                data.length,
+                data.length >= 4 ? toHexString(Arrays.copyOf(data, 4)) : toHexString(data));
+
+
+        if (isHeartbeatPacket(data)) {
+            logger.debug("TeltonikaHandler: heartbeat packet received");
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(HEARTBEAT_RESPONSE))
+                    .addListener(f -> {
+                        if (f.isSuccess()) {
+                            logger.debug("TeltonikaHandler: heartbeat ACK sent");
+                        } else {
+                            logger.error("TeltonikaHandler: heartbeat ACK failed", f.cause());
+                        }
+                    });
+            return handleHeartbeat();
+        }
+        if (isImeiPacket(data)) {
+            logger.info("TeltonikaHandler: IMEI packet – will ACK and create session");
+            DeviceMessage msg = handleImeiPacket(data, message);
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}))
+                    .addListener(f -> {
+                        if (f.isSuccess()) {
+                            logger.info("TeltonikaHandler: login ACK (0x01) sent to {}", msg.getImei());
+                        } else {
+                            logger.error("TeltonikaHandler: failed to send login ACK", f.cause());
+                        }
+                    });
+            return msg;
+        }
+        if (isDataPacket(data)) {
+            logger.info("TeltonikaHandler: DATA packet – about to parse {} bytes", data.length);
+            DeviceMessage msg = handleDataPacket(data, message);
+            // after building response in parsedData:
+            byte[] resp = (byte[]) msg.getParsedData().get("response");
+            logger.info("TeltonikaHandler: sending DATA ACK ({} bytes)", resp == null ? 0 : resp.length);
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
+            return msg;
+        }
+        logger.warn("TeltonikaHandler: unrecognized packet, dropping (len={})", data.length);
+        throw new ProtocolException("Unsupported Teltonika packet");
+
+
+
+
+
+        /*try {
             if (isImeiPacket(data)) {
                 message = handleImeiPacket(data, message);
                 if (ctx != null) {
@@ -145,7 +206,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         } catch (Exception e) {
             logger.error("Error handling Teltonika packet: {}", e.getMessage());
             throw new ProtocolException("Processing failed", e);
-        }
+        }*/
     }
 
     private boolean isDataPacket(byte[] data) {
