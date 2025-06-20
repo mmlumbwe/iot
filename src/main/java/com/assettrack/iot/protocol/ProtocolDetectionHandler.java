@@ -53,12 +53,12 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     // Any Teltonika data (e.g. AVL_DATA_CODEC_8) → install frame decoder
                     logger.info("ProtocolDetectionHandler: TELTONIKA DATA packet detected — installing frame decoder and removing self");
                     pipeline.addFirst("teltonikaFrameDecoder",
-                            new LengthFieldBasedFrameDecoder(
-                                    10240,  // maxFrameLength
-                                    4,      // lengthFieldOffset (skip 4-byte preamble)
-                                    4,      // lengthFieldLength
-                                    0,      // lengthAdjustment
-                                    0       // initialBytesToStrip
+                            new io.netty.handler.codec.LengthFieldBasedFrameDecoder(
+                                    10240,  // maxFrameLength: Maximum length of the entire Teltonika packet (preamble + data length + content + CRC)
+                                    4,      // lengthFieldOffset: The length field starts after the 4-byte preamble.
+                                    4,      // lengthFieldLength: The length field itself is 4 bytes.
+                                    2,      // lengthAdjustment: The Teltonika "Data Length" field typically excludes the final 2-byte CRC-16. Adding 2 ensures the full content (including CRC) is framed.
+                                    8       // initialBytesToStrip: Strip the 4-byte preamble AND the 4-byte data length field. The ByteBuf passed downstream will then start directly with the Codec ID.
                             )
                     );
                     pipeline.remove(this);
