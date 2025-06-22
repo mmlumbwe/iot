@@ -36,7 +36,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     // Corrected Heartbeat ACK to a single byte 0x01
     private static final byte[] HEARTBEAT_RESPONSE = new byte[] {0x01};
 
-    @Value("${teltonika.validation.mode:STRICT}")
+    @Value("${teltonika.validation.mode:LENIENT}")
     private ValidationMode validationMode;
 
     // This method signature is from the ProtocolHandler interface for parsing raw message
@@ -696,6 +696,13 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     private boolean isSupportedCodec(final int codecId) {
         return codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16;
+    }
+
+    public byte[] generateResponse(int recordsCount) {
+        // Teltonika protocol expects a 4-byte integer representing the count of acknowledged records.
+        ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+        buffer.putInt(recordsCount); // Put the actual count of acknowledged records
+        return buffer.array(); // This will always return a non-null byte array of length 4.
     }
 
     @Override
