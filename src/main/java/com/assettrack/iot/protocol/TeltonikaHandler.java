@@ -365,11 +365,22 @@ public class TeltonikaHandler implements ProtocolHandler {
 
             return resultMessage;
 
-        } catch (final Exception e) {
+        } catch (Exception e) {
             logger.error("→ Error handling Teltonika data packet", e);
             message.setMessageType("ERROR");
             message.addParsedData("error", e.getMessage());
-            throw new ProtocolException("Failed to handle data packet", e);
+
+            // Correction: Handle exceptions based on validationMode
+            if (validationMode == ValidationMode.LENIENT) {
+                // In strict mode, re-throw the exception for any parsing error
+                throw new ProtocolException("Failed to handle data packet", e);
+            } else {
+                // In lenient or recover mode, log the error but allow partial processing if any, and return message.
+                // The message object itself might contain partial data (e.g., IMEI from earlier stages or some positions)
+                // if the error occurred after some processing.
+                logger.warn("→ Packet parsing failed in non-STRICT mode. Returning partially processed message if available. Error: {}", e.getMessage());
+                return message; // Return the message object, even if partial or error-marked
+            }
         }
     }
 
