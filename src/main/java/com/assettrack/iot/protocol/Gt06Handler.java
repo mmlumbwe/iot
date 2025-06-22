@@ -67,7 +67,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         this.acknowledgementHandler = acknowledgementHandler;
     }
 
-    @Override
+
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buf,
                             ProtocolDetector.ProtocolDetectionResult result) {
         List<DeviceMessage> messages = new ArrayList<>();
@@ -1019,6 +1019,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         int minute = buffer.get() & 0xFF;
         int second = buffer.get() & 0xFF;
         return LocalDateTime.of(year, month, day, hour, minute, second);
+    }
+    protected long generateDeviceId(String imei) {
+        return imei != null ? imei.hashCode() & 0xffffffffL : 0L;
     }
 
 }

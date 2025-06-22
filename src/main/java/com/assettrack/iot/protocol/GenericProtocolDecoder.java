@@ -1,6 +1,7 @@
 // GenericProtocolDecoder.java
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.config.Checksum;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.SessionManager;
@@ -33,7 +34,7 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
         super(sessionManager, protocolDetector, teltonikaHandler, gt06Handler);
     }
 
-    @Override
+
     protected DeviceMessage handle(byte[] data) throws ProtocolException {
         // This method will be called only for GT06 packets
         logger.debug("Handling GT06 protocol packet. Raw data length: {}", data.length);
@@ -140,5 +141,131 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
         }
         // Add responses for other GT06 message types if necessary
         return null;
+    }
+
+    protected String bytesToHex(byte[] bytes) {
+        if (bytes == null) {
+            return "null";
+        }
+        StringBuilder sb = new StringBuilder(bytes.length * 3);
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+
+    protected String extractImei(byte[] imeiBytes) throws ProtocolException {
+        if (imeiBytes == null || imeiBytes.length != 8) {
+            throw new ProtocolException("Invalid IMEI bytes length");
+        }
+
+        StringBuilder imei = new StringBuilder(16);
+        for (byte b : imeiBytes) {
+            imei.append(String.format("%02X", b));
+        }
+
+        // Remove leading zeros while maintaining 15 digits
+        while (imei.length() > 15 && imei.charAt(0) == '0') {
+            imei.deleteCharAt(0);
+        }
+
+        if (imei.length() != 15) {
+            throw new ProtocolException("Invalid IMEI length: " + imei.length());
+        }
+
+        logger.info("Extracted IMEI: {}", imei);
+        return imei.toString();
+    }
+
+    protected Position parseGpsData(ByteBuffer buffer) {
+        Position position = new Position();
+
+        // Parse timestamp (6 bytes: YY MM DD HH mm ss)
+        position.setTimestamp(LocalDateTime.of(
+                2000 + (buffer.get() & 0xFF),  // Year
+                buffer.get() & 0xFF,            // Month
+                buffer.get() & 0xFF,            // Day
+                buffer.get() & 0xFF,            // Hour
+                buffer.get() & 0xFF,            // Minute
+                buffer.get() & 0xFF             // Second
+        ));
+
+        position.setSatellites(buffer.get() & 0xFF);
+        position.setLatitude(buffer.getInt() / 1800000.0);
+        position.setLongitude(buffer.getInt() / 1800000.0);
+        position.setSpeed((buffer.get() & 0xFF) * 1.852);  // Convert knots to km/h
+        position.setCourse((double) (buffer.getShort() & 0xFFFF));
+
+        logger.debug("Parsed GPS position: {}", position);
+        return position;
+    }
+
+    protected byte[] generateLoginResponse(short serialNumber) {
+        byte[] response = new byte[11];
+
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+
+        // Packet length (5 bytes: protocol + serial + status)
+        response[2] = 0x05;
+
+        // Protocol number (login)
+        response[3] = PROTOCOL_LOGIN;
+
+        // Serial number (big-endian)
+        response[4] = (byte) (serialNumber >> 8);
+        response[5] = (byte) (serialNumber & 0xFF);
+
+        // Status (success)
+        response[6] = 0x01;
+
+        // Calculate CRC
+        ByteBuffer crcBuffer = ByteBuffer.wrap(response, 2, 5);
+        int crc = Checksum.crc16(Checksum.CRC16_X25, crcBuffer);
+
+        // Add CRC (big-endian)
+        response[7] = (byte) (crc >> 8);
+        response[8] = (byte) (crc & 0xFF);
+
+        // Terminator
+        response[9] = PROTOCOL_TERMINATOR_1;
+        response[10] = PROTOCOL_TERMINATOR_2;
+
+        logger.info("Generated login response for serial {}: {}", serialNumber, bytesToHex(response));
+        return response;
+    }
+
+    protected byte[] generateAckResponse() {
+        byte[] response = new byte[10];
+
+        // Header
+        response[0] = PROTOCOL_HEADER_1;
+        response[1] = PROTOCOL_HEADER_2;
+
+        // Packet length (5 bytes)
+        response[2] = 0x05;
+
+        // Protocol number (login)
+        response[3] = PROTOCOL_LOGIN;
+
+        // Empty serial number
+        response[4] = 0x00;
+        response[5] = 0x00;
+
+        // Calculate CRC
+        ByteBuffer checksumBuffer = ByteBuffer.wrap(response, 2, 4);
+        int checksum = Checksum.crc16(Checksum.CRC16_X25, checksumBuffer);
+
+        // Add CRC
+        response[6] = (byte) (checksum >> 8);
+        response[7] = (byte) (checksum & 0xFF);
+
+        // Terminator
+        response[8] = PROTOCOL_TERMINATOR_1;
+        response[9] = PROTOCOL_TERMINATOR_2;
+
+        logger.info("Generated ACK response: {}", bytesToHex(response));
+        return response;
     }
 }
