@@ -2,6 +2,7 @@ package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.config.Checksum;
 import io.netty.channel.Channel;
+import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,10 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class ProtocolDetector {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetector.class);
+
+    public static final AttributeKey<ProtocolDetectionResult> PROTOCOL_DETECTION_RESULT_KEY =
+            AttributeKey.newInstance("ProtocolDetectionResult");
+
     private static final int MIN_DATA_LENGTH = 2;
     private static final String VERSION = "1.0";
 

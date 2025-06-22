@@ -8,6 +8,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -21,7 +22,7 @@ import org.springframework.stereotype.Component;
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
-    private final ProtocolDetector detector = new ProtocolDetector();
+    private final ProtocolDetector detector = new ProtocolDetector(); // Ensure this is the new ProtocolDetector
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -37,40 +38,46 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data);
 
-            // Run protocol detection
+            // Use the new ProtocolDetector's detect method
             ProtocolDetector.ProtocolDetectionResult result = detector.detect(data);
-            if (result.isValid() && "TELTONIKA".equalsIgnoreCase(result.getProtocol())) {
-                String packetType = result.getPacketType();
-                logger.info("ProtocolDetectionHandler: detected {} packetType={}, version={}",
-                        result.getProtocol(), packetType, result.getVersion());
 
-                ChannelPipeline pipeline = ctx.pipeline();
-                if ("IMEI".equalsIgnoreCase(packetType)) {
-                    // IMEI frames are fixed-length; just pass them downstream
-                    logger.info("ProtocolDetectionHandler: passing IMEI frame downstream");
-                    ctx.fireChannelRead(buf.retain());
-                } else {
-                    // Any Teltonika data (e.g. AVL_DATA_CODEC_8) → install frame decoder
+            if (result.isDetected()) {
+                // If Teltonika AVL data is detected, inject the specific framer
+                if ("TELTONIKA".equalsIgnoreCase(result.getProtocol()) && result.getPacketType().startsWith("AVL_DATA_CODEC_")) {
+                    ChannelPipeline pipeline = ctx.pipeline();
                     logger.info("ProtocolDetectionHandler: TELTONIKA DATA packet detected — installing frame decoder and removing self");
                     pipeline.addFirst("teltonikaFrameDecoder",
-                            new io.netty.handler.codec.LengthFieldBasedFrameDecoder(
-                                    10240,  // maxFrameLength: Maximum length of the entire Teltonika packet (preamble + data length + content + CRC)
-                                    4,      // lengthFieldOffset: The length field starts after the 4-byte preamble.
-                                    4,      // lengthFieldLength: The length field itself is 4 bytes.
-                                    2,      // lengthAdjustment: The Teltonika "Data Length" field typically excludes the final 2-byte CRC-16. Adding 2 ensures the full content (including CRC) is framed.
-                                    8       // initialBytesToStrip: Strip the 4-byte preamble AND the 4-byte data length field. The ByteBuf passed downstream will then start directly with the Codec ID.
+                            new LengthFieldBasedFrameDecoder(
+                                    10240,  // maxFrameLength
+                                    4,      // lengthFieldOffset
+                                    4,      // lengthFieldLength
+                                    2,      // lengthAdjustment
+                                    8       // initialBytesToStrip
                             )
                     );
-                    pipeline.remove(this);
-                    // Re-fire the current buffer so the new framer sees it immediately
-                    ctx.fireChannelRead(buf.retain());
+                    pipeline.remove(this); // Remove self after injecting the framer
+                    ctx.fireChannelRead(buf.retain()); // Re-fire the current buffer so the new framer sees it immediately
+                } else {
+                    // For other detected protocols (GT06, Teltonika IMEI, TK103),
+                    // simply fire the detection result and the buffer downstream.
+                    logger.info("Detected {} protocol (PacketType: {}): {}", result.getProtocol(), result.getPacketType(), ByteBufUtil.hexDump(data));
+                    // Store the detection result in channel attributes for BaseProtocolDecoder
+                    ctx.channel().attr(ProtocolDetector.PROTOCOL_DETECTION_RESULT_KEY).set(result); //
+                    ctx.fireChannelRead(buf.retain()); // Retain before firing to ensure it's not released prematurely
                 }
-                return;
+            } else {
+                // No protocol detected by the new ProtocolDetector
+                logger.warn("ProtocolDetectionHandler: No protocol detected for incoming data. Error: {}. Releasing buffer.", result.getError());
+                ReferenceCountUtil.release(buf); // Release buffer if no handler processes it
             }
         } finally {
-            buf.release();
+            // No general release here, as handled paths explicitly retain, and unhandled paths release.
         }
-        // Not Teltonika or invalid detection → let other handlers see it
-        super.channelRead(ctx, msg);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        logger.error("ProtocolDetectionHandler: Channel error", cause);
+        ctx.close();
     }
 }
