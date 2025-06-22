@@ -36,7 +36,7 @@ public class TeltonikaHandler implements ProtocolHandler {
     // Corrected Heartbeat ACK to a single byte 0x01
     private static final byte[] HEARTBEAT_RESPONSE = new byte[] {0x01};
 
-    @Value("${teltonika.validation.mode:STRICT}")
+    @Value("${teltonika.validation.mode:LENIENT}")
     private ValidationMode validationMode;
 
     // This method signature is from the ProtocolHandler interface for parsing raw message
@@ -371,7 +371,7 @@ public class TeltonikaHandler implements ProtocolHandler {
             message.addParsedData("error", e.getMessage());
 
             // Correction: Handle exceptions based on validationMode
-            if (validationMode == ValidationMode.STRICT) {
+            if (validationMode == ValidationMode.LENIENT) {
                 // In strict mode, re-throw the exception for any parsing error
                 throw new ProtocolException("Failed to handle data packet", e);
             } else {
