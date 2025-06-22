@@ -163,7 +163,7 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
                     case 0x8A:
                         return handleHeartbeat(buffer, message, parsedData, ctx); // you can alias 0x8A to heartbeat
                     case 0xA0:
-                        return handleGpsExtended(buffer, message, parsedData, variant);
+                        return handleGpsExtended(buffer, message, parsedData, variant, ctx);
                     case 0x26:
                         return handleVl03Extended(buffer, message, parsedData);
                     case 0x16:
@@ -362,7 +362,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
 
     private DeviceMessage handleGpsExtended(ByteBuffer buffer, DeviceMessage message,
-                                            Map<String, Object> parsedData, Variant variant) throws Exception {
+                                         Map<String, Object> parsedData, Variant variant,
+                                         ChannelHandlerContext ctx) throws Exception {
         try {
             // Ensure Position is initialized
             if (message.getPosition() == null) {
@@ -529,6 +530,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte) 0x01);
             message.setResponseData(response);
             message.setResponseRequired(true);
+            // **ACTUAL ACK** for extended packet
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
 
             return message;
 
