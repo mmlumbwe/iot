@@ -26,39 +26,34 @@ public class DynamicProtocolFramer extends ChannelInboundHandlerAdapter {
                 ctx.pipeline().remove(this);
 
                 if ("TELTONIKA".equalsIgnoreCase(protocol)) {
-                    logger.info("DynamicProtocolFramer: adding Teltonika LengthFieldBasedFrameDecoder");
-                    // Teltonika (e.g., Codec 8) packet structure:
-                    // Preamble (4 bytes, 0x00000001)
-                    // Data Length (4 bytes, specifies length of AVL Data from Codec ID to CRC)
-                    // AVL Data (variable length)
-                    // CRC (4 bytes)
+                    if ("IMEI".equalsIgnoreCase(result.getPacketType())) {
+                        logger.info("DynamicProtocolFramer: Teltonika IMEI packet. No frame decoder needed for IMEI.");
+                        // IMEI packets do not require LengthFieldBasedFrameDecoder.
+                        // They are typically handled directly by TeltonikaHandler after initial detection.
+                    } else {
+                        logger.info("DynamicProtocolFramer: adding Teltonika LengthFieldBasedFrameDecoder for DATA packet.");
+                        // Teltonika (e.g., Codec 8) packet structure:
+                        // Preamble (4 bytes, 0x00000001)
+                        // Data Length (4 bytes, specifies length of AVL Data from Codec ID to CRC)
+                        // AVL Data (variable length)
+                        // CRC (2 bytes)
 
-                    // lengthFieldOffset: 4 (after the 4-byte preamble)
-                    // lengthFieldLength: 4 (the length field itself is 4 bytes)
-                    // lengthAdjustment: -8 (Data Length field counts from Codec ID to CRC.
-                    //                      We need to account for the Preamble and the Length Field itself.
-                    //                      So, total packet = Preamble(4) + LengthField(4) + (Data Length from field) + CRC(4)
-                    //                      The LengthFieldBasedFrameDecoder calculates: frame = actual_length + lengthAdjustment
-                    //                      So if LengthField = L, total frame size = 4 + 4 + L + 4.
-                    //                      We want the decoder to output (4 + 4 + L + 4) bytes.
-                    //                      Length field value is L. So, L + lengthAdjustment = (4+4+L+4)
-                    //                      lengthAdjustment = 8. (Precludes the preamble and length field in the length calculation itself for simpler parsing)
-                    //                      Wait, standard Teltonika length field *includes* Codec ID to CRC.
-                    //                      So, reported length is (Codec ID + AVL Data + CRC).
-                    //                      Total packet size = 4 (Preamble) + 4 (Data Length) + Reported Length.
-                    //                      LengthFieldBasedFrameDecoder expects frame length to be at 'lengthFieldOffset'.
-                    //                      So here: lengthFieldOffset = 4 (preamble is 4 bytes).
-                    //                      lengthFieldLength = 4.
-                    //                      lengthAdjustment = 4 (for CRC) + 4 (for Preamble) = 8.
-                    //                      initialBytesToStrip = 0 (we want TeltonikaHandler to see the full packet including preamble).
-                    ctx.pipeline().addFirst("teltonikaFrameDecoder", new LengthFieldBasedFrameDecoder(
-                            1024 * 4, // maxFrameLength (e.g., 4KB, adjust as per device max packet size)
-                            4,        // lengthFieldOffset: offset to the length field itself (after 4-byte preamble)
-                            4,        // lengthFieldLength: length of the length field (4 bytes)
-                            8,        // lengthAdjustment: 4 bytes (for CRC) + 4 bytes (for Preamble)
-                            0         // initialBytesToStrip: 0 to pass the entire framed packet to the TeltonikaHandler
-                    ));
-                    logger.info("Added LengthFieldBasedFrameDecoder for Teltonika.");
+                        // Parameters for LengthFieldBasedFrameDecoder:
+                        // maxFrameLength: Maximum expected frame length (e.g., 4KB)
+                        // lengthFieldOffset: Offset to the start of the length field (after 4-byte preamble)
+                        // lengthFieldLength: Length of the length field (4 bytes)
+                        // lengthAdjustment: (Preamble length + Length field length) = 4 + 4 = 8 bytes.
+                        //                   This adds the bytes before and including the length field to the value of the length field to get total frame length.
+                        // initialBytesToStrip: 0 to pass the entire framed packet (including preamble and length field) to the next handler.
+                        ctx.pipeline().addFirst("teltonikaFrameDecoder", new LengthFieldBasedFrameDecoder(
+                                1024 * 4, // maxFrameLength (e.g., 4KB, adjust as per device max packet size)
+                                4,        // lengthFieldOffset: offset to the length field itself (after 4-byte preamble)
+                                4,        // lengthFieldLength: length of the length field (4 bytes)
+                                8,        // lengthAdjustment: 4 bytes (for Preamble) + 4 bytes (for Length Field itself)
+                                0         // initialBytesToStrip: 0 to pass the entire framed packet to the TeltonikaHandler
+                        ));
+                        logger.info("Added LengthFieldBasedFrameDecoder for Teltonika DATA.");
+                    }
                 } else if ("GT06".equalsIgnoreCase(protocol)) {
                     // GT06 typically uses 0x0D0A delimiters.
                     // The Gt06Handler expects the 0x0D0A to be present.

@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
  * ProtocolDetectionHandler dispatches incoming ByteBufs to the appropriate protocol decoder.
  * It attempts primary detection via ProtocolDetector.detect(...), and if that returns null
  * or a non-detected result, it falls back to Teltonika and GT06 matchers.
- * For Teltonika AVL data, it installs a LengthFieldBasedFrameDecoder before routing the raw bytes.
+ * It no longer installs LengthFieldBasedFrameDecoder for Teltonika AVL data; this responsibility is moved to DynamicProtocolFramer.
  */
 @Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
@@ -57,6 +57,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 // Teltonika fallback
                 ProtocolDetector.TeltonikaMatcher teltonikaMatcher = new ProtocolDetector.TeltonikaMatcher();
                 if (teltonikaMatcher.matches(data)) {
+                    // Teltonika detection (IMEI or AVL data)
                     handleTeltonikaProtocol(ctx, buf, teltonikaMatcher.getPacketType(data));
                     return;
                 }
@@ -81,6 +82,7 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
+            // Primary detection succeeded
             if ("TELTONIKA".equalsIgnoreCase(result.getProtocol())) {
                 handleTeltonikaProtocol(ctx, buf, result.getPacketType());
             } else {
@@ -96,31 +98,13 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private void handleTeltonikaProtocol(ChannelHandlerContext ctx, ByteBuf buf, String packetType) {
         logger.info("Processing Teltonika packet: {}", packetType);
 
-        if ("IMEI".equalsIgnoreCase(packetType)) {
-            logger.debug("Forwarding Teltonika IMEI frame");
-            ctx.fireChannelRead(
-                    ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
-            );
-            ctx.fireChannelRead(buf.retain());
-        } else {
-            logger.info("Installing Teltonika frame decoder");
-            ChannelPipeline pipeline = ctx.pipeline();
-            pipeline.addFirst("teltonikaFrameDecoder",
-                    new LengthFieldBasedFrameDecoder(
-                            10240,  // maxFrameLength
-                            4,      // lengthFieldOffset
-                            4,      // lengthFieldLength
-                            2,      // lengthAdjustment
-                            8       // initialBytesToStrip
-                    )
-            );
-            pipeline.remove(this);
-
-            ctx.fireChannelRead(
-                    ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
-            );
-            ctx.fireChannelRead(buf.retain());
-        }
+        // For Teltonika (IMEI or DATA), simply fire the detection result and the buffer.
+        // DynamicProtocolFramer downstream will handle the addition of LengthFieldBasedFrameDecoder.
+        logger.info("Forwarding Teltonika {} frame for framing by DynamicProtocolFramer.", packetType);
+        ctx.fireChannelRead(
+                ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
+        );
+        ctx.fireChannelRead(buf.retain());
     }
 
     @Override
