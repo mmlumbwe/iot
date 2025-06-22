@@ -5,6 +5,7 @@ import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.AttributeKey; // Corrected import for AttributeKey
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,14 +33,17 @@ public class TeltonikaHandler implements ProtocolHandler {
     private static final int CODEC_16 = 0x10;
     private static final int IMEI_LENGTH = 15;
     private static final Pattern IMEI_PATTERN = Pattern.compile("^\\d{15}$");
-    private static final byte[] HEARTBEAT_RESPONSE = new byte[] {0x00, 0x00, 0x00, 0x01};
+    // Corrected Heartbeat ACK to a single byte 0x01
+    private static final byte[] HEARTBEAT_RESPONSE = new byte[] {0x01};
 
     @Value("${teltonika.validation.mode:STRICT}")
     private ValidationMode validationMode;
 
+    // This method signature is from the ProtocolHandler interface for parsing raw message
+    // It's not directly used for the network stream handling as seen in handle(byte[] data, ChannelHandlerContext ctx)
     @Override
     public Position parsePosition(byte[] rawMessage) throws ProtocolException {
-        if (rawMessage == null || rawMessage.length < TeltonikaConstants.HEADER_SIZE) {
+        if (rawMessage == null || rawMessage.length < TeltonikaConstants.HEADER_SIZE) { // Assuming TeltonikaConstants.HEADER_SIZE is 8
             throw new ProtocolException("Message too short or null");
         }
 
@@ -47,21 +51,36 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         try {
             // Validate packet structure
-            if (buffer.getInt() != 0) {
+            if (buffer.getInt() != 0) { // Preamble
                 throw new ProtocolException("Invalid preamble");
             }
 
-            int dataLength = buffer.getInt();
-            if (rawMessage.length < dataLength + TeltonikaConstants.HEADER_SIZE) {
-                throw new ProtocolException("Invalid data length");
+            final int dataLength = buffer.getInt();
+            // dataLength is from Codec ID to CRC. Total expected length is HEADER_SIZE + dataLength.
+            if (rawMessage.length < TeltonikaConstants.HEADER_SIZE + dataLength) {
+                throw new ProtocolException("Invalid data length: packet reports " + dataLength + " bytes, but actual total is " + rawMessage.length);
             }
+            // Set buffer limit to the end of the AVL data block (before CRC)
+            // The dataLength includes CRC, so actual AVL data bytes = dataLength - 4 (for CRC)
+            buffer.limit(TeltonikaConstants.HEADER_SIZE + dataLength - 4); // Limit to end of AVL data, before CRC
 
-            int codecId = buffer.get() & 0xFF;
+            final int codecId = buffer.get() & 0xFF;
             if (!isSupportedCodec(codecId)) {
                 throw new ProtocolException("Unsupported codec: " + codecId);
             }
 
-            // Parse IMEI
+            // Parse IMEI (this part seems out of place for `parsePosition` if IMEI is in separate packet)
+            // This suggests parsePosition is intended for a full AVL packet with IMEI prefix.
+            // If the IMEI is part of the AVL data (Codec 12), the parsing would be different.
+            // Assuming this parsePosition is for Codec 8/8E/16 where IMEI is handled by parent handler.
+            // Removed IMEI parsing here as it's handled in isImeiPacket and handleImeiPacket,
+            // and positions are typically associated with an IMEI from the session.
+            // If this method is called directly with a raw message containing IMEI, it needs revision.
+
+            // The following IMEI handling is problematic if parsePosition is called on an actual AVL data packet
+            // where IMEI is not expected at the beginning of the buffer AFTER preamble and dataLength.
+            // Commenting out to avoid conflict with standard Teltonika AVL data structure.
+            /*
             byte[] imeiBytes = new byte[IMEI_LENGTH];
             buffer.get(imeiBytes);
             String imei = cleanImei(new String(imeiBytes, StandardCharsets.US_ASCII));
@@ -69,68 +88,67 @@ public class TeltonikaHandler implements ProtocolHandler {
             if (!isValidImei(imei)) {
                 throw new ProtocolException("Invalid IMEI: " + imei);
             }
-
-            // Create device
             Device device = new Device();
             device.setImei(imei);
             device.setProtocolType("TELTONIKA");
+            */
 
             // Parse position data based on codec
             Position position;
             switch (codecId) {
                 case CODEC_8:
                 case CODEC_8_EXT:
+                    // For parsePosition, we usually expect a single record.
+                    // The buffer should contain just one record's data.
                     position = parseCodec8Data(buffer);
                     break;
                 case CODEC_16:
-                    position = parseCodec16Data(buffer);
+                    position = parseCodec16Data(buffer); // This calls parseCodec8Data then skipIoElements
                     break;
                 default:
                     throw new ProtocolException("Unhandled codec: " + codecId);
             }
 
-            position.setDevice(device);
+            // After parsing AVL data, advance buffer past CRC (which is part of dataLength)
+            // The CRC is the last 4 bytes of the packetLength field's data.
+            // We set limit to before CRC. Now we need to consume the CRC.
+            buffer.position(rawMessage.length - 4); // Move to CRC position
+            final int crc = buffer.getInt(); // Read CRC
+            logger.debug("CRC (rawMessage parse): 0x{}", Integer.toHexString(crc));
+
+            // position.setDevice(device); // Device association should happen at higher level, from session context.
             return position;
 
         } catch (Exception e) {
-            throw new ProtocolException("Failed to parse position", e);
+            throw new ProtocolException("Failed to parse position: " + e.getMessage(), e);
         }
     }
 
-    // This is the method required by the ProtocolHandler interface
     @Override
     public DeviceMessage handle(byte[] data) throws ProtocolException {
-        // This method will not have ChannelHandlerContext directly.
-        // We will call the existing method, passing null for ctx.
-        // The existing method must handle null ctx gracefully.
-        return handle(data, null); // Delegate to the method with ChannelHandlerContext
+        return handle(data, null); // Delegate to the method with ChannelHandlerContext, passing null
     }
 
     /** Convert a byte array to a hex string (uppercase, no separators). */
-    private static String toHexString(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
+    private static String toHexString(final byte[] bytes) {
+        final StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (final byte b : bytes) {
             sb.append(String.format("%02X", b));
         }
         return sb.toString();
     }
 
-
-    // Removed @Override because this specific signature is likely not from the interface
-    public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
+    public DeviceMessage handle(final byte[] data, final ChannelHandlerContext ctx) throws ProtocolException {
         logger.info(
                 "→ TeltonikaHandler.handle(...) called; data.length={}, ctx={}",
                 data.length,
                 ctx
         );
-        DeviceMessage message = new DeviceMessage();
+        final DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
 
-
-
-
         logger.info("TeltonikaHandler: ENTER handle, data.length={}, firstBytes={}", data.length,
-                data.length>4 ? String.format("%02X%02X%02X%02X", data[0],data[1],data[2],data[3]) : toHexString(data));
+                data.length > 4 ? String.format("%02X%02X%02X%02X", data[0],data[1],data[2],data[3]) : toHexString(data));
         logger.info("TeltonikaHandler: ENTER handle, data.length={}, first4={}",
                 data.length,
                 data.length >= 4 ? toHexString(Arrays.copyOf(data, 4)) : toHexString(data));
@@ -152,9 +170,11 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
         if (isImeiPacket(data)) {
             logger.info("TeltonikaHandler: IMEI packet – will ACK and create session");
-            DeviceMessage msg = handleImeiPacket(data, message);
+            final DeviceMessage msg = handleImeiPacket(data, message);
             if (ctx != null) {
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01}))
+                // Store IMEI in channel context for subsequent AVL data packets
+                ctx.channel().attr(AttributeKey.valueOf("imei")).set(msg.getImei());
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x01})) // Standard IMEI ACK is 0x01
                         .addListener(f -> {
                             if (f.isSuccess()) {
                                 logger.info("TeltonikaHandler: login ACK (0x01) sent to {}", msg.getImei());
@@ -167,9 +187,9 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
         if (isDataPacket(data)) {
             logger.info("TeltonikaHandler: DATA packet – about to parse {} bytes", data.length);
-            DeviceMessage msg = handleDataPacket(data, message);
-            // after building response in parsedData:
-            byte[] resp = (byte[]) msg.getParsedData().get("response");
+            final DeviceMessage msg = handleDataPacket(data, message);
+            // After building response in parsedData:
+            final byte[] resp = (byte[]) msg.getParsedData().get("response");
             logger.info("TeltonikaHandler: sending DATA ACK ({} bytes)", resp == null ? 0 : resp.length);
             if (ctx != null) {
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
@@ -180,13 +200,14 @@ public class TeltonikaHandler implements ProtocolHandler {
         throw new ProtocolException("Unsupported Teltonika packet");
     }
 
-    private boolean isDataPacket(byte[] data) {
-        if (data == null || data.length < TeltonikaConstants.HEADER_SIZE + 1) { // Min data packet: Preamble (4) + Data Length (4) + Codec (1) + Record Count (1) + CRC (4)
+    private boolean isDataPacket(final byte[] data) {
+        // Min data packet: Preamble (4) + Data Length (4) + Codec (1) + Record Count (1) + CRC (4) = 14 bytes
+        if (data == null || data.length < TeltonikaConstants.HEADER_SIZE + 1 + 1 + 4) { // HEADER_SIZE is 8 for preamble+length
             return false;
         }
 
         try {
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+            final ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
 
             // Check preamble (4 zero bytes)
             if (buffer.getInt() != 0) {
@@ -194,54 +215,55 @@ public class TeltonikaHandler implements ProtocolHandler {
             }
 
             // Check data length
-            int dataLength = buffer.getInt();
+            final int dataLength = buffer.getInt();
             // dataLength is the size from Codec ID to CRC (inclusive of Codec, Record Count, and CRC)
             // Total packet size = Preamble (4) + Data Length (4) + dataLength
             if (data.length < TeltonikaConstants.HEADER_SIZE + dataLength) {
+                logger.debug("isDataPacket: data length mismatch. Expected at least {} but got {}", TeltonikaConstants.HEADER_SIZE + dataLength, data.length);
                 return false;
             }
             // Add a sanity check for dataLength to prevent extremely large or negative values
             if (dataLength <= 0 || dataLength > 1024 * 1024) { // Reasonable max size, e.g., 1MB
+                logger.debug("isDataPacket: invalid dataLength. Value: {}", dataLength);
                 return false;
             }
 
-
             // Check codec ID (should be one of supported codecs)
-            int codecId = buffer.get() & 0xFF;
+            final int codecId = buffer.get() & 0xFF;
             if (!isSupportedCodec(codecId)) {
+                logger.debug("isDataPacket: unsupported codec ID. Value: {}", codecId);
                 return false;
             }
 
             // Also check for record count
             if (buffer.remaining() < 1) { // Need at least 1 byte for record count
+                logger.debug("isDataPacket: missing record count byte.");
                 return false;
             }
             buffer.get(); // Skip record count, no need to check value here for isDataPacket
 
-            // The remaining bytes should correspond to the dataLength minus what we've already consumed
-            // (codec ID (1 byte) + record count (1 byte))
-            // This check might be too strict here, as CRC is part of dataLength
-            // It's better to rely on dataLength for overall packet size validation
             return true;
 
-        } catch (Exception e) {
+        } catch (final Exception e) {
             logger.debug("isDataPacket check failed: {}", e.getMessage());
             return false;
         }
     }
 
-    public DeviceMessage handleImeiPacket(byte[] data, DeviceMessage message) throws ProtocolException {
-        // Validate packet structure (2 bytes length + IMEI)
-        if (data == null || data.length < 17 || data.length > 19) { // 2 bytes length + 15 bytes IMEI = 17. Teltonika spec might allow 18 or 19 with padding.
-            throw new ProtocolException("Invalid IMEI packet length");
+    public DeviceMessage handleImeiPacket(final byte[] data, final DeviceMessage message) throws ProtocolException {
+        // Validate packet structure: 2 bytes length + IMEI.
+        // The length field should indicate the length of the IMEI string (15 bytes).
+        // Total expected length for a valid IMEI packet: 2 (length field) + 15 (IMEI) = 17 bytes.
+        if (data == null || data.length < 2) {
+            throw new ProtocolException("Invalid IMEI packet: data too short for length field.");
         }
 
-        int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
-        if (length != IMEI_LENGTH) {  // Teltonika requires exactly 15 digits
-            throw new ProtocolException("IMEI length field mismatch. Expected 15, got " + length);
+        final int length = ((data[0] & 0xFF) << 8 | (data[1] & 0xFF));
+        if (length != IMEI_LENGTH) {
+            throw new ProtocolException("IMEI length field mismatch. Expected " + IMEI_LENGTH + ", got " + length);
         }
-        if (data.length < 2 + length) {
-            throw new ProtocolException("IMEI packet too short for advertised length. Expected " + (2+length) + ", got " + data.length);
+        if (data.length != (2 + IMEI_LENGTH)) { // Strict check for 17 bytes total
+            throw new ProtocolException("IMEI packet has incorrect total length. Expected " + (2 + IMEI_LENGTH) + ", got " + data.length);
         }
 
         String imei = new String(data, 2, length, StandardCharsets.US_ASCII);
@@ -259,15 +281,14 @@ public class TeltonikaHandler implements ProtocolHandler {
     }
 
 
-    private DeviceMessage handleDataPacket(byte[] data, DeviceMessage message) throws ProtocolException {
+    private DeviceMessage handleDataPacket(final byte[] data, final DeviceMessage message) throws ProtocolException {
         try {
-            // Entry
-            logger.info("→ Entered handleDataPacket; totalBytes={}, wrapping buffer", data.length);
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+            logger.info("→ Entered handleDataPacket; totalBytes={}", data.length);
+            final ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
             logger.info("→ Buffer wrapped; remainingBytes={}", buffer.remaining());
 
             // 1) Skip Teltonika “preamble” (always zero)
-            int preamble = buffer.getInt();
+            final int preamble = buffer.getInt();
             if (preamble != 0) {
                 logger.error("→ Invalid preamble: expected 0x0, got 0x{}", Integer.toHexString(preamble));
                 throw new ProtocolException("Invalid preamble");
@@ -276,7 +297,7 @@ public class TeltonikaHandler implements ProtocolHandler {
                     Integer.toHexString(preamble), preamble);
 
             // 2) Read dataLength (actual packet length)
-            int packetLength = buffer.getInt();
+            final int packetLength = buffer.getInt();
             logger.info("→ Read packetLength field={}; will process next {} bytes",
                     packetLength, buffer.remaining());
 
@@ -288,32 +309,29 @@ public class TeltonikaHandler implements ProtocolHandler {
                 throw new ProtocolException("Invalid data length: packet reports " + packetLength + " bytes, but actual remaining is " + (data.length - TeltonikaConstants.HEADER_SIZE));
             }
             // Set a limit on the buffer to only read up to the end of the AVL data (before CRC)
-            // The CRC is at the end of the packet after the reported `packetLength` bytes.
-            // So, the buffer limit should be current position + packetLength - 4 (for CRC)
-            int initialBufferPosition = buffer.position();
-            // The dataLength includes Codec ID, Number of Records, AVL data, and CRC.
-            // The buffer's current position is after Preamble and Data Length fields.
-            // We need to limit the buffer to `packetLength` bytes from its current position
-            // to process only the AVL data and then handle the CRC separately.
             // The CRC is the last 4 bytes of the data indicated by packetLength.
             // So, the actual AVL data to read is packetLength - 4 (for CRC).
-            buffer.limit(initialBufferPosition + packetLength); // Set limit to the end of the data as indicated by packetLength field
+            final int avlDataLimit = buffer.position() + packetLength - 4;
+            if (avlDataLimit < buffer.position() || avlDataLimit > buffer.limit()) { // Sanity check for limit calculation
+                throw new ProtocolException("Calculated AVL data limit is invalid: " + avlDataLimit);
+            }
+            buffer.limit(avlDataLimit);
 
             // 3) Read codec and count
             if (buffer.remaining() < 2) {
                 throw new ProtocolException("Not enough bytes for Codec ID and Record Count.");
             }
-            int codecId = buffer.get() & 0xFF;
-            int recordCount = buffer.get() & 0xFF;
+            final int codecId = buffer.get() & 0xFF;
+            final int recordCount = buffer.get() & 0xFF;
             logger.info("→ codecId={}, recordCount={}", codecId, recordCount);
 
             // 4) Prepare message
-            String version = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
+            final String version = TeltonikaConstants.CODECS.getOrDefault(codecId, "UNKNOWN");
             message.setProtocolVersion(version);
             message.setMessageType("DATA");
 
             // 5) Dispatch
-            DeviceMessage resultMessage;
+            final DeviceMessage resultMessage;
             switch (codecId) {
                 case CODEC_8:
                 case CODEC_8_EXT:
@@ -329,22 +347,25 @@ public class TeltonikaHandler implements ProtocolHandler {
 
             // After processing, the buffer should be at the start of the CRC.
             // The packetLength includes the CRC at the very end.
-            // So, consume the CRC bytes for completeness (4 bytes).
+            // Restore original limit to read CRC.
+            buffer.limit(buffer.capacity()); // Reset limit to full buffer capacity
+            // Position buffer to read CRC which is at the original `initialBufferPosition + packetLength`
+            buffer.position(TeltonikaConstants.HEADER_SIZE + packetLength - 4); // Position to CRC start
             if (buffer.remaining() >= 4) {
-                int crc = buffer.getInt(); // Read CRC, but not validating it here
+                final int crc = buffer.getInt(); // Read CRC
                 logger.info("→ Consumed CRC: 0x{}", Integer.toHexString(crc));
             } else {
                 logger.warn("→ Missing CRC at the end of the packet. Remaining bytes: {}", buffer.remaining());
-                // Depending on validationMode, this could also be a ProtocolException
                 if (validationMode == ValidationMode.STRICT) {
                     throw new ProtocolException("Missing CRC at the end of the data packet.");
                 }
             }
-
+            // Ensure buffer position is at the end of the consumed packet to avoid re-reading
+            buffer.position(TeltonikaConstants.HEADER_SIZE + packetLength);
 
             return resultMessage;
 
-        } catch (Exception e) {
+        } catch (final Exception e) {
             logger.error("→ Error handling Teltonika data packet", e);
             message.setMessageType("ERROR");
             message.addParsedData("error", e.getMessage());
@@ -354,18 +375,18 @@ public class TeltonikaHandler implements ProtocolHandler {
 
 
     private DeviceMessage processCodec8Packet(
-            ByteBuffer buffer,
-            DeviceMessage message,
-            int recordCount) throws ProtocolException {
+            final ByteBuffer buffer,
+            final DeviceMessage message,
+            final int recordCount) throws ProtocolException {
 
         logger.info("→ Entered processCodec8Packet; buffer.position={}, remainingBytes={}",
                 buffer.position(), buffer.remaining());
 
-        List<Position> positions = new ArrayList<>();
+        final List<Position> positions = new ArrayList<>();
         int successfulRecords = 0;
 
         for (int i = 0; i < recordCount; i++) {
-            int recordStartPosition = buffer.position();
+            final int recordStartPosition = buffer.position();
             logger.info("→ Parsing record #{}/{} starting at buffer position {}", i + 1, recordCount, recordStartPosition);
 
             // Minimum bytes for one record (fixed part + 1 byte Event ID) = 25 bytes
@@ -375,7 +396,7 @@ public class TeltonikaHandler implements ProtocolHandler {
                 break; // Exit loop if not enough bytes for even the fixed part and Event ID
             }
             try {
-                Position pos = parseCodec8Data(buffer); // parseCodec8Data now consumes fixed part + Event ID
+                final Position pos = parseCodec8Data(buffer); // parseCodec8Data now consumes fixed part + Event ID
                 logger.info("→ Parsed fixed part of record #{}: ts={}, lat={}, lon={}",
                         i + 1, pos.getTimestamp(), pos.getLatitude(), pos.getLongitude());
 
@@ -386,7 +407,7 @@ public class TeltonikaHandler implements ProtocolHandler {
 
                 // associate device
                 if (message.getImei() != null) {
-                    Device d = new Device();
+                    final Device d = new Device();
                     d.setImei(message.getImei());
                     d.setProtocolType("TELTONIKA");
                     pos.setDevice(d);
@@ -395,21 +416,15 @@ public class TeltonikaHandler implements ProtocolHandler {
                 positions.add(pos);
                 successfulRecords++; // Increment only for successfully parsed records
 
-            } catch (ProtocolException ex) {
+            } catch (final ProtocolException ex) {
                 logger.warn("→ Failed to parse record #{} due to malformed data: {}", i + 1, ex.getMessage());
-                // Attempt to advance the buffer to the end of the reported packet or current record's expected end
-                // This recovery mechanism needs to be robust. If an exception occurs, it means
-                // the current record is malformed. We should try to skip past it.
-                // A safer approach might be to try to jump to where the next record *should* start,
-                // or just consume the rest of the buffer if we cannot reliably skip.
                 if (validationMode == ValidationMode.STRICT) {
                     throw ex; // Re-throw if in strict mode
                 } else {
                     // In lenient or recover mode, try to skip to the end of current expected data.
                     // This is very difficult if we don't know the size of the malformed part.
-                    // The safest bet is to consume the rest of the buffer for this packet.
-                    // For now, let's just break out of the loop, as we can't trust remaining data.
-                    logger.warn("Aborting further record parsing due to unrecoverable error in record #{}.", i+1);
+                    // The safest bet is to consume the rest of the buffer for this packet's AVL data.
+                    logger.warn("Aborting further record parsing due to unrecoverable error in record #{}. Consuming remaining bytes in current AVL data block.", i+1);
                     buffer.position(buffer.limit()); // Consume rest of the current data for this packet
                     break;
                 }
@@ -423,7 +438,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
 
         // ACK: echo back recordCount of *processed* records as a 4-byte integer
-        ByteBuffer ack = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN); // Allocate only 4 bytes
+        final ByteBuffer ack = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN); // Allocate only 4 bytes
         ack.putInt(successfulRecords); // Acknowledge only the records that were successfully processed
         message.addParsedData("response", ack.array());
         logger.info("→ processCodec8Packet: generated ACK for {} records", successfulRecords);
@@ -431,8 +446,8 @@ public class TeltonikaHandler implements ProtocolHandler {
         return message;
     }
 
-    private Position parseCodec8Data(ByteBuffer buffer) throws ProtocolException {
-        Position position = new Position();
+    private Position parseCodec8Data(final ByteBuffer buffer) throws ProtocolException {
+        final Position position = new Position();
 
         // Ensure enough bytes for fixed part + Event ID (25 bytes)
         if (buffer.remaining() < 25) {
@@ -440,20 +455,20 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
 
         // 1) Timestamp (8 bytes)
-        long ts = buffer.getLong();
+        final long ts = buffer.getLong();
         position.setTimestamp(
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault())
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.of("UTC")) // Use UTC for timestamps from device
         );
 
         // 2) Priority (1 byte) — drop
-        int priority = buffer.get() & 0xFF;
+        final int priority = buffer.get() & 0xFF;
         logger.debug("→ parseCodec8Data: priority={}", priority);
 
         // 3) Coordinates: LONG first, then LAT (each 4 bytes, scaled 1e7)
-        int lonRaw = buffer.getInt();
-        int latRaw = buffer.getInt();
-        double longitude = lonRaw / 1e7;
-        double latitude  = latRaw / 1e7;
+        final int lonRaw = buffer.getInt();
+        final int latRaw = buffer.getInt();
+        final double longitude = lonRaw / 1e7;
+        final double latitude  = latRaw / 1e7;
         position.setLatitude(latitude);
         position.setLongitude(longitude);
         logger.info("→ parseCodec8Data: lat={}, lon={}", latitude, longitude);
@@ -465,30 +480,30 @@ public class TeltonikaHandler implements ProtocolHandler {
         position.setCourse((double)(buffer.getShort() & 0xFFFF));
 
         // 6) Satellites & validity
-        int sats = buffer.get() & 0xFF;
+        final int sats = buffer.get() & 0xFF;
         position.setValid(sats > 0);
 
         // 7) Speed (2 bytes, knots → km/h)
-        double speedKnots = buffer.getShort() & 0xFFFF;
+        final double speedKnots = buffer.getShort() & 0xFFFF;
         position.setSpeed(speedKnots * 1.852);
 
         // --- Event ID (1 byte) ---
-        int eventId = buffer.get() & 0xFF;
+        final int eventId = buffer.get() & 0xFF;
         logger.debug("→ parseCodec8Data: skipped Event ID={}", eventId);
 
         return position;
     }
 
 
-    private DeviceMessage processCodec16Packet(ByteBuffer buffer, DeviceMessage message, int recordCount) throws ProtocolException {
+    private DeviceMessage processCodec16Packet(final ByteBuffer buffer, final DeviceMessage message, final int recordCount) throws ProtocolException {
         logger.info("→ Entered processCodec16Packet; buffer.position={}, remainingBytes={}",
                 buffer.position(), buffer.remaining());
 
-        List<Position> positions = new ArrayList<>();
+        final List<Position> positions = new ArrayList<>();
         int successfulRecords = 0;
 
         for (int i = 0; i < recordCount; i++) {
-            int recordStartPosition = buffer.position();
+            final int recordStartPosition = buffer.position();
             logger.info("→ Parsing Codec16 record #{}/{} starting at buffer position {}", i + 1, recordCount, recordStartPosition);
 
             // Minimum bytes for one record (fixed part + 1 byte Event ID) - same as Codec8 for base fields + event ID
@@ -499,7 +514,7 @@ public class TeltonikaHandler implements ProtocolHandler {
 
             try {
                 // Use the same parsing as Codec8 for base fields + Event ID
-                Position position = parseCodec8Data(buffer); // Now parses fixed part + Event ID
+                final Position position = parseCodec8Data(buffer); // Now parses fixed part + Event ID
                 logger.info("→ Parsed fixed part of Codec16 record #{}: ts={}, lat={}, lon={}",
                         i + 1, position.getTimestamp(), position.getLatitude(), position.getLongitude());
 
@@ -509,19 +524,19 @@ public class TeltonikaHandler implements ProtocolHandler {
                 logger.info("→ Skipped I/O elements for Codec16 record #{}; new buffer position={}", i + 1, buffer.position());
 
                 if (message.getImei() != null) {
-                    Device d = new Device();
+                    final Device d = new Device();
                     d.setImei(message.getImei());
                     d.setProtocolType("TELTONIKA");
                     position.setDevice(d);
                 }
                 positions.add(position);
                 successfulRecords++;
-            } catch (ProtocolException e) {
+            } catch (final ProtocolException e) {
                 logger.warn("Failed to parse Codec16 record #{} due to malformed data: {}", i + 1, e.getMessage());
                 if (validationMode == ValidationMode.STRICT) {
                     throw e; // Re-throw if in strict mode
                 } else {
-                    logger.warn("Aborting further record parsing due to unrecoverable error in Codec16 record #{}.", i+1);
+                    logger.warn("Aborting further record parsing due to unrecoverable error in Codec16 record #{}. Consuming remaining bytes in current AVL data block.", i+1);
                     buffer.position(buffer.limit()); // Consume rest of the current data for this packet
                     break;
                 }
@@ -535,25 +550,22 @@ public class TeltonikaHandler implements ProtocolHandler {
         }
 
         // Generate response (4-byte integer)
-        ByteBuffer response = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+        final ByteBuffer response = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
         response.putInt(successfulRecords); // Acknowledge only the records that were successfully processed
         message.addParsedData("response", response.array());
 
         return message;
     }
 
-    private Position parseCodec16Data(ByteBuffer buffer) throws ProtocolException {
-        // This method is called by parsePosition directly when only one position is expected.
-        // It needs to handle skipping I/O elements itself in this context.
-        Position position = parseCodec8Data(buffer); // Parse fixed part + Event ID
-
+    // This method is called by parsePosition directly when only one position is expected.
+    private Position parseCodec16Data(final ByteBuffer buffer) throws ProtocolException {
+        final Position position = parseCodec8Data(buffer); // Parse fixed part + Event ID
         skipIoElements(buffer, CODEC_16); // Skip I/O elements for this single record
-
         return position;
     }
 
     private DeviceMessage handleHeartbeat() {
-        DeviceMessage message = new DeviceMessage();
+        final DeviceMessage message = new DeviceMessage();
         message.setProtocol("TELTONIKA");
         message.setMessageType("HEARTBEAT");
         message.addParsedData("response", HEARTBEAT_RESPONSE);
@@ -561,7 +573,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         return message;
     }
 
-    private boolean isHeartbeatPacket(byte[] data) {
+    private boolean isHeartbeatPacket(final byte[] data) {
         if (data == null) return false;
 
         // Standard 4-byte null heartbeat
@@ -571,37 +583,33 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // Alternative 8-byte heartbeat format (not standard for Teltonika but can be seen)
         if (data.length == 8) {
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+            final ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
             return buffer.getInt() == 0 && buffer.getInt() == 0;
         }
 
         return false;
     }
 
-    private boolean isImeiPacket(byte[] data) {
+    private boolean isImeiPacket(final byte[] data) {
         // IMEI packet starts with a 2-byte length field, followed by the IMEI.
         // The length field should indicate the length of the IMEI string (15 bytes).
         // Total expected length for a valid IMEI packet: 2 (length field) + 15 (IMEI) = 17 bytes.
         if (data == null || data.length < 2) {
             return false;
         }
-        int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+        final int length = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+        // Strict check: length field must be IMEI_LENGTH and total data length must match 2 + IMEI_LENGTH
         return length == IMEI_LENGTH && data.length == (2 + IMEI_LENGTH);
     }
 
-    private void validateCoordinates(double latitude, double longitude) throws ProtocolException {
-        // The original line below is commented out to ignore invalid coordinates
-        // if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
-        //     throw new ProtocolException("Invalid coordinates: lat=" + latitude + ", lon=" + longitude);
-        // }
-    }
+    // Removed validateCoordinates as it was commented out and not used
 
     // Corrected skipIoElements to robustly handle byte consumption
-    private void skipIoElements(ByteBuffer buffer, int codecId) throws ProtocolException {
-        int beforeAll = buffer.position();
-        int[] sizes = {1, 2, 4, 8}; // For Codec 8, only 1, 2, 4 bytes are common, but 8 is for Codec8 Extended.
+    private void skipIoElements(final ByteBuffer buffer, final int codecId) throws ProtocolException {
+        final int beforeAll = buffer.position();
+        final int[] sizes = {1, 2, 4, 8}; // For Codec 8, only 1, 2, 4 bytes are common, but 8 is for Codec8 Extended.
         // For Codec 16, typically 1, 2, 4, 8 bytes are used.
-        for (int size : sizes) {
+        for (final int size : sizes) {
             // For CODEC_8, 8-byte I/O properties are part of CODEC_8_EXT.
             // If it's pure CODEC_8, skip 8-byte I/O sections.
             if (size == 8 && codecId == CODEC_8) continue; // Skip 8-byte for CODEC_8, only consider for CODEC_8_EXT or CODEC_16
@@ -609,17 +617,15 @@ public class TeltonikaHandler implements ProtocolHandler {
             // Check if there's at least one byte for the count
             if (buffer.remaining() < 1) {
                 logger.warn("→ Missing count byte for {}-byte I/O group. Remaining: {}. Exiting I/O skipping.", size, buffer.remaining());
-                // This means the I/O data is truncated severely.
-                // We cannot reliably parse further I/O elements.
                 throw new ProtocolException("Truncated I/O data: missing count for " + size + "-byte group.");
             }
-            int count = buffer.get() & 0xFF; // Read the count for this I/O element size
-            int beforeGroup = buffer.position();
+            final int count = buffer.get() & 0xFF; // Read the count for this I/O element size
+            final int beforeGroup = buffer.position();
 
             logger.info("→ I/O group {}-byte: count = {}", size, count);
 
             // Calculate expected bytes for this group
-            long expectedBytesForGroup = (long) count * (1 + size); // 1 byte for ID + size bytes for value
+            final long expectedBytesForGroup = (long) count * (1 + size); // 1 byte for ID + size bytes for value
 
             // Crucial check: Ensure enough bytes are available for ALL elements in this group
             if (buffer.remaining() < expectedBytesForGroup) {
@@ -634,70 +640,70 @@ public class TeltonikaHandler implements ProtocolHandler {
             // Skip each element: 1-byte ID + `size`-byte payload
             for (int i = 0; i < count; i++) {
                 buffer.get(); // Skip ID byte
-                buffer.position(buffer.position() + size); // Skip payload bytes
+                // Directly advance position for payload to avoid multiple method calls
+                buffer.position(buffer.position() + size);
             }
 
-            int afterGroup = buffer.position();
-            int consumed = afterGroup - beforeGroup;
+            final int afterGroup = buffer.position();
+            final int consumed = afterGroup - beforeGroup;
             logger.info(
                     "   → Group {}-byte: expected to skip {} bytes, actually skipped {} bytes",
                     size, expectedBytesForGroup, consumed
             );
         }
-        int afterAll = buffer.position();
+        final int afterAll = buffer.position();
         logger.info("→ skipIoElements: total consumed = {} bytes", afterAll - beforeAll);
     }
 
-    private String cleanImei(String rawImei) {
+    private String cleanImei(final String rawImei) {
         return rawImei != null ? rawImei.replaceAll("[^0-9]", "") : "";
     }
 
-    private boolean isValidImei(String imei) {
+    private boolean isValidImei(final String imei) {
         if (imei == null || imei.length() != 15 || !IMEI_PATTERN.matcher(imei).matches()) {
             return false;
         }
 
-        // Luhn check
+        // Luhn algorithm check
+        // Sum of digits, doubling every second digit from the right.
+        // For a 0-indexed string, iterating left-to-right, and a 15-digit IMEI (odd length),
+        // we double digits at indices 0, 2, 4, 6, 8, 10, 12.
         int sum = 0;
         for (int i = 0; i < imei.length(); i++) {
             int digit = Character.getNumericValue(imei.charAt(i));
-            if ((imei.length() - i) % 2 == 0) { // Double every other digit starting from the right (0-indexed)
-                // For 15-digit IMEI, this means 0, 2, 4, 6, 8, 10, 12, 14
-                // Or, if working from left, double 1st, 3rd, 5th, etc.
-                // Luhn algorithm usually doubles every second digit from the right.
-                // For 0-indexed string, it's (length - 1 - i) % 2 == 1 or (i % 2 != 0) if doubling second digit from left.
-                // Re-evaluating: standard Luhn often processes right-to-left.
-                // Let's assume the existing (i % 2 != 0) was for 0-indexed string from left, doubling 2nd, 4th, 6th etc.
-                // This is typical for implementations that iterate left-to-right.
+            if ((imei.length() - 1 - i) % 2 == 1) { // Check if it's an 'every second' digit from the right, starting second to last
+                // This means (i % 2 == 0) for odd length string if iterating left to right
                 digit *= 2;
-                if (digit > 9) digit -= 9;
+                if (digit > 9) {
+                    digit = (digit % 10) + 1; // Sum the digits if doubling resulted in a two-digit number
+                }
             }
             sum += digit;
         }
         return sum % 10 == 0;
     }
 
-    private boolean isSupportedCodec(int codecId) {
+    private boolean isSupportedCodec(final int codecId) {
         return codecId == CODEC_8 || codecId == CODEC_8_EXT || codecId == CODEC_16;
     }
 
     @Override
-    public byte[] generateResponse(Position position) {
-        // This method is likely for single-position responses, not the data packet ACK.
+    public byte[] generateResponse(final Position position) {
+        // This method is typically for single-position responses, not the data packet ACK.
         // It should also return a 4-byte count if used for data acknowledgments.
-        ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+        final ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
         buffer.putInt(1); // Acknowledge 1 record
         return buffer.array();
     }
 
     @Override
-    public boolean supports(String protocolType) {
+    public boolean supports(final String protocolType) {
         return "TELTONIKA".equalsIgnoreCase(protocolType);
     }
 
 
     @Override
-    public boolean canHandle(String protocol, String version) {
+    public boolean canHandle(final String protocol, final String version) {
         // Updated to explicitly accept "1.0" for the initial detection phase
         return "TELTONIKA".equalsIgnoreCase(protocol) &&
                 (version == null || version.startsWith("CODEC") || "1.0".equalsIgnoreCase(version));
@@ -706,5 +712,15 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     public enum ValidationMode {
         STRICT, LENIENT, RECOVER
+    }
+
+    // Assuming TeltonikaConstants is a separate class with common constants
+    public static class TeltonikaConstants {
+        public static final int HEADER_SIZE = 8; // Preamble (4 bytes) + Data Length (4 bytes)
+        public static final Map<Integer, String> CODECS = Map.of(
+                0x08, "CODEC8",
+                0x8E, "CODEC8_EXT",
+                0x10, "CODEC16"
+        );
     }
 }
