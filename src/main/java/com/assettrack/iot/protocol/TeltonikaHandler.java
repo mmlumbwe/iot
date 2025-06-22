@@ -455,9 +455,11 @@ public class TeltonikaHandler implements ProtocolHandler {
 
         // ACK: echo back recordCount of *processed* records as a 4-byte integer
         final ByteBuffer ack = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN); // Allocate only 4 bytes
-        ack.putInt(successfulRecords); // Acknowledge only the records that were successfully processed
+        //ack.putInt(successfulRecords); // Acknowledge only the records that were successfully processed
+        ack.putInt(recordCount);
         message.addParsedData("response", ack.array());
-        logger.info("→ processCodec8Packet: generated ACK for {} records", successfulRecords);
+        //logger.info("→ processCodec8Packet: generated ACK for {} records", successfulRecords);
+        logger.info("→ processCodec8Packet: generated ACK for {} records", recordCount);
 
         return message;
     }
