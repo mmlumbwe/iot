@@ -189,7 +189,12 @@ public class TeltonikaHandler implements ProtocolHandler {
             logger.info("TeltonikaHandler: DATA packet – about to parse {} bytes", data.length);
             final DeviceMessage msg = handleDataPacket(data, message);
             // After building response in parsedData:
-            final byte[] resp = (byte[]) msg.getParsedData().get("response");
+            byte[] resp = (byte[]) msg.getParsedData().get("response");
+            if (resp == null) {
+                // Default to 0-record ACK
+                resp = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(0).array();
+                msg.addParsedData("response", resp);
+            }
             logger.info("TeltonikaHandler: sending DATA ACK ({} bytes)", resp == null ? 0 : resp.length);
             if (ctx != null) {
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
@@ -580,7 +585,7 @@ public class TeltonikaHandler implements ProtocolHandler {
         message.setProtocol("TELTONIKA");
         message.setMessageType("HEARTBEAT");
         message.addParsedData("response", HEARTBEAT_RESPONSE);
-        logger.debug("Responded to heartbeat");
+        logger.info("Responded to heartbeat");
         return message;
     }
 
