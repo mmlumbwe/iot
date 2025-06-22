@@ -684,8 +684,9 @@ public class TeltonikaHandler implements ProtocolHandler {
 
     @Override
     public boolean canHandle(String protocol, String version) {
+        // Updated to explicitly accept "1.0" for the initial detection phase
         return "TELTONIKA".equalsIgnoreCase(protocol) &&
-                (version == null || version.startsWith("CODEC8") || version.startsWith("CODEC16"));
+                (version == null || version.startsWith("CODEC") || "1.0".equalsIgnoreCase(version));
     }
 
 
