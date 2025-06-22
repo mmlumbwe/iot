@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
  * It attempts primary detection via ProtocolDetector.detect(...), and if that returns null
  * or a non-detected result, it falls back to Teltonika and GT06 matchers.
  * It no longer installs LengthFieldBasedFrameDecoder for Teltonika AVL data; this responsibility is moved to DynamicProtocolFramer.
+ * THIS NOW does both
  */
 @Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
