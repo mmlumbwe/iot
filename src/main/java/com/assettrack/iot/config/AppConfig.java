@@ -27,6 +27,11 @@ import java.util.concurrent.Executor;
 @Configuration
 public class AppConfig {
     private static final Logger logger = LoggerFactory.getLogger(AppConfig.class);
+    private final ProtocolDetector protocolDetector;
+
+    public AppConfig(ProtocolDetector protocolDetector) {
+        this.protocolDetector = protocolDetector;
+    }
 
     @Bean
     public CommandLineRunner demo(PositionRepository repository) {
@@ -76,7 +81,7 @@ public class AppConfig {
 
     @Bean
     public ProtocolDetectionHandler protocolDetectionHandler() {
-        ProtocolDetectionHandler handler = new ProtocolDetectionHandler();
+        ProtocolDetectionHandler handler = new ProtocolDetectionHandler(protocolDetector);
         logger.info("Created ProtocolDetectionHandler bean with instance ID: {}", System.identityHashCode(handler));
         return handler;
     }
