@@ -2,6 +2,8 @@ package com.assettrack.iot.protocol;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
@@ -18,13 +20,10 @@ import org.slf4j.LoggerFactory;
  * or a non-detected result, it falls back to Teltonika and GT06 matchers.
  * For Teltonika AVL data, it installs a LengthFieldBasedFrameDecoder before routing the raw bytes.
  */
+@Sharable
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
-    private final ProtocolDetector protocolDetector;
-
-    public ProtocolDetectionHandler(ProtocolDetector protocolDetector) {
-        this.protocolDetector = protocolDetector;
-    }
+    private final ProtocolDetector detector = new ProtocolDetector();
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -35,40 +34,38 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
         buf.retain();
         try {
-            // Log every raw buffer we see
             byte[] data = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), data);
             String hex = Hex.encodeHexString(data);
-            logger.info("Protocol detection for packet: {}", hex);
+            logger.debug("Protocol detection for packet: {}", hex);
 
             ProtocolDetector.ProtocolDetectionResult result;
             try {
-                result = protocolDetector.detect(data);
+                result = detector.detect(data);
             } catch (Exception e) {
-                logger.error("Protocol detection error during detect(): {}", e.getMessage(), e);
+                logger.error("Protocol detection error: {}", e.getMessage(), e);
                 result = null;
             }
 
-            // If detect() returned null or did not identify a protocol, try fallbacks
             if (result == null || !result.isDetected()) {
                 if (result == null) {
-                    logger.error("ProtocolDetector returned null for data: {}", hex);
+                    logger.warn("ProtocolDetector returned null for data: {}", hex);
                 } else {
                     logger.warn("Protocol detection failed: {}", result.getError());
                 }
 
-                // 1) Teltonika fallback
+                // Teltonika fallback
                 ProtocolDetector.TeltonikaMatcher teltonikaMatcher = new ProtocolDetector.TeltonikaMatcher();
                 if (teltonikaMatcher.matches(data)) {
                     handleTeltonikaProtocol(ctx, buf, teltonikaMatcher.getPacketType(data));
                     return;
                 }
 
-                // 2) GT06 fallback using Gt06Matcher for accurate packet type
+                // GT06 fallback
                 ProtocolDetector.Gt06Matcher gt06Matcher = new ProtocolDetector.Gt06Matcher();
                 if (gt06Matcher.matches(data)) {
                     String packetType = gt06Matcher.getPacketType(data);
-                    logger.info("Fallback detecting GT06 protocol: {}", packetType);
+                    logger.info("Detected GT06 protocol: {}", packetType);
                     ctx.fireChannelRead(
                             ProtocolDetector.ProtocolDetectionResult.success("GT06", packetType, "1.0")
                     );
@@ -76,19 +73,17 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     return;
                 }
 
-                // 3) Total failure: release buffer and propagate failure
-                logger.error("No protocol detected and no fallback available");
+                logger.error("No protocol detected");
+                ReferenceCountUtil.release(buf);
                 ctx.fireChannelRead(
                         ProtocolDetector.ProtocolDetectionResult.failure("DETECTION_ERROR")
                 );
                 return;
             }
 
-            // Primary detection succeeded - handle Teltonika specially
             if ("TELTONIKA".equalsIgnoreCase(result.getProtocol())) {
                 handleTeltonikaProtocol(ctx, buf, result.getPacketType());
             } else {
-                // For other protocols (like GT06)
                 logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());
                 ctx.fireChannelRead(result);
                 ctx.fireChannelRead(buf.retain());
@@ -99,18 +94,16 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void handleTeltonikaProtocol(ChannelHandlerContext ctx, ByteBuf buf, String packetType) {
-        logger.info("Detected TELTONIKA protocol with packetType={}", packetType);
+        logger.info("Processing Teltonika packet: {}", packetType);
 
         if ("IMEI".equalsIgnoreCase(packetType)) {
-            // IMEI frames are fixed-length; just pass them downstream
-            logger.info("Passing Teltonika IMEI frame downstream");
+            logger.debug("Forwarding Teltonika IMEI frame");
             ctx.fireChannelRead(
                     ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
             );
             ctx.fireChannelRead(buf.retain());
         } else {
-            // Any Teltonika data (e.g. AVL_DATA_CODEC_8) → install frame decoder
-            logger.info("Teltonika DATA packet detected - installing frame decoder and removing self");
+            logger.info("Installing Teltonika frame decoder");
             ChannelPipeline pipeline = ctx.pipeline();
             pipeline.addFirst("teltonikaFrameDecoder",
                     new LengthFieldBasedFrameDecoder(
@@ -123,7 +116,6 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
             );
             pipeline.remove(this);
 
-            // Fire both the detection result and the buffer
             ctx.fireChannelRead(
                     ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
             );
@@ -133,14 +125,14 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.error("ProtocolDetectionHandler: Channel error", cause);
+        logger.error("Protocol detection error", cause);
         ctx.close();
     }
 
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
         if (evt instanceof IdleStateEvent) {
-            logger.info("ProtocolDetectionHandler: Channel idle, closing connection");
+            logger.info("Closing idle connection");
             ctx.close();
         } else {
             ctx.fireUserEventTriggered(evt);

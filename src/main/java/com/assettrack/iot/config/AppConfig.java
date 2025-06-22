@@ -81,7 +81,7 @@ public class AppConfig {
 
     @Bean
     public ProtocolDetectionHandler protocolDetectionHandler() {
-        ProtocolDetectionHandler handler = new ProtocolDetectionHandler(protocolDetector);
+        ProtocolDetectionHandler handler = new ProtocolDetectionHandler();
         logger.info("Created ProtocolDetectionHandler bean with instance ID: {}", System.identityHashCode(handler));
         return handler;
     }
