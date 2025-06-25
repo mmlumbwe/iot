@@ -101,6 +101,8 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                     handler = teltonikaHandler;
                 } else if ("GT06".equalsIgnoreCase(detectionResult.getProtocol())) {
                     handler = gt06Handler;
+                } else if ("ASTRA_AT240".equalsIgnoreCase(detectionResult.getProtocol())) {
+                    handler = astraAt240Handler;
                 }
                 // Add TK103 here if handler is implemented
                 // else if ("TK103".equalsIgnoreCase(detectionResult.getProtocol())) { handler = tk103Handler; }

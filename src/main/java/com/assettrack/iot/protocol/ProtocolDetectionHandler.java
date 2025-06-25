@@ -9,6 +9,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
@@ -25,6 +26,9 @@ import org.slf4j.LoggerFactory;
 public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(ProtocolDetectionHandler.class);
     private final ProtocolDetector detector = new ProtocolDetector();
+
+    // Define a static AttributeKey for storing the detected protocol
+    public static final AttributeKey<String> DETECTED_PROTOCOL_KEY = AttributeKey.newInstance("detectedProtocol");
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -55,10 +59,12 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     logger.warn("Protocol detection failed: {}", result.getError());
                 }
 
-                //Astra Telematics
+                // Astra Telematics fallback
                 ProtocolDetector.AstraMatcher astraMatcher = new ProtocolDetector.AstraMatcher();
                 if (astraMatcher.matches(data)) {
                     logger.info("Detected ASTRA_AT240 protocol");
+                    // Store the detected protocol in channel attributes
+                    ctx.channel().attr(DETECTED_PROTOCOL_KEY).set("ASTRA_AT240"); //
                     ctx.fireChannelRead(
                             ProtocolDetector.ProtocolDetectionResult.success(
                                     "ASTRA_AT240",
