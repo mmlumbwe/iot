@@ -55,6 +55,21 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                     logger.warn("Protocol detection failed: {}", result.getError());
                 }
 
+                //Astra Telematics
+                ProtocolDetector.AstraMatcher astraMatcher = new ProtocolDetector.AstraMatcher();
+                if (astraMatcher.matches(data)) {
+                    logger.info("Detected ASTRA_AT240 protocol");
+                    ctx.fireChannelRead(
+                            ProtocolDetector.ProtocolDetectionResult.success(
+                                    "ASTRA_AT240",
+                                    astraMatcher.getPacketType(data), // e.g. "DATA"
+                                    "1.0"
+                            )
+                    );
+                    ctx.fireChannelRead(buf.retain());
+                    return;
+                }
+
                 // Teltonika fallback
                 ProtocolDetector.TeltonikaMatcher teltonikaMatcher = new ProtocolDetector.TeltonikaMatcher();
                 if (teltonikaMatcher.matches(data)) {

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
 
 /**
  * ProtocolDetector classifies incoming raw byte arrays into known protocols.
@@ -220,6 +221,17 @@ public class ProtocolDetector {
             if (data.length == 17) return "IMEI";
             int codec = data[8] & 0xFF;
             return "AVL_DATA_CODEC_" + codec;
+        }
+    }
+
+    static class AstraMatcher implements ProtocolMatcher {
+
+        public boolean matches(byte[] data) {
+            return data.length > 2 && data[0] == 0x58 && data[1] == 0x02;
+        }
+
+        public String getPacketType(byte[] data) {
+            return "DATA";
         }
     }
 }

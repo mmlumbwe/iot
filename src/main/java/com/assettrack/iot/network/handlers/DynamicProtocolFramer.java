@@ -63,6 +63,9 @@ public class DynamicProtocolFramer extends ChannelInboundHandlerAdapter {
                             Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
                     ));
                     logger.info("Added DelimiterBasedFrameDecoder for GT06.");
+                }else if ("ASTRA_AT240".equalsIgnoreCase(protocol)) {
+                    logger.info("ASTRA_AT240 detected. Passing raw packet to handler.");
+                    // no frame-decoder added: entire ByteBuf will go to your handler
                 } else {
                     logger.warn("No specific frame decoder defined for protocol: {}. Closing channel.", protocol);
                     ctx.close(); // Close channel for unsupported/unhandled protocol framing
