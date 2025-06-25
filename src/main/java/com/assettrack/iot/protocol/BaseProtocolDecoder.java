@@ -115,11 +115,11 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
                 } else {
                     logger.warn("BaseProtocolDecoder: No suitable handler found for protocol {} version {} on channel {}. Releasing buffer.",
                             detectionResult.getProtocol(), detectionResult.getVersion(), ctx.channel().id());
-                    ReferenceCountUtil.release(buf); // Release if no handler can process it
+                    //ReferenceCountUtil.release(buf); // Release if no handler can process it
                 }
             } else {
                 logger.warn("BaseProtocolDecoder: Unknown or undetected protocol for channel {}. Releasing buffer.", ctx.channel().id());
-                ReferenceCountUtil.release(buf); // Release buffer if protocol is not detected
+                //ReferenceCountUtil.release(buf); // Release buffer if protocol is not detected
             }
         } catch (Exception e) {
             logger.error("Error in BaseProtocolDecoder for channel {}", ctx.channel().id(), e);

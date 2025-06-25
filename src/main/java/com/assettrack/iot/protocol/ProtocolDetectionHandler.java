@@ -9,7 +9,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.timeout.IdleStateEvent;
-import io.netty.util.AttributeKey;
+import io.netty.util.AttributeKey; // Import this
 import io.netty.util.ReferenceCountUtil;
 import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
@@ -63,15 +63,17 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 ProtocolDetector.AstraMatcher astraMatcher = new ProtocolDetector.AstraMatcher();
                 if (astraMatcher.matches(data)) {
                     logger.info("Detected ASTRA_AT240 protocol");
-                    // Store the detected protocol in channel attributes
-                    ctx.channel().attr(DETECTED_PROTOCOL_KEY).set("ASTRA_AT240"); //
-                    ctx.fireChannelRead(
+                    ProtocolDetector.ProtocolDetectionResult astraDetectionResult =
                             ProtocolDetector.ProtocolDetectionResult.success(
                                     "ASTRA_AT240",
-                                    astraMatcher.getPacketType(data), // e.g. "DATA"
+                                    astraMatcher.getPacketType(data),
                                     "1.0"
-                            )
-                    );
+                            );
+                    // Set the correct AttributeKey with the ProtocolDetectionResult object
+                    // This is the key change for Astra delegation improvement.
+                    ctx.channel().attr(ProtocolDetector.PROTOCOL_DETECTION_RESULT_KEY).set(astraDetectionResult);
+                    // Keep the existing message firing for compatibility with DynamicProtocolFramer
+                    ctx.fireChannelRead(astraDetectionResult);
                     ctx.fireChannelRead(buf.retain());
                     return;
                 }
@@ -89,6 +91,8 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 if (gt06Matcher.matches(data)) {
                     String packetType = gt06Matcher.getPacketType(data);
                     logger.info("Detected GT06 protocol: {}", packetType);
+                    // Store the detected protocol in channel attributes
+                    ctx.channel().attr(DETECTED_PROTOCOL_KEY).set("GT06");
                     ctx.fireChannelRead(
                             ProtocolDetector.ProtocolDetectionResult.success("GT06", packetType, "1.0")
                     );
@@ -109,6 +113,8 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
                 handleTeltonikaProtocol(ctx, buf, result.getPacketType());
             } else {
                 logger.info("Detected {} protocol: {}", result.getProtocol(), result.getPacketType());
+                // Store the detected protocol in channel attributes for primary detection
+                ctx.channel().attr(DETECTED_PROTOCOL_KEY).set(result.getProtocol());
                 ctx.fireChannelRead(result);
                 ctx.fireChannelRead(buf.retain());
             }
@@ -123,6 +129,8 @@ public class ProtocolDetectionHandler extends ChannelInboundHandlerAdapter {
         // For Teltonika (IMEI or DATA), simply fire the detection result and the buffer.
         // DynamicProtocolFramer downstream will handle the addition of LengthFieldBasedFrameDecoder.
         logger.info("Forwarding Teltonika {} frame for framing by DynamicProtocolFramer.", packetType);
+        // Store the detected protocol in channel attributes
+        ctx.channel().attr(DETECTED_PROTOCOL_KEY).set("TELTONIKA");
         ctx.fireChannelRead(
                 ProtocolDetector.ProtocolDetectionResult.success("TELTONIKA", packetType, "1.0")
         );
