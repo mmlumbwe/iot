@@ -76,10 +76,9 @@ public class DynamicProtocolFramer extends ChannelInboundHandlerAdapter {
                 ctx.close(); // Close channel if protocol couldn't be detected
                 return;
             }
-            // We've configured the pipeline; swallow the detection result here.
-            return;
         }
-        // Only raw ByteBufs (already framed) reach this point
+        // Pass the original message (which could be the initial ByteBuf or the ProtocolDetectionResult)
+        // downstream. The ProtocolDetectionResult is needed by GenericProtocolDecoder.
         ctx.fireChannelRead(msg);
     }
 
