@@ -51,6 +51,7 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
     protected final ProtocolDetector protocolDetector; // Used for generic detection if needed here
     protected final TeltonikaHandler teltonikaHandler; // Specific handler for Teltonika
     protected final Gt06Handler gt06Handler; // Specific handler for GT06
+    protected final AstraAt240Handler astraAt240Handler;
     // Add TK103Handler if available
     // protected final Tk103Handler tk103Handler;
 
@@ -59,11 +60,13 @@ public abstract class BaseProtocolDecoder extends ChannelInboundHandlerAdapter {
             SessionManager sessionManager,
             ProtocolDetector protocolDetector,
             TeltonikaHandler teltonikaHandler,
-            Gt06Handler gt06Handler) {
+            Gt06Handler gt06Handler,
+            AstraAt240Handler astraAt240Handler) {
         this.sessionManager = sessionManager;
         this.protocolDetector = protocolDetector;
         this.teltonikaHandler = teltonikaHandler;
         this.gt06Handler = gt06Handler;
+        this.astraAt240Handler = astraAt240Handler;
         // this.tk103Handler = tk103Handler; // Inject Tk103Handler
     }
 

@@ -30,8 +30,9 @@ public class GenericProtocolDecoder extends BaseProtocolDecoder {
     public GenericProtocolDecoder(SessionManager sessionManager,
                                   ProtocolDetector protocolDetector,
                                   @Autowired(required = false) TeltonikaHandler teltonikaHandler,
-                                  @Autowired(required = false) Gt06Handler gt06Handler) {
-        super(sessionManager, protocolDetector, teltonikaHandler, gt06Handler);
+                                  @Autowired(required = false) Gt06Handler gt06Handler,
+                                  @Autowired(required = false) AstraAt240Handler astraAt240Handler) {
+        super(sessionManager, protocolDetector, teltonikaHandler, gt06Handler, astraAt240Handler);
     }
 
 

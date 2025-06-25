@@ -28,6 +28,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
     private final CacheManager cacheManager;
     private final TeltonikaHandler teltonikaHandler;
     private final Gt06Handler gt06Handler;
+    private final AstraAt240Handler astraAt240Handler;
 
     @Autowired
     public TrackerPipelineFactory(
@@ -35,15 +36,18 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
             SessionManager sessionManager,
             CacheManager cacheManager,
             @Autowired(required = false) TeltonikaHandler teltonikaHandler,
-            @Autowired(required = false) Gt06Handler gt06Handler) {
+            @Autowired(required = false) Gt06Handler gt06Handler,
+            @Autowired(required = false) AstraAt240Handler astraAt240Handler) {
         this.protocolDetector = protocolDetector;
         this.sessionManager = sessionManager;
         this.cacheManager = cacheManager;
         this.teltonikaHandler = teltonikaHandler;
         this.gt06Handler = gt06Handler;
-        logger.info("TrackerPipelineFactory constructed. Teltonika handler {}available, GT06 handler {}available",
+        this.astraAt240Handler = astraAt240Handler;
+        logger.info("TrackerPipelineFactory constructed. Teltonika handler {}available, GT06 handler {}available, Astra handler {}available",
                 teltonikaHandler != null ? "" : "not ",
-                gt06Handler != null ? "" : "not ");
+                gt06Handler != null ? "" : "not ",
+                astraAt240Handler != null ? "" : "not ");
     }
 
     @Override
@@ -85,7 +89,7 @@ public class TrackerPipelineFactory extends ChannelInitializer<Channel> {
         // 4. Unified protocol decoder and handler chaining (will now receive framed messages)
         if (pipeline.get("decoder") == null) {
             pipeline.addLast("decoder", new GenericProtocolDecoder(
-                    sessionManager, protocolDetector, teltonikaHandler, gt06Handler
+                    sessionManager, protocolDetector, teltonikaHandler, gt06Handler, astraAt240Handler
             ));
             logger.info("Added GenericProtocolDecoder for channel {}", channel.id());
         }
