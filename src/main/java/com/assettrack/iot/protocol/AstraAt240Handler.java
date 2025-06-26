@@ -2,7 +2,6 @@ package com.assettrack.iot.protocol;
 
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
-import com.assettrack.iot.config.UnitsConverter;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -14,10 +13,11 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.assettrack.iot.config.UnitsConverter;
 
 @Protocol(value = "ASTRA_AT240", version = "1.0")
 @Component
@@ -37,8 +37,10 @@ public class AstraAt240Handler implements ProtocolHandler {
     }
 
     private String readImei(ByteBuf buf) {
-        return String.format("%08d", buf.readUnsignedInt())
-                + String.format("%07d", buf.readUnsignedMedium());
+        // Skip IMEI in this handler; device mapping done in BaseProtocolDecoder
+        buf.readUnsignedInt();
+        buf.readUnsignedMedium();
+        return null;
     }
 
     private LocalDateTime readDateTime(ByteBuf buf) {
@@ -52,19 +54,19 @@ public class AstraAt240Handler implements ProtocolHandler {
     }
 
     @Override
-    public Position parsePosition(final byte[] rawMessage) throws ProtocolException {
+    public Position parsePosition(byte[] rawMessage) throws ProtocolException {
         if (rawMessage == null || rawMessage.length < 4) {
             throw new ProtocolException("AT240 message too short for parsing position");
         }
         ByteBuf buf = Unpooled.wrappedBuffer(rawMessage);
         try {
-            byte protocolType = buf.readByte();
-            buf.readUnsignedShort(); // skip length
-            if (protocolType != PROTOCOL_X) {
+            byte type = buf.readByte();           // 'X'
+            buf.readUnsignedShort();              // length
+            if (type != PROTOCOL_X) {
                 throw new ProtocolException("Only X protocol supported for single-position parsing");
             }
             int count = buf.readUnsignedByte();
-            String imei = readImei(buf);
+            readImei(buf);                        // skip IMEI bytes
             Position result = null;
             for (int i = 0; i < count; i++) {
                 Position p = decodeRecord(buf);
@@ -79,7 +81,7 @@ public class AstraAt240Handler implements ProtocolHandler {
     }
 
     @Override
-    public DeviceMessage handle(final byte[] data, final ChannelHandlerContext ctx) throws ProtocolException {
+    public DeviceMessage handle(byte[] data, ChannelHandlerContext ctx) throws ProtocolException {
         logger.info("Processing ASTRA_AT240 packet, length={} bytes", data.length);
         if (data.length < 4) {
             throw new ProtocolException("Invalid AT240 packet: too short.");
@@ -92,37 +94,37 @@ public class AstraAt240Handler implements ProtocolHandler {
 
         ByteBuf buf = Unpooled.wrappedBuffer(data);
         try {
-            byte protocolType = buf.readByte();
-            buf.readUnsignedShort(); // skip length
+            byte type = buf.readByte();
+            buf.readUnsignedShort();
             if (ctx != null) {
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x06}));
             }
-            if (protocolType != PROTOCOL_X) {
+            if (type != PROTOCOL_X) {
                 throw new ProtocolException(String.format(
-                        "Unknown Astra protocol type: 0x%02X", protocolType
+                        "Unknown Astra protocol type: 0x%02X", type
                 ));
             }
 
             int count = buf.readUnsignedByte();
-            String imei = readImei(buf);
-            message.setImei(imei);
-
+            readImei(buf);
             List<Map<String, Object>> records = new ArrayList<>();
             Position primary = null;
             for (int i = 0; i < count; i++) {
                 Position p = decodeRecord(buf);
-                Map<String, Object> rec = new HashMap<>();
-                rec.put("timestamp", p.getTimestamp());
-                rec.put("latitude", p.getLatitude());
-                rec.put("longitude", p.getLongitude());
-                rec.put("speed", p.getSpeed());
-                rec.put("course", p.getCourse());
-                rec.put("altitude", p.getAltitude());
-                rec.put("valid", p.getValid());
-                records.add(rec);
-                logger.info("AstraAt240Handler: Parsed Record {}: {}", i + 1, rec);
-                if (primary == null) {
-                    primary = p;
+                if (p != null) {
+                    Map<String, Object> rec = new HashMap<>();
+                    rec.put("timestamp", p.getTimestamp());
+                    rec.put("latitude", p.getLatitude());
+                    rec.put("longitude", p.getLongitude());
+                    rec.put("speed", p.getSpeed());
+                    rec.put("course", p.getCourse());
+                    rec.put("altitude", p.getAltitude());
+                    rec.put("valid", p.getValid());
+                    records.add(rec);
+                    logger.info("AstraAt240Handler: Parsed Record {}: {}", i + 1, rec);
+                    if (primary == null) {
+                        primary = p;
+                    }
                 }
             }
             parsed.put("records", records);
@@ -133,14 +135,13 @@ public class AstraAt240Handler implements ProtocolHandler {
         } finally {
             buf.release();
         }
-
         logger.info("AstraAt240Handler: Finished parsing ASTRA_AT240 packet. Total records={}"
                 , ((List<?>) message.getParsedData().get("records")).size());
         return message;
     }
 
     @Override
-    public DeviceMessage handle(final byte[] data) throws ProtocolException {
+    public DeviceMessage handle(byte[] data) throws ProtocolException {
         return handle(data, null);
     }
 
@@ -149,29 +150,29 @@ public class AstraAt240Handler implements ProtocolHandler {
         buf.readUnsignedByte(); // index
 
         LocalDateTime deviceTime = readDateTime(buf);
-        buf.readUnsignedByte(); // event code
-        buf.readUnsignedMedium(); // status
+        buf.readUnsignedByte();  // event (ignored)
+        buf.readUnsignedMedium(); // status (ignored)
 
         Position position = new Position();
         position.setProtocol("ASTRA_AT240");
         boolean hasFix = (mask & 2L) != 0;
         position.setValid(hasFix);
 
-        LocalDateTime recordTime = deviceTime;
+        LocalDateTime timestamp = deviceTime;
         if (hasFix) {
             LocalDateTime fixTime = readDateTime(buf);
-            recordTime = fixTime;
+            timestamp = fixTime;
 
             position.setLatitude(buf.readInt() * 1e-6);
             position.setLongitude(buf.readInt() * 1e-6);
             double speedKph = buf.readUnsignedByte() * 2;
             position.setSpeed(UnitsConverter.knotsFromKph(speedKph));
-            buf.readUnsignedByte(); // max speed
+            buf.readUnsignedByte(); // reserved/max speed
             position.setCourse((double) (buf.readUnsignedByte() * 2));
             position.setAltitude((short) (buf.readUnsignedByte() * 20));
             buf.readUnsignedShort(); // odometer (ignored)
         }
-        position.setTimestamp(recordTime);
+        position.setTimestamp(timestamp);
         return position;
     }
 
