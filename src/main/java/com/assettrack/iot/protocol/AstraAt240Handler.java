@@ -61,13 +61,13 @@ public class AstraAt240Handler implements ProtocolHandler {
         }
         ByteBuf buf = Unpooled.wrappedBuffer(rawMessage);
         try {
-            byte type = buf.readByte();           // 'X'
+            byte type = buf.readByte();           // protocol flag
             buf.readUnsignedShort();              // length
             if (type != PROTOCOL_X) {
                 throw new ProtocolException("Only X protocol supported for single-position parsing");
             }
-            int count = buf.readUnsignedByte();
-            buf.skipBytes(7);                     // skip IMEI (4+3 bytes)
+            int count = buf.readUnsignedByte();   // record count
+            buf.skipBytes(7);                     // skip IMEI (4 + 3 bytes)
             Position result = null;
             for (int i = 0; i < count; i++) {
                 Position p = decodeRecord(buf);
@@ -105,7 +105,6 @@ public class AstraAt240Handler implements ProtocolHandler {
                         "Unknown Astra protocol type: 0x%02X", type
                 ));
             }
-
             int count = buf.readUnsignedByte();
             buf.skipBytes(7); // skip IMEI
             List<Map<String, Object>> records = new ArrayList<>();
@@ -148,29 +147,31 @@ public class AstraAt240Handler implements ProtocolHandler {
 
     private Position decodeRecord(ByteBuf buf) {
         long mask = buf.readUnsignedInt();
-        buf.readUnsignedByte(); // index
+        buf.readUnsignedByte(); // index slot
 
+        // Device timestamp
+        LocalDateTime deviceTime = safeReadDateTime(buf, "device");
         boolean hasFix = (mask & 2L) != 0;
-        LocalDateTime dtDevice = safeReadDateTime(buf, "device");
-        if (!hasFix) {
-            buf.skipBytes(1 + 3); // skip event+status
-            Position pos = new Position();
-            pos.setProtocol("ASTRA_AT240");
-            pos.setValid(false);
-            // set only timestamp
-            pos.setTimestamp(LocalDateTime.from(dtDevice.atZone(ZoneOffset.UTC).toInstant()));
-            return pos;
-        }
-        buf.readUnsignedByte(); // event
-        buf.readUnsignedMedium(); // status
 
-        // read fix
-        LocalDateTime dtFix = safeReadDateTime(buf, "fix");
         Position position = new Position();
         position.setProtocol("ASTRA_AT240");
-        position.setValid(true);
+        position.setValid(hasFix);
 
-        position.setTimestamp(LocalDateTime.from(dtFix.atZone(ZoneOffset.UTC).toInstant()));
+        if (!hasFix) {
+            buf.skipBytes(1 + 3); // skip event + status
+            position.setTimestamp(deviceTime);
+            return position;
+        }
+
+        // Event and status (skip since not stored)
+        buf.readUnsignedByte();
+        buf.readUnsignedMedium();
+
+        // Fix timestamp
+        LocalDateTime fixTime = safeReadDateTime(buf, "fix");
+        position.setTimestamp(fixTime);
+
+        // Coordinates & movement
         position.setLatitude(buf.readInt() * 1e-6);
         position.setLongitude(buf.readInt() * 1e-6);
         double speedKph = buf.readUnsignedByte() * 2;
@@ -178,7 +179,7 @@ public class AstraAt240Handler implements ProtocolHandler {
         buf.readUnsignedByte(); // reserved/max speed
         position.setCourse((double) (buf.readUnsignedByte() * 2));
         position.setAltitude((short) (buf.readUnsignedByte() * 20));
-        buf.readUnsignedShort(); // odometer
+        buf.readUnsignedShort();  // odometer trip (ignored)
 
         return position;
     }
