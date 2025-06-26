@@ -48,8 +48,7 @@ public class AstraAt240Handler implements ProtocolHandler {
         try {
             return LocalDateTime.of(year, month, day, hour, minute, second);
         } catch (DateTimeException e) {
-            logger.warn("Invalid {} timestamp {}/{}/{} {}:{}:{}, using now",
-                    context, year, month, day, hour, minute, second);
+            logger.warn("Invalid {} timestamp {}/{}/{} {}:{}:{}, using now", context, year, month, day, hour, minute, second);
             return LocalDateTime.now(ZoneOffset.UTC);
         }
     }
@@ -94,6 +93,7 @@ public class AstraAt240Handler implements ProtocolHandler {
         message.setParsedData(parsed);
 
         ByteBuf buf = Unpooled.wrappedBuffer(data);
+        int totalRecords = 0;
         try {
             byte type = buf.readByte();
             buf.readUnsignedShort();
@@ -101,10 +101,9 @@ public class AstraAt240Handler implements ProtocolHandler {
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x06}));
             }
             if (type != PROTOCOL_X) {
-                throw new ProtocolException(String.format(
-                        "Unknown Astra protocol type: 0x%02X", type
-                ));
+                throw new ProtocolException(String.format("Unknown Astra protocol type: 0x%02X", type));
             }
+
             int count = buf.readUnsignedByte();
             buf.skipBytes(7); // skip IMEI
             List<Map<String, Object>> records = new ArrayList<>();
@@ -121,7 +120,8 @@ public class AstraAt240Handler implements ProtocolHandler {
                     rec.put("altitude", p.getAltitude());
                     rec.put("valid", p.getValid());
                     records.add(rec);
-                    logger.info("AstraAt240Handler: Parsed Record {}: {}", i + 1, rec);
+                    totalRecords++;
+                    logger.info("AstraAt240Handler: Parsed Record {}: {}", totalRecords, rec);
                     if (primary == null) {
                         primary = p;
                     }
@@ -135,8 +135,7 @@ public class AstraAt240Handler implements ProtocolHandler {
         } finally {
             buf.release();
         }
-        logger.info("AstraAt240Handler: Finished parsing ASTRA_AT240 packet. Total records={}"
-                , ((List<?>) message.getParsedData().get("records")).size());
+        logger.info("AstraAt240Handler: Finished parsing ASTRA_AT240 packet. Total records={}", totalRecords);
         return message;
     }
 
@@ -149,7 +148,6 @@ public class AstraAt240Handler implements ProtocolHandler {
         long mask = buf.readUnsignedInt();
         buf.readUnsignedByte(); // index slot
 
-        // Device timestamp
         LocalDateTime deviceTime = safeReadDateTime(buf, "device");
         boolean hasFix = (mask & 2L) != 0;
 
@@ -163,15 +161,12 @@ public class AstraAt240Handler implements ProtocolHandler {
             return position;
         }
 
-        // Event and status (skip since not stored)
+        // skip event and status bytes
         buf.readUnsignedByte();
         buf.readUnsignedMedium();
 
-        // Fix timestamp
         LocalDateTime fixTime = safeReadDateTime(buf, "fix");
         position.setTimestamp(fixTime);
-
-        // Coordinates & movement
         position.setLatitude(buf.readInt() * 1e-6);
         position.setLongitude(buf.readInt() * 1e-6);
         double speedKph = buf.readUnsignedByte() * 2;
@@ -179,7 +174,7 @@ public class AstraAt240Handler implements ProtocolHandler {
         buf.readUnsignedByte(); // reserved/max speed
         position.setCourse((double) (buf.readUnsignedByte() * 2));
         position.setAltitude((short) (buf.readUnsignedByte() * 20));
-        buf.readUnsignedShort();  // odometer trip (ignored)
+        buf.readUnsignedShort(); // odometer trip (ignored)
 
         return position;
     }
