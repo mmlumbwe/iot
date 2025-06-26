@@ -236,13 +236,8 @@ public class ProtocolDetector {
             if (data[0] != PROTOCOL_X && data[0] != PROTOCOL_K) {
                 return false;
             }
-            // Optional: sanity‐check length field (big‐endian 2 bytes) against actual buffer
-            int lengthField = ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
-            // lengthField is the number of bytes *after* the header (1+2 bytes)
-            if (data.length != lengthField + 3) {
-                // if you’d rather not be this strict, comment out this block
-                return false;
-            }
+            // We rely on your LengthFieldBasedFrameDecoder in the framer
+            // to handle framing, so drop the strict length‐field check here.
             return true;
         }
 
