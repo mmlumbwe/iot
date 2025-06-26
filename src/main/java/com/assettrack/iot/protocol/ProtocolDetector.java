@@ -227,15 +227,29 @@ public class ProtocolDetector {
     static class AstraMatcher implements ProtocolMatcher {
 
         public boolean matches(byte[] data) {
-            return data != null
-                    && data.length > 4
-                    && data[0] == (byte)0x58
-                    // allow 0x02 (login) or 0x03 (data)
-                    && (data[1] == (byte)0x02 || data[1] == (byte)0x03);
+            if (data == null || data.length < 4) {
+                return false;
+            }
+            // First byte must be 'X' or 'K'
+            final byte PROTOCOL_X = (byte)'X';
+            final byte PROTOCOL_K = (byte)'K';
+            if (data[0] != PROTOCOL_X && data[0] != PROTOCOL_K) {
+                return false;
+            }
+            // Optional: sanity‐check length field (big‐endian 2 bytes) against actual buffer
+            int lengthField = ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
+            // lengthField is the number of bytes *after* the header (1+2 bytes)
+            if (data.length != lengthField + 3) {
+                // if you’d rather not be this strict, comment out this block
+                return false;
+            }
+            return true;
         }
 
         public String getPacketType(byte[] data) {
-            return "DATA";
+            // If the very first byte was 'K' you might treat it as a LOGIN,
+            // otherwise 'X' = DATA
+            return data[0] == (byte)'K' ? "LOGIN" : "DATA";
         }
     }
 }
