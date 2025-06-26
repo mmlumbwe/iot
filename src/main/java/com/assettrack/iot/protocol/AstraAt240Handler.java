@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -36,21 +37,21 @@ public class AstraAt240Handler implements ProtocolHandler {
         return supports(protocol);
     }
 
-    private String readImei(ByteBuf buf) {
-        // Skip IMEI in this handler; device mapping done in BaseProtocolDecoder
-        buf.readUnsignedInt();
-        buf.readUnsignedMedium();
-        return null;
-    }
-
-    private LocalDateTime readDateTime(ByteBuf buf) {
-        int year   = buf.readUnsignedByte() + 2000;
-        int month  = buf.readUnsignedByte();
-        int day    = buf.readUnsignedByte();
-        int hour   = buf.readUnsignedByte();
+    private LocalDateTime safeReadDateTime(ByteBuf buf, String context) {
+        int yearRaw = buf.readUnsignedByte();
+        int month = buf.readUnsignedByte();
+        int day = buf.readUnsignedByte();
+        int hour = buf.readUnsignedByte();
         int minute = buf.readUnsignedByte();
         int second = buf.readUnsignedByte();
-        return LocalDateTime.of(year, month, day, hour, minute, second);
+        int year = 2000 + yearRaw;
+        try {
+            return LocalDateTime.of(year, month, day, hour, minute, second);
+        } catch (DateTimeException e) {
+            logger.warn("Invalid {} timestamp {}/{}/{} {}:{}:{}, using now",
+                    context, year, month, day, hour, minute, second);
+            return LocalDateTime.now(ZoneOffset.UTC);
+        }
     }
 
     @Override
@@ -66,11 +67,11 @@ public class AstraAt240Handler implements ProtocolHandler {
                 throw new ProtocolException("Only X protocol supported for single-position parsing");
             }
             int count = buf.readUnsignedByte();
-            readImei(buf);                        // skip IMEI bytes
+            buf.skipBytes(7);                     // skip IMEI (4+3 bytes)
             Position result = null;
             for (int i = 0; i < count; i++) {
                 Position p = decodeRecord(buf);
-                if (result == null) {
+                if (result == null && p != null) {
                     result = p;
                 }
             }
@@ -106,7 +107,7 @@ public class AstraAt240Handler implements ProtocolHandler {
             }
 
             int count = buf.readUnsignedByte();
-            readImei(buf);
+            buf.skipBytes(7); // skip IMEI
             List<Map<String, Object>> records = new ArrayList<>();
             Position primary = null;
             for (int i = 0; i < count; i++) {
@@ -149,30 +150,36 @@ public class AstraAt240Handler implements ProtocolHandler {
         long mask = buf.readUnsignedInt();
         buf.readUnsignedByte(); // index
 
-        LocalDateTime deviceTime = readDateTime(buf);
-        buf.readUnsignedByte();  // event (ignored)
-        buf.readUnsignedMedium(); // status (ignored)
+        boolean hasFix = (mask & 2L) != 0;
+        LocalDateTime dtDevice = safeReadDateTime(buf, "device");
+        if (!hasFix) {
+            buf.skipBytes(1 + 3); // skip event+status
+            Position pos = new Position();
+            pos.setProtocol("ASTRA_AT240");
+            pos.setValid(false);
+            // set only timestamp
+            pos.setTimestamp(LocalDateTime.from(dtDevice.atZone(ZoneOffset.UTC).toInstant()));
+            return pos;
+        }
+        buf.readUnsignedByte(); // event
+        buf.readUnsignedMedium(); // status
 
+        // read fix
+        LocalDateTime dtFix = safeReadDateTime(buf, "fix");
         Position position = new Position();
         position.setProtocol("ASTRA_AT240");
-        boolean hasFix = (mask & 2L) != 0;
-        position.setValid(hasFix);
+        position.setValid(true);
 
-        LocalDateTime timestamp = deviceTime;
-        if (hasFix) {
-            LocalDateTime fixTime = readDateTime(buf);
-            timestamp = fixTime;
+        position.setTimestamp(LocalDateTime.from(dtFix.atZone(ZoneOffset.UTC).toInstant()));
+        position.setLatitude(buf.readInt() * 1e-6);
+        position.setLongitude(buf.readInt() * 1e-6);
+        double speedKph = buf.readUnsignedByte() * 2;
+        position.setSpeed(UnitsConverter.knotsFromKph(speedKph));
+        buf.readUnsignedByte(); // reserved/max speed
+        position.setCourse((double) (buf.readUnsignedByte() * 2));
+        position.setAltitude((short) (buf.readUnsignedByte() * 20));
+        buf.readUnsignedShort(); // odometer
 
-            position.setLatitude(buf.readInt() * 1e-6);
-            position.setLongitude(buf.readInt() * 1e-6);
-            double speedKph = buf.readUnsignedByte() * 2;
-            position.setSpeed(UnitsConverter.knotsFromKph(speedKph));
-            buf.readUnsignedByte(); // reserved/max speed
-            position.setCourse((double) (buf.readUnsignedByte() * 2));
-            position.setAltitude((short) (buf.readUnsignedByte() * 20));
-            buf.readUnsignedShort(); // odometer (ignored)
-        }
-        position.setTimestamp(timestamp);
         return position;
     }
 
