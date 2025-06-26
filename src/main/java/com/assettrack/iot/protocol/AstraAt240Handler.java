@@ -37,7 +37,11 @@ public class AstraAt240Handler implements ProtocolHandler {
         return supports(protocol);
     }
 
-    private LocalDateTime safeReadDateTime(ByteBuf buf, String context) {
+    /**
+     * Helper method to read a date/time stamp in the format YYMMDDhhmmss (6 bytes).
+     * This method is retained for reference but is not used if timestamps are 4-byte Unix timestamps.
+     */
+    private LocalDateTime readAstraDate(ByteBuf buf, String context) {
         int yearRaw = buf.readUnsignedByte();
         int month = buf.readUnsignedByte();
         int day = buf.readUnsignedByte();
@@ -53,6 +57,23 @@ public class AstraAt240Handler implements ProtocolHandler {
         }
     }
 
+    /**
+     * Helper method to read a 4-byte unsigned integer timestamp representing seconds
+     * since the Astra epoch (1980-01-06 00:00:00 UTC) and convert it to LocalDateTime.
+     */
+    private LocalDateTime readAstraTime(ByteBuf buf) {
+        long secondsSinceEpoch = buf.readUnsignedInt();
+        // Astra epoch is 1980-01-06 00:00:00 UTC. Java epoch is 1970-01-01 00:00:00 UTC.
+        // Difference in seconds from Java epoch to Astra epoch start: 315964800 seconds.
+        long offsetSecondsToUnixEpoch = 315964800L;
+        try {
+            return LocalDateTime.ofEpochSecond(secondsSinceEpoch + offsetSecondsToUnixEpoch, 0, ZoneOffset.UTC);
+        } catch (DateTimeException e) {
+            logger.warn("Invalid Astra timestamp: {}, using now", secondsSinceEpoch);
+            return LocalDateTime.now(ZoneOffset.UTC);
+        }
+    }
+
     @Override
     public Position parsePosition(byte[] rawMessage) throws ProtocolException {
         if (rawMessage == null || rawMessage.length < 4) {
@@ -60,13 +81,14 @@ public class AstraAt240Handler implements ProtocolHandler {
         }
         ByteBuf buf = Unpooled.wrappedBuffer(rawMessage);
         try {
-            byte type = buf.readByte();           // protocol flag
-            buf.readUnsignedShort();              // length
+            byte type = buf.readByte();           // protocol flag (1 byte)
+            buf.readUnsignedShort();              // total packet length (2 bytes)
             if (type != PROTOCOL_X) {
                 throw new ProtocolException("Only X protocol supported for single-position parsing");
             }
-            int count = buf.readUnsignedByte();   // record count
-            buf.skipBytes(7);                     // skip IMEI (4 + 3 bytes)
+            int count = buf.readUnsignedByte();   // record count (1 byte)
+            buf.skipBytes(7);                     // skip IMEI (assuming 7 bytes based on protocol variant)
+
             Position result = null;
             for (int i = 0; i < count; i++) {
                 Position p = decodeRecord(buf);
@@ -95,17 +117,21 @@ public class AstraAt240Handler implements ProtocolHandler {
         ByteBuf buf = Unpooled.wrappedBuffer(data);
         int totalRecords = 0;
         try {
-            byte type = buf.readByte();
-            buf.readUnsignedShort();
-            if (ctx != null) {
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x06}));
-            }
+            byte type = buf.readByte();          // protocol flag (1 byte)
+            buf.readUnsignedShort();             // total packet length (2 bytes)
+
+            // As requested, acknowledgement is disabled.
+            // To re-enable, uncomment the line below:
+            // if (ctx != null) {
+            //     ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x06}));
+            // }
+
             if (type != PROTOCOL_X) {
                 throw new ProtocolException(String.format("Unknown Astra protocol type: 0x%02X", type));
             }
 
-            int count = buf.readUnsignedByte();
-            buf.skipBytes(7); // skip IMEI
+            int count = buf.readUnsignedByte();  // record count (1 byte)
+            buf.skipBytes(7);                    // skip IMEI (assuming 7 bytes)
             List<Map<String, Object>> records = new ArrayList<>();
             Position primary = null;
             for (int i = 0; i < count; i++) {
@@ -144,91 +170,80 @@ public class AstraAt240Handler implements ProtocolHandler {
         return handle(data, null);
     }
 
-    private LocalDateTime readAstraTime(ByteBuf buf) {
-        long secondsSinceEpoch = buf.readUnsignedInt();
-        // Astra epoch is 1980-01-06 00:00:00 UTC
-        // Convert seconds to milliseconds
-        long millisSinceEpoch = secondsSinceEpoch * 1000L;
-        // Calculate milliseconds from Java epoch (1970-01-01 00:00:00 UTC)
-        // Difference between 1980-01-06 and 1970-01-01 is 315964800 seconds
-        // (315964800 * 1000L milliseconds)
-        long javaEpochMillis = 315964800000L; // Milliseconds from 1970-01-01 to 1980-01-06
-        return LocalDateTime.ofEpochSecond((millisSinceEpoch + javaEpochMillis) / 1000L, 0, ZoneOffset.UTC);
-    }
-
     private Position decodeRecord(ByteBuf buf) {
         Position position = new Position();
         position.setProtocol("ASTRA_AT240");
 
-        // Read index first
-        buf.readUnsignedByte(); // index slot (consume the byte, but not strictly needed for Position object)
+        buf.readUnsignedByte(); // Consume the 1-byte index slot
 
-        // Correctly read the 6-byte mask
+        // Read the 6-byte mask (2 bytes for command/short mask + 4 bytes for main mask)
         long mask = ((long) buf.readUnsignedShort() << 32) + buf.readUnsignedInt();
 
-        // Device time is always present
-        LocalDateTime deviceTime = readAstraTime(buf); // Use the new helper method
-        position.setTimestamp(deviceTime); // Set device time as primary timestamp
+        // Device time is always present (4 bytes)
+        LocalDateTime deviceTime = readAstraTime(buf);
+        position.setTimestamp(deviceTime); // Initial timestamp setting
 
-        // Event and Status are always present
+        // Event (4 bytes) and Status (2 bytes) are always present
         long event = buf.readUnsignedInt();
         int status = buf.readUnsignedShort();
-        // You'll need to decide how to store these in your Position model if desired
-        // position.set("event", event); // Example if you add generic attribute support
+        // You can add these as attributes to your Position model if needed:
+        // position.set("event", event);
         // position.set("status", status);
 
-        // Check for GPS Fix (mask & 2L)
+        // Check for GPS Fix (mask bit 2L)
         boolean hasFix = (mask & 2L) > 0;
         position.setValid(hasFix);
 
         if (hasFix) {
-            LocalDateTime fixTime = readAstraTime(buf); // Use the new helper method
-            position.setTimestamp(fixTime); // Update timestamp to fixTime if valid
+            // Fix time (4 bytes) - present only if hasFix
+            LocalDateTime fixTime = readAstraTime(buf);
+            position.setTimestamp(fixTime); // Update timestamp to fixTime if a valid fix exists
+
+            // Latitude (4 bytes) - parsed correctly by multiplying int by 1e-6
             position.setLatitude(buf.readInt() * 1e-6);
+            // Longitude (4 bytes) - parsed correctly by multiplying int by 1e-6
             position.setLongitude(buf.readInt() * 1e-6);
+
+            // Speed (1 byte)
             double speedKph = buf.readUnsignedByte() * 2;
             position.setSpeed(UnitsConverter.knotsFromKph(speedKph));
-            buf.readUnsignedByte(); // max speed since last report
+
+            buf.readUnsignedByte(); // Max speed since last report (1 byte) - consume this byte
+
+            // Course (1 byte)
             position.setCourse((double) (buf.readUnsignedByte() * 2));
-            position.setAltitude((short) (buf.readUnsignedByte() * 20)); // Cast to short for your Position model
-            buf.readUnsignedShort(); // odometer trip (ignored for primary position)
-        } else {
-            // If no fix, Traccar often tries to use the last known location.
-            // Your model doesn't explicitly support this, so you might just keep
-            // latitude/longitude as null or use a default.
-            // The key is to NOT read GPS data if hasFix is false to avoid misalignment.
+
+            // Altitude (1 byte)
+            position.setAltitude((short) (buf.readUnsignedByte() * 20));
+
+            buf.readUnsignedShort(); // Odometer trip (2 bytes) - consume this byte
         }
 
-        // Process other masks as per AstraProtocolDecoder.java's decodeX method
-        // Ensure you read the correct number of bytes for each mask bit set
-        if ((mask & 1L) > 0) {
-            position.setBatteryLevel(buf.readUnsignedByte() * 0.2); // Power
-            // You might need to add power attribute to your Position.java or attributes JSON
-            // position.set("power", buf.readUnsignedByte() * 0.2);
+        // Process other masks. Ensure correct byte consumption for each.
+        if ((mask & 1L) > 0) { // Power/Battery Level (typically 2 bytes total)
+            buf.readUnsignedByte(); // Power - consume this byte
             position.setBatteryLevel((double) buf.readUnsignedByte()); // Battery Level
         }
 
-        // ... continue with other masks (4L, 8L, 16L, etc.) in the same manner
-        // ensuring proper byte reading and field assignment.
-        // For example:
-        if ((mask & 4L) > 0) {
-            buf.readUnsignedShort(); // states
-            buf.readUnsignedShort(); // changes mask
+        if ((mask & 4L) > 0) { // States (4 bytes total)
+            buf.readUnsignedShort(); // states (2 bytes)
+            buf.readUnsignedShort(); // changes mask (2 bytes)
         }
-        if ((mask & 8L) > 0) {
-            buf.readUnsignedShort(); // adc1
-            buf.readUnsignedShort(); // adc2
+        if ((mask & 8L) > 0) { // ADC values (4 bytes total)
+            buf.readUnsignedShort(); // adc1 (2 bytes)
+            buf.readUnsignedShort(); // adc2 (2 bytes)
         }
-        // etc.
-        // The key is to ensure every byte for every set bit in the mask is read to keep alignment.
-        // If your Position model doesn't store a specific attribute, you can just read and discard it (`buf.skipBytes()`)
-        // or store it in your generic `attributes` JSON field.
+        // Add more 'if (mask & XXXL) > 0' blocks here for other data fields indicated by the mask,
+        // ensuring the correct number of bytes are read/skipped for each.
 
         return position;
     }
 
     @Override
     public byte[] generateResponse(Position position) {
-        return new byte[]{0x06};
+        // As requested, the acknowledgement (0x06) is disabled.
+        // Return null for no response.
+        //return new byte[]{0x06};
+        return null;
     }
 }
