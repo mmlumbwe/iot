@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets; // Added for IMEI reading
 
 import com.assettrack.iot.config.UnitsConverter;
 
@@ -39,37 +40,21 @@ public class AstraAt240Handler implements ProtocolHandler {
 
     /**
      * Helper method to read a date/time stamp in the format YYMMDDhhmmss (6 bytes).
-     * This method is retained for reference but is not used if timestamps are 4-byte Unix timestamps.
+     * This is consistent with Traccar's AstraProtocolDecoder.
      */
-    private LocalDateTime readAstraDate(ByteBuf buf, String context) {
+    private LocalDateTime readDateTime(ByteBuf buf, String context) {
         int yearRaw = buf.readUnsignedByte();
         int month = buf.readUnsignedByte();
         int day = buf.readUnsignedByte();
         int hour = buf.readUnsignedByte();
         int minute = buf.readUnsignedByte();
         int second = buf.readUnsignedByte();
+        // Assuming 20xx year for raw values like '14' (2014)
         int year = 2000 + yearRaw;
         try {
             return LocalDateTime.of(year, month, day, hour, minute, second);
         } catch (DateTimeException e) {
             logger.warn("Invalid {} timestamp {}/{}/{} {}:{}:{}, using now", context, year, month, day, hour, minute, second);
-            return LocalDateTime.now(ZoneOffset.UTC);
-        }
-    }
-
-    /**
-     * Helper method to read a 4-byte unsigned integer timestamp representing seconds
-     * since the Astra epoch (1980-01-06 00:00:00 UTC) and convert it to LocalDateTime.
-     */
-    private LocalDateTime readAstraTime(ByteBuf buf) {
-        long secondsSinceEpoch = buf.readUnsignedInt();
-        // Astra epoch is 1980-01-06 00:00:00 UTC. Java epoch is 1970-01-01 00:00:00 UTC.
-        // Difference in seconds from Java epoch to Astra epoch start: 315964800 seconds.
-        long offsetSecondsToUnixEpoch = 315964800L;
-        try {
-            return LocalDateTime.ofEpochSecond(secondsSinceEpoch + offsetSecondsToUnixEpoch, 0, ZoneOffset.UTC);
-        } catch (DateTimeException e) {
-            logger.warn("Invalid Astra timestamp: {}, using now", secondsSinceEpoch);
             return LocalDateTime.now(ZoneOffset.UTC);
         }
     }
@@ -87,7 +72,10 @@ public class AstraAt240Handler implements ProtocolHandler {
                 throw new ProtocolException("Only X protocol supported for single-position parsing");
             }
             int count = buf.readUnsignedByte();   // record count (1 byte)
-            buf.skipBytes(7);                     // skip IMEI (assuming 7 bytes based on protocol variant)
+
+            // Corrected: Read 15-byte ASCII IMEI as per Traccar's AstraProtocolDecoder
+            String imei = buf.readCharSequence(15, StandardCharsets.US_ASCII).toString();
+            // You can optionally store this IMEI in your Position or DeviceMessage object if needed
 
             Position result = null;
             for (int i = 0; i < count; i++) {
@@ -131,7 +119,11 @@ public class AstraAt240Handler implements ProtocolHandler {
             }
 
             int count = buf.readUnsignedByte();  // record count (1 byte)
-            buf.skipBytes(7);                    // skip IMEI (assuming 7 bytes)
+
+            // Corrected: Read 15-byte ASCII IMEI as per Traccar's AstraProtocolDecoder
+            String imei = buf.readCharSequence(15, StandardCharsets.US_ASCII).toString();
+            //message.setDeviceId(imei); // Set IMEI on the DeviceMessage
+
             List<Map<String, Object>> records = new ArrayList<>();
             Position primary = null;
             for (int i = 0; i < count; i++) {
@@ -175,12 +167,13 @@ public class AstraAt240Handler implements ProtocolHandler {
         position.setProtocol("ASTRA_AT240");
 
         buf.readUnsignedByte(); // Consume the 1-byte index slot
+        buf.readUnsignedByte(); // Consume the 1-byte command (as per Traccar's AstraProtocolDecoder)
 
-        // Read the 6-byte mask (2 bytes for command/short mask + 4 bytes for main mask)
-        long mask = ((long) buf.readUnsignedShort() << 32) + buf.readUnsignedInt();
+        // Corrected mask reading: 4 bytes (as per Traccar's AstraProtocolDecoder)
+        long mask = buf.readUnsignedInt();
 
-        // Device time is always present (4 bytes)
-        LocalDateTime deviceTime = readAstraTime(buf);
+        // Device time is always present (6 bytes: YYMMDDhhmmss)
+        LocalDateTime deviceTime = readDateTime(buf, "device");
         position.setTimestamp(deviceTime); // Initial timestamp setting
 
         // Event (4 bytes) and Status (2 bytes) are always present
@@ -190,18 +183,18 @@ public class AstraAt240Handler implements ProtocolHandler {
         // position.set("event", event);
         // position.set("status", status);
 
-        // Check for GPS Fix (mask bit 2L)
-        boolean hasFix = (mask & 2L) > 0;
+        // Corrected: GPS Fix is indicated by bit 0 of the mask (mask & 1L)
+        boolean hasFix = (mask & 1L) > 0;
         position.setValid(hasFix);
 
         if (hasFix) {
-            // Fix time (4 bytes) - present only if hasFix
-            LocalDateTime fixTime = readAstraTime(buf);
+            // Fix time (6 bytes: YYMMDDhhmmss) - present only if hasFix
+            LocalDateTime fixTime = readDateTime(buf, "fix");
             position.setTimestamp(fixTime); // Update timestamp to fixTime if a valid fix exists
 
-            // Latitude (4 bytes) - parsed correctly by multiplying int by 1e-6
+            // Latitude (4 bytes)
             position.setLatitude(buf.readInt() * 1e-6);
-            // Longitude (4 bytes) - parsed correctly by multiplying int by 1e-6
+            // Longitude (4 bytes)
             position.setLongitude(buf.readInt() * 1e-6);
 
             // Speed (1 byte)
@@ -217,19 +210,26 @@ public class AstraAt240Handler implements ProtocolHandler {
             position.setAltitude((short) (buf.readUnsignedByte() * 20));
 
             buf.readUnsignedShort(); // Odometer trip (2 bytes) - consume this byte
+        } else {
+            // If no fix, skip the bytes that would have been read in the hasFix block to maintain alignment.
+            // Total bytes to skip:
+            // fixTime (6 bytes) + latitude (4 bytes) + longitude (4 bytes) + speed (1 byte) +
+            // max speed (1 byte) + course (1 byte) + altitude (1 byte) + odometer trip (2 bytes) = 20 bytes
+            buf.skipBytes(20);
         }
 
-        // Process other masks. Ensure correct byte consumption for each.
-        if ((mask & 1L) > 0) { // Power/Battery Level (typically 2 bytes total)
+        // Process other masks. These generally correspond to specific bit positions in the mask.
+        // For example, based on Traccar's AstraProtocolDecoder:
+        if ((mask & 2L) > 0) { // Bit 1: Power/Battery Level (2 bytes total)
             buf.readUnsignedByte(); // Power - consume this byte
             position.setBatteryLevel((double) buf.readUnsignedByte()); // Battery Level
         }
 
-        if ((mask & 4L) > 0) { // States (4 bytes total)
+        if ((mask & 4L) > 0) { // Bit 2: States (4 bytes total)
             buf.readUnsignedShort(); // states (2 bytes)
             buf.readUnsignedShort(); // changes mask (2 bytes)
         }
-        if ((mask & 8L) > 0) { // ADC values (4 bytes total)
+        if ((mask & 8L) > 0) { // Bit 3: ADC values (4 bytes total)
             buf.readUnsignedShort(); // adc1 (2 bytes)
             buf.readUnsignedShort(); // adc2 (2 bytes)
         }
@@ -243,7 +243,6 @@ public class AstraAt240Handler implements ProtocolHandler {
     public byte[] generateResponse(Position position) {
         // As requested, the acknowledgement (0x06) is disabled.
         // Return null for no response.
-        //return new byte[]{0x06};
         return null;
     }
 }
