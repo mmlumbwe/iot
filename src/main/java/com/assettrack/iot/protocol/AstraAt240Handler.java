@@ -116,8 +116,10 @@ public class AstraAt240Handler implements ProtocolHandler {
             buf.release();
         }
 
-        logger.info("AstraAt240Handler: Finished parsing ASTRA_AT240 packet. Total records={}",
-                ((List<?>) parsed.getOrDefault("records", new ArrayList<>())).size());
+        @SuppressWarnings("unchecked")
+        List<?> records = (List<?>) message.getParsedData().get("records");
+        int total = (records != null ? records.size() : 0);
+        logger.info("AstraAt240Handler: Finished parsing ASTRA_AT240 packet. Total records={}", total);
         return message;
     }
 
