@@ -63,9 +63,20 @@ public class DynamicProtocolFramer extends ChannelInboundHandlerAdapter {
                             Unpooled.wrappedBuffer(new byte[]{0x0D, 0x0A})
                     ));
                     logger.info("Added DelimiterBasedFrameDecoder for GT06.");
-                }else if ("ASTRA_AT240".equalsIgnoreCase(protocol)) {
-                    logger.info("ASTRA_AT240 detected. Passing raw packet to handler.");
-                    // no frame-decoder added: entire ByteBuf will go to your handler
+                } else if ("ASTRA_AT240".equalsIgnoreCase(protocol)) {
+                    logger.info("DynamicProtocolFramer: ASTRA_AT240 detected. Adding LengthFieldBasedFrameDecoder.");
+                    // Astra Protocol framing based on Traccar's AstraProtocol.java:
+                    // First byte: Protocol Type (e.g., 'K' or 'X') - 1 byte
+                    // Next two bytes: Length field - 2 bytes
+                    // Total header before payload = 3 bytes
+                    ctx.pipeline().addFirst("astraFrameDecoder", new LengthFieldBasedFrameDecoder(
+                            1024, // maxFrameLength: Maximum expected frame length
+                            1,    // lengthFieldOffset: Offset to the length field (after the 1-byte protocol type)
+                            2,    // lengthFieldLength: Length of the length field (2 bytes)
+                            -3,   // lengthAdjustment: Value to add to the length field's value to get the total frame length
+                            0     // initialBytesToStrip: 0 to pass the entire framed packet to the next handler
+                    ));
+                    logger.info("Added LengthFieldBasedFrameDecoder for ASTRA_AT240.");
                 } else {
                     logger.warn("No specific frame decoder defined for protocol: {}. Closing channel.", protocol);
                     ctx.close(); // Close channel for unsupported/unhandled protocol framing
