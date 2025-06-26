@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.nio.charset.StandardCharsets; // Added for IMEI reading
+import java.nio.charset.StandardCharsets;
 
 import com.assettrack.iot.config.UnitsConverter;
 
@@ -27,6 +27,11 @@ public class AstraAt240Handler implements ProtocolHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(AstraAt240Handler.class);
     private static final byte PROTOCOL_X = (byte) 'X';
+
+    // Helper method to check if a specific bit is set in a long value
+    private static boolean checkBit(long value, int bit) {
+        return ((value >> bit) & 1) > 0;
+    }
 
     @Override
     public boolean supports(String protocolType) {
@@ -73,9 +78,8 @@ public class AstraAt240Handler implements ProtocolHandler {
             }
             int count = buf.readUnsignedByte();   // record count (1 byte)
 
-            // Corrected: Read 15-byte ASCII IMEI as per Traccar's AstraProtocolDecoder
+            // Read 15-byte ASCII IMEI
             String imei = buf.readCharSequence(15, StandardCharsets.US_ASCII).toString();
-            // You can optionally store this IMEI in your Position or DeviceMessage object if needed
 
             Position result = null;
             for (int i = 0; i < count; i++) {
@@ -120,9 +124,10 @@ public class AstraAt240Handler implements ProtocolHandler {
 
             int count = buf.readUnsignedByte();  // record count (1 byte)
 
-            // Corrected: Read 15-byte ASCII IMEI as per Traccar's AstraProtocolDecoder
+            // Read 15-byte ASCII IMEI
             String imei = buf.readCharSequence(15, StandardCharsets.US_ASCII).toString();
             //message.setDeviceId(imei); // Set IMEI on the DeviceMessage
+            message.setImei(imei);
 
             List<Map<String, Object>> records = new ArrayList<>();
             Position primary = null;
@@ -137,6 +142,17 @@ public class AstraAt240Handler implements ProtocolHandler {
                     rec.put("course", p.getCourse());
                     rec.put("altitude", p.getAltitude());
                     rec.put("valid", p.getValid());
+                    // Add other attributes if set in Position object
+                    if (p.getBatteryLevel() != null) {
+                        rec.put("batteryLevel", p.getBatteryLevel());
+                    }
+                    if (p.getIgnition() != null) {
+                        rec.put("ignition", p.getIgnition());
+                    }
+                    if (p.getSatellites() != null) {
+                        rec.put("satellites", p.getSatellites());
+                    }
+                    // You might want to add event and status here as well if they are important
                     records.add(rec);
                     totalRecords++;
                     logger.info("AstraAt240Handler: Parsed Record {}: {}", totalRecords, rec);
@@ -166,25 +182,29 @@ public class AstraAt240Handler implements ProtocolHandler {
         Position position = new Position();
         position.setProtocol("ASTRA_AT240");
 
-        buf.readUnsignedByte(); // Consume the 1-byte index slot
-        buf.readUnsignedByte(); // Consume the 1-byte command (as per Traccar's AstraProtocolDecoder)
+        buf.readUnsignedByte(); // Consume the 1-byte event index
+        buf.readUnsignedByte(); // Consume the 1-byte command
 
-        // Corrected mask reading: 4 bytes (as per Traccar's AstraProtocolDecoder)
-        long mask = buf.readUnsignedInt();
+        long mask = buf.readUnsignedInt(); // Main mask (4 bytes)
+        long extendedMask = 0;
+        // Check if extended mask is present (bit 31 of main mask)
+        if (checkBit(mask, 31)) {
+            extendedMask = buf.readUnsignedInt(); // Extended mask (4 bytes)
+        }
 
         // Device time is always present (6 bytes: YYMMDDhhmmss)
         LocalDateTime deviceTime = readDateTime(buf, "device");
         position.setTimestamp(deviceTime); // Initial timestamp setting
 
-        // Event (4 bytes) and Status (2 bytes) are always present
-        long event = buf.readUnsignedInt();
+        // Event (2 bytes) and Status (2 bytes) are always present
+        int event = buf.readUnsignedShort(); // Corrected from readUnsignedInt()
         int status = buf.readUnsignedShort();
         // You can add these as attributes to your Position model if needed:
         // position.set("event", event);
         // position.set("status", status);
 
-        // Corrected: GPS Fix is indicated by bit 0 of the mask (mask & 1L)
-        boolean hasFix = (mask & 1L) > 0;
+        // GPS Fix is indicated by bit 1 of the main mask
+        boolean hasFix = checkBit(mask, 1);
         position.setValid(hasFix);
 
         if (hasFix) {
@@ -193,48 +213,56 @@ public class AstraAt240Handler implements ProtocolHandler {
             position.setTimestamp(fixTime); // Update timestamp to fixTime if a valid fix exists
 
             // Latitude (4 bytes)
-            position.setLatitude(buf.readInt() * 1e-6);
-            // Longitude (4 bytes)
-            position.setLongitude(buf.readInt() * 1e-6);
+            position.setLatitude(buf.readInt() * 0.000001); // Using 0.000001 for precision
 
-            // Speed (1 byte)
-            double speedKph = buf.readUnsignedByte() * 2;
-            position.setSpeed(UnitsConverter.knotsFromKph(speedKph));
+            // Longitude (4 bytes)
+            position.setLongitude(buf.readInt() * 0.000001); // Using 0.000001 for precision
+
+            // Speed (1 byte) - Traccar reads directly, then converts
+            position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedByte()));
 
             buf.readUnsignedByte(); // Max speed since last report (1 byte) - consume this byte
 
-            // Course (1 byte)
-            position.setCourse((double) (buf.readUnsignedByte() * 2));
+            // Course (1 byte) - Traccar reads directly
+            position.setCourse((double) buf.readUnsignedByte());
 
-            // Altitude (1 byte)
-            position.setAltitude((short) (buf.readUnsignedByte() * 20));
+            // Altitude (1 byte) - Corrected scaling/offset based on Traccar
+            position.setAltitude((short) (buf.readUnsignedByte() * 10 - 1000));
 
-            buf.readUnsignedShort(); // Odometer trip (2 bytes) - consume this byte
-        } else {
-            // If no fix, skip the bytes that would have been read in the hasFix block to maintain alignment.
-            // Total bytes to skip:
-            // fixTime (6 bytes) + latitude (4 bytes) + longitude (4 bytes) + speed (1 byte) +
-            // max speed (1 byte) + course (1 byte) + altitude (1 byte) + odometer trip (2 bytes) = 20 bytes
-            buf.skipBytes(20);
+            // Odometer trip (2 bytes)
+            // Traccar reads this as 0.1 * value. If Position has Key_Odometer_Trip, set it.
+            // For now, just consume the bytes if not storing directly.
+            buf.readUnsignedShort();
         }
 
-        // Process other masks. These generally correspond to specific bit positions in the mask.
-        // For example, based on Traccar's AstraProtocolDecoder:
-        if ((mask & 2L) > 0) { // Bit 1: Power/Battery Level (2 bytes total)
-            buf.readUnsignedByte(); // Power - consume this byte
+        // Process other masks based on Traccar's AstraProtocolDecoder bit positions.
+        // Bit 4: Power/Battery Level (main mask)
+        if (checkBit(mask, 4)) {
+            buf.readUnsignedByte(); // Power (consume, or set as attribute if needed)
             position.setBatteryLevel((double) buf.readUnsignedByte()); // Battery Level
         }
 
-        if ((mask & 4L) > 0) { // Bit 2: States (4 bytes total)
+        // Bit 5: States (main mask)
+        if (checkBit(mask, 5)) {
             buf.readUnsignedShort(); // states (2 bytes)
             buf.readUnsignedShort(); // changes mask (2 bytes)
         }
-        if ((mask & 8L) > 0) { // Bit 3: ADC values (4 bytes total)
+        // Bit 6: ADC values (main mask)
+        if (checkBit(mask, 6)) {
             buf.readUnsignedShort(); // adc1 (2 bytes)
             buf.readUnsignedShort(); // adc2 (2 bytes)
         }
-        // Add more 'if (mask & XXXL) > 0' blocks here for other data fields indicated by the mask,
-        // ensuring the correct number of bytes are read/skipped for each.
+
+        // Example for reading other mask bits from the main mask (bits 7-30) and extended mask (bits 0-31)
+        // You would continue adding checks for relevant bits as needed, consuming the correct number of bytes.
+        // For example:
+        if (checkBit(mask, 7)) { // Bit 7: Device Temperature
+            buf.readUnsignedByte(); // deviceTemp (1 byte)
+        }
+        if (checkBit(mask, 8)) { // Bit 8: Temperature 1
+            buf.readUnsignedByte(); // temp1 (1 byte)
+        }
+        // ... and so on for other bits in 'mask' and 'extendedMask'
 
         return position;
     }
