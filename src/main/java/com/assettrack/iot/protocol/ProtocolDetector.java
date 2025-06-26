@@ -227,7 +227,11 @@ public class ProtocolDetector {
     static class AstraMatcher implements ProtocolMatcher {
 
         public boolean matches(byte[] data) {
-            return data.length > 2 && data[0] == 0x58 && data[1] == 0x02;
+            return data != null
+                    && data.length > 4
+                    && data[0] == (byte)0x58
+                    // allow 0x02 (login) or 0x03 (data)
+                    && (data[1] == (byte)0x02 || data[1] == (byte)0x03);
         }
 
         public String getPacketType(byte[] data) {

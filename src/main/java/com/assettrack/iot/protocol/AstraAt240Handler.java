@@ -23,9 +23,10 @@ public class AstraAt240Handler implements ProtocolHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(AstraAt240Handler.class);
 
-    // AT240 header bytes
-    private static final byte HEADER_FIRST = 0x58;
-    private static final byte HEADER_SECOND = 0x02;
+        // AT240 header bytes: first is always 0x58; second is 0x02 (login) or 0x03 (data)
+        private static final byte HEADER_FIRST       = 0x58;
+        private static final byte HEADER_SECOND_LOGIN = 0x02;
+        private static final byte HEADER_SECOND_DATA  = 0x03;
 
     @Override
     public boolean supports(final String protocolType) {
@@ -50,8 +51,10 @@ public class AstraAt240Handler implements ProtocolHandler {
         // Skip header (0x58,0x02)
         byte h1 = buffer.get();
         byte h2 = buffer.get();
-        if (h1 != HEADER_FIRST || h2 != HEADER_SECOND) {
-            throw new ProtocolException("Invalid AT240 header for parsePosition");
+        if (h1 != HEADER_FIRST ||
+                (h2 != HEADER_SECOND_LOGIN && h2 != HEADER_SECOND_DATA)) {
+            throw new ProtocolException(String.format(
+                    "Invalid AT240 header for parsePosition: 0x%02X 0x%02X", h1, h2));
         }
         int length = buffer.get() & 0xFF;
         int recordCount = buffer.get() & 0xFF;
@@ -104,10 +107,10 @@ public class AstraAt240Handler implements ProtocolHandler {
     @Override
     public DeviceMessage handle(final byte[] data, final ChannelHandlerContext ctx) throws ProtocolException {
         logger.info("Processing ASTRA_AT240 packet, length={} bytes", data.length);
-        if (data.length < 4 || data[0] != HEADER_FIRST || data[1] != HEADER_SECOND) {
+        if (data.length < 4 || data[0] != HEADER_FIRST ||
+                (data[1] != HEADER_SECOND_LOGIN && data[1] != HEADER_SECOND_DATA)) {
             throw new ProtocolException(String.format(
-                    "Invalid AT240 header: 0x%02X 0x%02X", data[0], data[1]
-            ));
+                    "Invalid AT240 header: 0x%02X 0x%02X", data[0], data[1]));
         }
         DeviceMessage message = new DeviceMessage();
         message.setProtocol("ASTRA_AT240");
