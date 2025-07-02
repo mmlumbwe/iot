@@ -7,6 +7,7 @@ import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
 import com.assettrack.iot.session.DeviceSession;
 import com.assettrack.iot.session.SessionManager;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -29,6 +30,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.assettrack.iot.repository.DeviceRepository;
+import com.assettrack.iot.repository.PositionRepository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @ChannelHandler.Sharable
@@ -58,6 +63,13 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
     @Autowired
     private AcknowledgementHandler acknowledgementHandler;
+
+    @Autowired
+    private DeviceRepository deviceRepository;
+
+    @Autowired
+    private PositionRepository positionRepository;
+
 
     @Autowired
     public Gt06Handler(SessionManager sessionManager,
@@ -523,8 +535,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setImei(lastValidImei.get()); // Assuming lastValidImei is correctly set from login/IMEI packet
             parsedData.put("deviceId", generateDeviceId(message.getImei()));
 
-            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Valid: {}, Time: {}, Serial: {}",
-                    latitude, longitude, speed, message.getPosition().getValid(), timestamp, serialNumber);
+            logger.info("Processed GPS - Lat: {}, Lon: {}, Speed: {}, Valid: {}, Time: {}, Serial: {}, imei: {}",
+                    latitude, longitude, speed, message.getPosition().getValid(), timestamp, serialNumber, message.getImei());
 
             // Generate response (assuming PROTOCOL_GPS is appropriate for A0 response, and 0x01 is status success)
             byte[] response = generateStandardResponse(PROTOCOL_GPS, serialNumber, (byte) 0x01);
@@ -532,6 +544,8 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
             message.setResponseRequired(true);
             // **ACTUAL ACK** for extended packet
             ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+
+            savePositionToDatabase(message, message.getPosition());
 
             return message;
 
@@ -750,6 +764,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
         Position position = parseGpsData(buffer);
         parsedData.put("position", position);
 
+        // Save position to database
+        savePositionToDatabase(message, position);
+
         byte[] response = generateStandardResponse(PROTOCOL_GPS, (short)0, (byte)0x01);
         parsedData.put("response", response);
 
@@ -813,6 +830,9 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
 
         Position position = parseGpsData(buffer);
         position.setAlarmType(extractAlarmType(buffer, variant));
+
+        // Save position to database
+        savePositionToDatabase(message, position);
 
         byte[] response = variant == Variant.VL03 ?
                 generateVl03AlarmResponse() :
@@ -1025,6 +1045,71 @@ public class Gt06Handler extends BaseProtocolDecoder implements ProtocolHandler 
     }
     protected long generateDeviceId(String imei) {
         return imei != null ? imei.hashCode() & 0xffffffffL : 0L;
+    }
+
+    @Transactional
+    private void savePositionToDatabase(DeviceMessage message, Position position) {
+        try {
+            // Find or create device
+            Optional<Device> deviceOpt = deviceRepository.findByImei(message.getImei());
+            Device device = deviceOpt.orElseGet(() -> {
+                Device newDevice = new Device();
+                newDevice.setImei(message.getImei());
+                newDevice.setProtocolType("GT06");
+                newDevice.setName("GT06-" + message.getImei());
+                newDevice.setStatus(Device.Status.ONLINE);
+                return deviceRepository.save(newDevice);
+            });
+
+            // Update device last position info
+            device.setLastPositionTime(position.getTimestamp());
+            device.setLastLatitude(position.getLatitude());
+            device.setLastLongitude(position.getLongitude());
+            device.setLastSpeed(position.getSpeed());
+            device.setBatteryLevel(position.getBatteryLevel());
+            device.setLastUpdated(new Date());
+
+            // Update device status based on position data
+            if (position.getBatteryLevel() != null && position.getBatteryLevel() < 20) {
+                device.setStatus(Device.Status.LOW_BATTERY);
+            } else if (position.getSpeed() != null && position.getSpeed() > 0) {
+                device.setStatus(Device.Status.MOVING);
+            } else {
+                device.setStatus(Device.Status.ONLINE);
+            }
+
+            // Associate position with device
+            position.setDevice(device);
+            position.setProtocol("GT06");
+
+            // Set additional position attributes if available
+            if (message.getParsedData() != null) {
+                Map<String, Object> parsedData = message.getParsedData();
+                position.setSatellites((Integer) parsedData.getOrDefault("satelliteCount", 0));
+                position.setIgnition((Boolean) parsedData.getOrDefault("ignition", false));
+                position.setAlarmType((String) parsedData.getOrDefault("alarmType", null));
+
+                // Store extended attributes as JSON
+                Map<String, Object> attributes = new HashMap<>();
+                parsedData.forEach((key, value) -> {
+                    if (!key.equals("satelliteCount") && !key.equals("ignition") && !key.equals("alarmType")) {
+                        attributes.put(key, value);
+                    }
+                });
+                if (!attributes.isEmpty()) {
+                    position.setAttributes(new ObjectMapper().writeValueAsString(attributes));
+                }
+            }
+
+            // Save updated device and new position
+            deviceRepository.save(device);
+            positionRepository.save(position);
+
+            logger.info("Saved position for device IMEI: {} at {}", message.getImei(), position.getTimestamp());
+        } catch (Exception e) {
+            logger.error("Failed to save position data for IMEI: {}", message.getImei(), e);
+            throw new RuntimeException("Database save failed", e);
+        }
     }
 
 }

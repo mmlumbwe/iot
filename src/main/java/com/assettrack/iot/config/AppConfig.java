@@ -86,7 +86,7 @@ public class AppConfig {
         return handler;
     }
 
-    @Bean
+    /*@Bean
     @ConditionalOnProperty(name = "protocol.gt06.enabled", havingValue = "true", matchIfMissing = true)
     public Gt06Handler gt06Handler(SessionManager sessionManager,
                                    ProtocolDetector protocolDetector,
@@ -95,7 +95,7 @@ public class AppConfig {
         return new Gt06Handler(sessionManager, protocolDetector, acknowledgementHandler);
     }
 
-    @Bean
+    /*@Bean
     @ConditionalOnProperty(name = "protocol.teltonika.enabled", havingValue = "true", matchIfMissing = true)
     public TeltonikaHandler teltonikaHandler() {
         logger.info("Creating TeltonikaHandler bean");
@@ -105,6 +105,6 @@ public class AppConfig {
         //handler.setValidationMode(TeltonikaHandler.ValidationMode.STRICT);
 
         return handler;
-    }
+    }*/
 
 }

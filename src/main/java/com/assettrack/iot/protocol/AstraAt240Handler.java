@@ -1,14 +1,22 @@
 package com.assettrack.iot.protocol;
 
+import com.assettrack.iot.model.Device;
 import com.assettrack.iot.model.DeviceMessage;
 import com.assettrack.iot.model.Position;
+import com.assettrack.iot.repository.DeviceRepository;
+import com.assettrack.iot.repository.PositionRepository;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil; // Added for hexDump if needed for diagnostics
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.AttributeKey;
 import org.apache.coyote.ProtocolException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -16,21 +24,39 @@ import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import com.assettrack.iot.config.UnitsConverter; // Assuming this utility exists
 //WORKING VERSION ..
 
 @Protocol(value = "ASTRA_AT240", version = "1.0")
 @Component
+@ChannelHandler.Sharable // Ensure it's sharable if used in multiple pipelines
 public class AstraAt240Handler implements ProtocolHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(AstraAt240Handler.class);
     private static final byte PROTOCOL_X = (byte) 'X'; // Define the 'X' protocol byte
-    // Note: The original AstraProtocolDecoder also defines MSG_HEARTBEAT and MSG_DATA,
-    // but AstraAt240Handler currently only focuses on 'X' protocol for position parsing.
+
+    // Define an AttributeKey to store the IMEI associated with the channel
+    private static final AttributeKey<String> IMEI_KEY = AttributeKey.valueOf("imei");
+
+    // Inject repositories for database interaction
+    private final DeviceRepository deviceRepository;
+    private final PositionRepository positionRepository;
+
+    // Use a logger specifically for raw inbound/outbound data for clarity
+    // private final LoggingHandler rawDataLogger = new LoggingHandler("Raw-Inbound", LogLevel.INFO); // This can be removed or used differently if raw byte logging is managed by Netty pipeline.
+
+
+    @Autowired
+    public AstraAt240Handler(DeviceRepository deviceRepository, PositionRepository positionRepository) {
+        this.deviceRepository = deviceRepository;
+        this.positionRepository = positionRepository;
+    }
 
     @Override
     public boolean supports(String protocolType) {
@@ -45,7 +71,8 @@ public class AstraAt240Handler implements ProtocolHandler {
     // Helper method to read IMEI, mirroring AstraProtocolDecoder's logic
     private String readImei(ByteBuf buf) {
         // Reads 4 bytes (UnsignedInt) and 3 bytes (UnsignedMedium)
-        return String.format("%08d", buf.readUnsignedInt()) + String.format("%07d", buf.readUnsignedMedium());
+        String imei = String.format("%08d", buf.readUnsignedInt()) + String.format("%07d", buf.readUnsignedMedium());
+        return imei;
     }
 
     // This method is similar to readTime in AstraProtocolDecoder, but uses LocalDateTime
@@ -67,8 +94,6 @@ public class AstraAt240Handler implements ProtocolHandler {
             byte type = buf.readByte();           // protocol flag
             buf.readUnsignedShort();              // length
             if (type != PROTOCOL_X) {
-                // The handler is specifically designed for X protocol for single position.
-                // If 'K' protocol messages are expected, you'd need a decodeK equivalent here.
                 throw new ProtocolException("Only X protocol supported for single-position parsing");
             }
             int count = buf.readUnsignedByte();   // record count
@@ -102,20 +127,35 @@ public class AstraAt240Handler implements ProtocolHandler {
 
         ByteBuf buf = Unpooled.wrappedBuffer(data);
         int totalRecords = 0;
+        String imei = null; // Initialize IMEI to null
         try {
             byte type = buf.readByte(); // protocol flag
             buf.readUnsignedShort();    // length
+
+            // Acknowledge before parsing, as per original logic
             if (ctx != null) {
-                // Send acknowledgment mirroring AstraProtocolDecoder
-                ctx.writeAndFlush(Unpooled.wrappedBuffer(new byte[]{0x06}));
+                ByteBuf ack = Unpooled.wrappedBuffer(new byte[]{0x06});
+                ctx.writeAndFlush(ack);
+                // rawDataLogger.write(ctx, ack); // Removed: Expected 3 arguments but found 2
+                logger.info("AstraAt240Handler: Sent ACK (0x06)");
             }
+
             if (type != PROTOCOL_X) {
                 throw new ProtocolException(String.format("Unknown Astra protocol type: 0x%02X", type));
             }
 
             int count = buf.readUnsignedByte(); // record count
-            String imei = readImei(buf);        // Read IMEI
+            imei = readImei(buf); // Read IMEI
             logger.debug("Handling AT240 packet with IMEI: {}, records: {}", imei, count);
+
+            // Store IMEI in channel context for session management
+            if (ctx != null) {
+                ctx.channel().attr(IMEI_KEY).set(imei);
+            }
+
+            // Get or Create Device
+            Device device = getOrCreateDevice(imei, "ASTRA_AT240");
+
 
             List<Map<String, Object>> records = new ArrayList<>();
             Position primary = null;
@@ -131,14 +171,23 @@ public class AstraAt240Handler implements ProtocolHandler {
                     rec.put("course", p.getCourse());
                     rec.put("altitude", p.getAltitude());
                     rec.put("valid", p.getValid());
-                    rec.put("batteryLevel", p.getBatteryLevel()); // Add battery level to parsed data
-                    // Add other attributes if mapped from the Position object or directly from mask parsing
-                    // For example:
-                    // rec.put("satellites", p.getSatellites());
+                    rec.put("batteryLevel", p.getBatteryLevel());
+                    rec.put("satellites", p.getSatellites()); // Assuming satellites is populated in decodeRecord
 
                     records.add(rec);
                     totalRecords++;
                     logger.info("AstraAt240Handler: Parsed Record {}: {}", totalRecords, rec);
+
+                    // Link position to device and save to database
+                    p.setDevice(device);
+                    device.addPosition(p);
+                    positionRepository.save(p);
+                    logger.info("AstraAt240Handler: Saved position for device {}", device.getImei());
+
+                    // Update device's last known position and status
+                    updateDeviceLastPositionAndStatus(device, p);
+
+
                     if (primary == null) {
                         primary = p; // Set the first valid position as primary
                     }
@@ -173,6 +222,8 @@ public class AstraAt240Handler implements ProtocolHandler {
     private Position decodeRecord(ByteBuf buf) {
         Position position = new Position();
         position.setProtocol("ASTRA_AT240");
+        position.setValid(false); // Default to invalid until fix is confirmed
+        position.setIgnition(false); // Default ignition to false
 
         buf.readUnsignedByte(); // index slot (consume this byte)
 
@@ -191,9 +242,6 @@ public class AstraAt240Handler implements ProtocolHandler {
 
         // --- Process mask-dependent fields, ensuring all bytes are consumed ---
         if ((mask & 1L) > 0) { // Power & Battery
-            // Power is unsigned byte * 0.2
-            // For simplicity, directly setting batteryLevel, or you could add a 'power' field to Position
-            // position.set("power", buf.readUnsignedByte() * 0.2); // Example if you add custom attributes
             buf.readUnsignedByte(); // Consume power byte even if not used directly
             position.setBatteryLevel((double) buf.readUnsignedByte()); // Battery Level (unsigned byte)
         }
@@ -213,13 +261,14 @@ public class AstraAt240Handler implements ProtocolHandler {
             buf.readUnsignedShort(); // odometer trip (consume)
         } else {
             // If no fix, Traccar's AstraProtocolDecoder often tries to get the last known location.
-            // Your Position model doesn't explicitly support a 'last location' concept here.
             // Latitude, Longitude, Speed, Course, Altitude will remain null or their default values.
         }
 
         if ((mask & 4L) > 0) { // States & Changes
-            buf.readUnsignedShort(); // states (consume)
+            int states = buf.readUnsignedShort(); // states (consume)
             buf.readUnsignedShort(); // changes mask (consume)
+            // Example: If a specific bit in 'states' indicates ignition
+            // if ((states & 0x01) > 0) { position.setIgnition(true); } // Hypothetical bit for ignition
         }
 
         if ((mask & 8L) > 0) { // ADC values
@@ -269,9 +318,6 @@ public class AstraAt240Handler implements ProtocolHandler {
         }
 
         if ((mask & 2048L) > 0) { // Odometer & Hours
-            // If Position model had odometer/hours fields:
-            // position.setOdometer(buf.readUnsignedMedium() * 1000);
-            // position.setHours(buf.readUnsignedShort() * 3_600_000);
             buf.readUnsignedMedium(); // Odometer (consume)
             buf.readUnsignedShort(); // Hours (consume)
         }
@@ -289,9 +335,6 @@ public class AstraAt240Handler implements ProtocolHandler {
             buf.readByte(); // coolantTemp (consume)
             buf.readUnsignedShort(); // fmsStatus (consume)
             buf.readUnsignedShort(); // fmsEvents (consume)
-            // If Position model had fuel level/used:
-            // position.setFuelLevel(buf.readUnsignedByte());
-            // position.setFuelUsed(buf.readUnsignedInt() * 0.5);
             buf.readUnsignedByte(); // fuelLevel (consume)
             buf.readUnsignedInt(); // fuelUsed (consume)
         }
@@ -309,9 +352,6 @@ public class AstraAt240Handler implements ProtocolHandler {
             buf.readByte(); // coolantTemp (consume)
             buf.readUnsignedShort(); // obdStatus (consume)
             buf.readUnsignedShort(); // obdEvents (consume)
-            // If Position model had fuel level/used:
-            // position.setFuelLevel(buf.readUnsignedByte());
-            // position.setFuelUsed(buf.readUnsignedShort() * 0.1);
             buf.readUnsignedByte(); // fuelLevel (consume)
             buf.readUnsignedShort(); // fuelUsed (consume)
         }
@@ -377,5 +417,92 @@ public class AstraAt240Handler implements ProtocolHandler {
     public byte[] generateResponse(Position position) {
         // Simple acknowledgment (ACK) byte 0x06
         return new byte[]{0x06};
+    }
+
+    //@Override
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        logger.info("Raw-Inbound - [{}] ACTIVE", ctx.channel().id().asShortText());
+        // No IMEI known yet, device will send it.
+        // super.channelActive(ctx); // Call super if you want default Netty active behavior
+    }
+
+    //@Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        logger.info("Raw-Inbound - [{}] INACTIVE", ctx.channel().id().asShortText());
+        // Optionally update device status to OFFLINE if IMEI is known for this channel
+        String imei = ctx.channel().attr(IMEI_KEY).get();
+        if (imei != null) {
+            deviceRepository.findByImei(imei).ifPresent(device -> {
+                device.setStatus(Device.Status.OFFLINE);
+                device.setLastUpdate(LocalDateTime.now());
+                deviceRepository.save(device);
+                logger.info("Device {} set to OFFLINE due to channel inactivity.", imei);
+            });
+        }
+        //super.channelInactive(ctx);
+    }
+
+    //@Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        logger.error("Error in AstraAt240Handler for channel {}: {}", ctx.channel().id().asShortText(), cause.getMessage());
+        ctx.close();
+    }
+
+    private Device getOrCreateDevice(String imei, String protocolType) {
+        Optional<Device> deviceOptional = deviceRepository.findByImei(imei);
+        Device device;
+        if (deviceOptional.isEmpty()) {
+            device = new Device();
+            device.setImei(imei);
+            device.setProtocolType(protocolType);
+            device.setName("Device-" + imei);
+            device.setStatus(Device.Status.UNKNOWN);
+            device.setRegistrationDate(new Date());
+            device.setLastUpdated(new Date());
+            device.setIsActive(true);
+            device = deviceRepository.save(device);
+            logger.info("Created new device with IMEI: {}", imei);
+        } else {
+            device = deviceOptional.get();
+            // Ensure protocol type is updated if it was initially UNKNOWN or incorrect
+            if (!device.getProtocolType().equals(protocolType)) {
+                device.setProtocolType(protocolType);
+                deviceRepository.save(device);
+            }
+            logger.debug("Found existing device with IMEI: {}", imei);
+        }
+        return device;
+    }
+
+    private void updateDeviceLastPositionAndStatus(Device device, Position position) {
+        device.setLastPositionTime(position.getTimestamp());
+        device.setLastLatitude(position.getLatitude());
+        device.setLastLongitude(position.getLongitude());
+        device.setLastSpeed(position.getSpeed());
+        // Battery level might not always be present or valid, check for null before setting
+        if (position.getBatteryLevel() != null) {
+            device.setBatteryLevel(position.getBatteryLevel());
+        }
+        device.setLastUpdate(LocalDateTime.now());
+
+        // Update device status based on speed and ignition (example logic)
+        if (position.getSpeed() != null && position.getSpeed() > UnitsConverter.knotsFromKph(5)) { // Assuming speed > 5 KPH means moving
+            device.setStatus(Device.Status.MOVING);
+        } else if (position.getSpeed() != null && position.getSpeed() > 0) {
+            device.setStatus(Device.Status.IDLING);
+        } else {
+            device.setStatus(Device.Status.ONLINE);
+        }
+
+        if (position.getBatteryLevel() != null) {
+            // Astra AT240 battery level is typically 0-100.
+            if (position.getBatteryLevel() < 10.0) { // Example threshold for critical battery (<10%)
+                device.setStatus(Device.Status.CRITICAL_BATTERY);
+            } else if (position.getBatteryLevel() < 20.0) { // Example threshold for low battery (<20%)
+                device.setStatus(Device.Status.LOW_BATTERY);
+            }
+        }
+        deviceRepository.save(device);
+        logger.info("Updated device {} with latest position data and status {}", device.getImei(), device.getStatus());
     }
 }
